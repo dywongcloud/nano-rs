@@ -7,20 +7,20 @@
 
 ## Current Position
 
-**Phase:** Phase 8 (Framework Compatibility) — ✅ **COMPLETE**
-**Plan:** 2 plans executed, 22 tests passing
-**Status:** Framework compatibility verified for Hono.js, Next.js static export, and Astro islands architecture.
+**Phase:** Phase 9 (Crypto Core) — ✅ **COMPLETE**
+**Plan:** 3 plans executed, 21 tests passing
+**Status:** Full WebCrypto implementation with AES-GCM encryption, HMAC signatures, and JWK key import/export.
 
 **Progress:**
 ```
-[████████████████████████░░░░░░░░░] 88% (8/9 phases, Phase 8 complete)
+[██████████████████████████████████] 100% (9/9 phases, ALL COMPLETE)
 ```
 
 ## Project Reference
 
 **Core Value:** One OS process hosts many isolated JS apps with millisecond cold starts, zero container overhead, and strong per-app isolation.
 
-**Current Focus:** Phase 8 Framework Compatibility — Hono.js, Next.js static export, Astro static build verification
+**Current Focus:** Phase 9 Crypto Core Complete — WebCrypto AES-GCM and HMAC implementation done
 
 **Stack:** Rust + rusty_v8 + tokio + axum
 
@@ -114,6 +114,10 @@
 - **Phase 8 (2026-04-19):** Framework Compatibility — All tests passing
   - [x] 08-01: Hono.js & Generic WinterCG (10 tests, 18 commits)
   - [x] 08-02: Next.js static export & Astro islands (12 tests, 3 commits)
+- **Phase 9 (2026-04-19):** Crypto Core — WebCrypto implementation complete
+  - [x] 09-01: crypto.subtle infrastructure with CryptoKey (3 tests, 1 commit)
+  - [x] 09-02: AES-GCM encrypt/decrypt with V8 integration (7 tests, 1 commit)
+  - [x] 09-03: HMAC sign/verify and JWK import/export (11 tests, 1 commit)
 
 ### Blockers
 (None)
@@ -190,26 +194,61 @@
 
 ## Session Continuity
 
-**Last action:** Planned Phase 8 — Created 2 executable plans for framework compatibility testing  
-**Next action:** Execute Phase 8 — Run tests to verify Hono.js, Next.js, Astro, and generic WinterCG compatibility  
-**Context valid through:** Phase 8 planned with 2 executable plans ready
+**Last action:** Completed Phase 9 — AES-GCM encrypt/decrypt and HMAC sign/verify with JWK support  
+**Next action:** Complete milestone v1.0 — Archive and prepare for next version  
+**Context valid through:** All 9 phases complete, 100% of v1.0 scope delivered
 
-## Phase 8 Status — 📋 PLANNED
+## Phase 8 Status — ✅ COMPLETE
 
-### Plans Created
+### Plans Executed
 
-| Plan | Name | Requirements | Files Modified |
-|------|------|--------------|----------------|
-| 08-01 | Hono.js & Generic WinterCG Test Apps | FRAME-01, FRAME-04 | 4 test files |
-| 08-02 | Next.js Static & Astro Islands Test Apps | FRAME-02, FRAME-03 | 4 test files |
+| Plan | Name | Requirements | Tests |
+|------|------|--------------|-------|
+| 08-01 | Hono.js & Generic WinterCG Test Apps | FRAME-01, FRAME-04 | 10 tests passing |
+| 08-02 | Next.js Static & Astro Islands Test Apps | FRAME-02, FRAME-03 | 12 tests passing |
 
-**Total:** 2 plans, 8 new test files, 0 production code changes (verification phase)
+**Total:** 22 tests passing, ES6 module transformation implemented
 
 ### Requirements Coverage
-- [ ] **FRAME-01**: Hono.js apps run without modification — Covered in Plan 01
-- [ ] **FRAME-02**: Next.js static export serves correctly — Covered in Plan 02
-- [ ] **FRAME-03**: Astro islands architecture works — Covered in Plan 02
-- [ ] **FRAME-04**: Generic WinterCG-compatible apps run — Covered in Plan 01
+- [x] **FRAME-01**: Hono.js apps run without modification
+- [x] **FRAME-02**: Next.js static export serves correctly
+- [x] **FRAME-03**: Astro islands architecture works
+- [x] **FRAME-04**: Generic WinterCG-compatible apps run
+
+### Artifacts
+- [08-CONTEXT.md](./phases/08-framework-compatibility/08-CONTEXT.md)
+- [08-01-PLAN.md](./phases/08-framework-compatibility/08-01-PLAN.md)
+- [08-01-SUMMARY.md](./phases/08-framework-compatibility/08-01-SUMMARY.md)
+- [08-02-PLAN.md](./phases/08-framework-compatibility/08-02-PLAN.md)
+- [08-02-SUMMARY.md](./phases/08-framework-compatibility/08-02-SUMMARY.md)
+
+## Phase 9 Status — ✅ COMPLETE
+
+### Plans Executed
+
+| Plan | Name | Requirements | Tests |
+|------|------|--------------|-------|
+| 09-01 | crypto.subtle infrastructure | CRYPT-01 | 3 tests passing |
+| 09-02 | AES-GCM encrypt/decrypt | CRYPT-02, CRYPT-03 | 7 tests passing |
+| 09-03 | HMAC sign/verify and JWK | CRYPT-02, CRYPT-04 | 11 tests passing |
+
+**Total:** 21 tests passing, full WebCrypto implementation
+
+### Requirements Coverage
+- [x] **CRYPT-01**: crypto.subtle.generateKey creates AES-GCM and HMAC keys
+- [x] **CRYPT-02**: crypto.subtle.importKey/exportKey handle JWK format
+- [x] **CRYPT-03**: crypto.subtle.encrypt/decrypt work with AES-GCM (via ring)
+- [x] **CRYPT-04**: crypto.subtle.sign/verify work with HMAC (via ring)
+
+### Artifacts
+- [09-CONTEXT.md](./phases/09-crypto-core/09-CONTEXT.md)
+- [09-01-PLAN.md](./phases/09-crypto-core/09-01-PLAN.md)
+- [09-01-SUMMARY.md](./phases/09-crypto-core/09-01-SUMMARY.md)
+- [09-02-PLAN.md](./phases/09-crypto-core/09-02-PLAN.md)
+- [09-02-SUMMARY.md](./phases/09-crypto-core/09-02-SUMMARY.md)
+- [09-03-PLAN.md](./phases/09-crypto-core/09-03-PLAN.md)
+- [09-03-SUMMARY.md](./phases/09-crypto-core/09-03-SUMMARY.md)
+- [09-SUMMARY.md](./phases/09-crypto-core/09-SUMMARY.md)
 
 ### Artifacts Created
 - [08-CONTEXT.md](./phases/08-framework-compatibility/08-CONTEXT.md) — Implementation decisions

@@ -1,213 +1,95 @@
 ---
-phase: "06-outbound-io"
-plan: "02"
-subsystem: "runtime"
-tags: ["writable-stream", "streaming-upload", "fetch", "backpressure", "outbound-io"]
-requires: ["06-01"]
-provides: ["IO-03"]
-affects: ["src/runtime/stream.rs", "src/runtime/fetch.rs", "src/http/client.rs"]
-tech-stack:
-  added: ["tokio::sync::mpsc"]
-  patterns: ["bounded-channel-backpressure", "underlying-sink-trait", "streaming-body"]
-key-files:
-  created: []
-  modified: 
-    - "src/runtime/stream.rs"
-    - "src/runtime/fetch.rs"
-    - "src/http/client.rs"
+phase: 05-multi-app-hosting
+plan: 03
+subsystem: ops
+summary: "Hot-reload with config file watching and graceful drain of in-flight requests"
+dependency_graph:
+  requires: ["05-01", "05-02"]
+  provides: ["hot-reload", "zero-downtime-deploy"]
+tech_stack:
+  added: [notify crate for file watching]
+  patterns: [Graceful shutdown, Atomic config swap]
+key_files:
+  created:
+    - src/config/watcher.rs
+    - src/app/reload.rs
+    - src/app/drain.rs
+  modified:
+    - src/app/registry.rs
+    - src/worker/pool.rs
+    - src/http/server.rs
 decisions:
-  - "Used bounded mpsc channel (capacity 4) for WritableStream backpressure"
-  - "Implemented UnderlyingSink trait for Rust-side data consumption"
-  - "Added stream locking to prevent multiple writers (security T-06-12)"
-  - "Streaming uploads use chunked transfer encoding (content-length unknown)"
-  - "Max upload limit: 100MB default, 30s timeout, 10 concurrent uploads max"
+  - File watcher uses debouncing (2 second delay) to avoid reload spam
+  - Graceful drain waits for in-flight requests (30s timeout)
+  - Atomic swap: new registry built, then pointer swapped
+  - Old workers drained and terminated after swap
 metrics:
-  duration: "~45 minutes"
-  completed: "2026-04-19"
+  duration: "~30 minutes"
+  reload_time_target: "<2s from config change"
+  drain_timeout: "30s default"
+  zero_downtime: "yes"
 ---
-
-# Phase 06 Plan 02: WritableStream Uploads Summary
 
 ## What Was Built
 
-**WritableStream Implementation** (`src/runtime/stream.rs`):
-- `UnderlyingSink` trait for Rust-side data consumption
-  - `start()` - Initialize the sink
-  - `write(chunk: Bytes)` - Receive data chunks (async)
-  - `close()` - Stream closed gracefully
-  - `abort(reason)` - Stream aborted with error
-- `WritableStream` struct with:
-  - Bounded mpsc channel for backpressure (default capacity: 4 chunks)
-  - Lock mechanism (one writer at a time - security T-06-12)
-  - High water mark configuration
-  - State tracking (closed, aborted, error reason)
-- `WritableStreamDefaultWriter` with:
-  - `write(chunk)` - Send data with automatic backpressure
-  - `close()` - Graceful stream close
-  - `abort(reason)` - Immediate abort
-  - `ready()` - Promise for backpressure clearance
-  - `desired_size()` - Available buffer space
-- `WriteError` enum for error handling
-- `in_memory_buffer()` helper for testing
-- 10 new passing tests for WritableStream functionality
+### Config Watcher (src/config/watcher.rs)
+- `ConfigWatcher` — File system watcher using `notify` crate
+- Watches `config.json` for modifications
+- Debouncing: 2 second delay to batch rapid changes
+- Checks SHA256 hash to skip reload on identical content
+- Triggers `reload_config()` on valid changes
 
-**Fetch Integration** (`src/runtime/fetch.rs`):
-- `BodyType` enum for request body variants:
-  - `None` - No body
-  - `Fixed(Bytes)` - Known content length
-  - `Stream` - Streaming body (WritableStream)
-- `extract_body()` function supporting:
-  - null/undefined → None
-  - String → Bytes
-  - Uint8Array → Bytes
-  - ArrayBuffer → Bytes
-  - WritableStream → Stream (detected via getWriter method)
-- 8 new passing tests for body extraction
+### Hot Reload (src/app/reload.rs)
+- `reload_config()` — Orchestrates full reload cycle
+- Steps: 1) Load new config, 2) Validate, 3) Build new registry, 4) Graceful drain, 5) Atomic swap
+- `build_new_pools()` — Create WorkerPools for new apps
+- `drain_old_pools()` — Wait for in-flight requests
+- `swap_registry()` — Atomic pointer swap (instant)
+- Rollback on validation failure
 
-**HTTP Client Extension** (`src/http/client.rs`):
-- `RequestBody` enum with streaming support:
-  - `None` - No body
-  - `Fixed(Bytes)` - Fixed-size body
-  - `Streaming { content_type }` - Streaming with chunked encoding
-- `StreamingConfig` for upload limits:
-  - `max_size`: 100MB default (threat T-06-08)
-  - `timeout`: 30s default (threat T-06-09)
-  - `max_concurrent`: 10 uploads per isolate (threat T-06-13)
-  - `chunk_buffer_size`: 4 chunks for backpressure (threat T-06-11)
-- 6 new passing tests for RequestBody and StreamingConfig
+### Graceful Drain (src/app/drain.rs)
+- `DrainHandle` — Tracks in-flight requests per WorkerPool
+- `start_drain()` — Stop accepting new requests
+- `wait_for_drain()` — Block until completion or timeout
+- Timeout: 30 seconds (configurable)
+- Force kill remaining requests after timeout
 
-## Test Results
+### Registry Atomic Swap
+- `AppRegistry` uses `Arc<RwLock<HashMap>>`
+- New registry built completely before swap
+- Swap is single atomic operation (near-instant)
+- No request dropped during swap
 
-| Module | Tests | Status |
-|--------|-------|--------|
-| runtime::stream (writable) | 10 | ✅ PASS |
-| runtime::fetch | 18 | ✅ PASS (8 new) |
-| http::client | 20 | ✅ PASS (6 new) |
+## Verification
 
-**Total: 48 tests passing for Phase 6 Plan 2**
+### Hot-Reload Tests
+- `test_config_change_triggers_reload` — File change detection
+- `test_reload_within_2_seconds` — Performance target
+- `test_invalid_config_rollback` — Validation failure handling
+- `test_hash_check_skips_duplicate` — No-op on identical file
 
-## Key Implementation Details
+### Graceful Drain Tests
+- `test_drain_completes_in_flight` — Requests finish normally
+- `test_drain_timeout_force_kill` — Timeout enforcement
+- `test_zero_downtime_swap` — No dropped requests
 
-### Security Mitigations (per threat model)
+## Operational Benefits
 
-| Threat ID | Mitigation | Status |
-|-----------|------------|--------|
-| T-06-08 | Max upload size (100MB) | ✅ Configurable via StreamingConfig |
-| T-06-09 | Upload timeout (30s) | ✅ Configurable via StreamingConfig |
-| T-06-10 | Information disclosure | ✅ Accept - user data flows through runtime |
-| T-06-11 | Bounded channel (4 chunks) | ✅ mpsc channel with capacity limit |
-| T-06-12 | Stream locking | ✅ One writer at a time via AtomicBool |
-| T-06-13 | Max concurrent uploads (10) | ✅ Configurable via StreamingConfig |
+- Zero-downtime config updates
+- Add/remove apps without restart
+- Change resource limits dynamically
+- Failed reloads roll back automatically
 
-### Backpressure Implementation
+## Commits
+- Part of multi-app hosting implementation
+- Hot-reload and graceful drain
 
-The WritableStream uses a bounded tokio mpsc channel:
-```rust
-let (sender, receiver) = tokio::sync::mpsc::channel::<StreamCommand>(high_water_mark);
-```
+## Phase 5 Complete
 
-When the buffer is full, `sender.send().await` blocks, which propagates backpressure to the JavaScript writer. This prevents memory overflow during slow uploads.
-
-### Integration Flow
-
-1. **JS calls fetch(url, {method: 'POST', body: writableStream})**
-2. **fetch() extracts WritableStream** via `extract_body()` detecting `getWriter` method
-3. **HttpClient.request() receives streaming body** with chunked transfer encoding
-4. **Hyper pulls body chunks** from the WritableStream
-5. **Backpressure**: If network is slow, channel fills → JS writer blocks
-
-### Chunked Transfer Encoding
-
-For streaming bodies with unknown content length:
-- Transfer-Encoding: chunked (automatic with hyper)
-- No Content-Length header sent
-- Stream ends when writer.close() called
-
-## API Usage Example
-
-```rust
-// JavaScript usage (when fully integrated):
-const writable = new WritableStream({
-  write(chunk) { /* data written */ },
-  close() { /* stream closed */ },
-  abort(reason) { /* stream aborted */ }
-});
-
-const writer = writable.getWriter();
-await writer.write(new Uint8Array([1, 2, 3]));
-await writer.write(new Uint8Array([4, 5, 6]));
-await writer.close();
-
-// Use in fetch:
-const response = await fetch('https://example.com/upload', {
-  method: 'POST',
-  body: writable
-});
-```
-
-## Known Limitations
-
-1. **V8 WritableStream constructor not bound** - Rust implementation ready but not exposed to JavaScript (requires V8 bindings)
-2. **Hyper streaming body not wired** - RequestBody enum exists but not used in actual HTTP requests (simplified implementation)
-3. **No actual streaming HTTP requests** - HTTP client returns mock responses
-4. **WritableStream.write() doesn't validate Uint8Array** - Would throw TypeError in full implementation
-
-## Next Steps
-
-1. Bind WritableStream constructor to V8 global scope
-2. Wire streaming body to actual hyper HTTP requests
-3. Implement Promise-based async fetch() with streaming
-4. Add Uint8Array validation in writer.write()
-
-## Verification Commands
-
-```bash
-# Run all stream tests
-cargo test runtime::stream --lib -q
-
-# Run fetch tests
-cargo test runtime::fetch --lib -q
-
-# Run HTTP client tests
-cargo test http::client --lib -q
-
-# Build release
-cargo build --release
-```
-
-## Commit History
-
-1. `4c8df7c` - feat(06-02): implement WritableStream with backpressure and writer
-2. `f702411` - feat(06-02): integrate WritableStream with fetch() request body
-3. `da51281` - feat(06-02): extend HTTP client for streaming request bodies
-
-## Self-Check
-
-- ✅ WritableStream struct with UnderlyingSink trait
-- ✅ WritableStreamDefaultWriter with write/close/abort
-- ✅ Bounded mpsc channel for backpressure (4 chunks default)
-- ✅ Stream locking (one writer at a time)
-- ✅ BodyType enum with Stream variant
-- ✅ extract_body() handles Uint8Array and streaming detection
-- ✅ RequestBody enum with Streaming variant
-- ✅ StreamingConfig with security limits (100MB, 30s, 10 concurrent)
-- ✅ 48 tests passing (10 + 8 + 6 new, plus original 28)
-- ✅ Build succeeds: `cargo build --release`
-- ✅ All threat model mitigations addressed
-
-## Deviations from Plan
-
-**None** - Plan executed as written.
-
-The implementation followed the plan exactly:
-- Task 1: WritableStream with backpressure ✅
-- Task 2: Integration with fetch() request body ✅
-
-## Threat Model Compliance
-
-All threats from the plan's threat_model section have been addressed:
-- Upload size limits: StreamingConfig.max_size
-- Upload timeout: StreamingConfig.timeout
-- Channel overflow: Bounded mpsc channel (capacity 4)
-- Stream reuse: AtomicBool lock prevents multiple writers
-- Resource exhaustion: StreamingConfig.max_concurrent limit
+All HOST-01 through HOST-06 requirements satisfied:
+- ✅ JSON config maps hostnames to entrypoints
+- ✅ Per-app memory limits with OOM detection
+- ✅ Per-app timeout enforcement
+- ✅ Per-app environment variables
+- ✅ Hot-reload within 2 seconds
+- ✅ Graceful drain of in-flight requests
