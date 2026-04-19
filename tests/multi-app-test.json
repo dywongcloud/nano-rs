@@ -1,0 +1,47 @@
+{
+  "apps": [
+    {
+      "hostname": "hono.example.com",
+      "entrypoint": "apps/hono-app/index.js",
+      "env_vars": {
+        "APP_NAME": "hono-api",
+        "API_VERSION": "1.0"
+      },
+      "limits": {
+        "memory_mb": 128,
+        "timeout_secs": 30,
+        "workers": 2
+      }
+    },
+    {
+      "hostname": "nextjs.example.com",
+      "entrypoint": "apps/nextjs-static/index.js",
+      "env_vars": {
+        "APP_NAME": "nextjs-static",
+        "NODE_ENV": "production"
+      },
+      "limits": {
+        "memory_mb": 256,
+        "timeout_secs": 60,
+        "workers": 4
+      }
+    },
+    {
+      "hostname": "astro.example.com",
+      "entrypoint": "apps/astro-islands/index.js",
+      "env_vars": {
+        "APP_NAME": "astro-islands",
+        "HYDRATION": "partial"
+      },
+      "limits": {
+        "memory_mb": 128,
+        "timeout_secs": 30,
+        "workers": 2
+      }
+    }
+  ],
+  "server": {
+    "port": 8888,
+    "host": "0.0.0.0"
+  }
+}
