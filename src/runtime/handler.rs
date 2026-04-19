@@ -258,11 +258,11 @@ fn execute_in_v8(
             
             // Get the headers from the request
             let req_headers_key = v8::String::new(scope, "headers").unwrap();
-            if let Some(req_headers) = req.to_object(scope).and_then(|o| o.get(scope, req_headers_key.into())) {
+            if let Some(req_headers) = js_request.to_object(scope).and_then(|o| o.get(scope, req_headers_key.into())) {
                 if !req_headers.is_null() && !req_headers.is_undefined() {
                     // Create new Headers(headers)
                     if let Some(new_headers) = headers_ctor_fn.call(scope, headers_ctor.into(), &[req_headers]) {
-                        if let Some(req_obj) = req.to_object(scope) {
+                        if let Some(req_obj) = js_request.to_object(scope) {
                             let _ = req_obj.set(scope, req_headers_key.into(), new_headers);
                         }
                     }
