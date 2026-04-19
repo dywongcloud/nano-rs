@@ -23,8 +23,13 @@ impl<'a> Visit for JsonVisitor<'a> {
     }
 
     fn record_f64(&mut self, field: &Field, value: f64) {
-        self.0
-            .insert(field.name().to_string(), Value::Number(value.into()));
+        if let Some(num) = serde_json::Number::from_f64(value) {
+            self.0.insert(field.name().to_string(), Value::Number(num));
+        } else {
+            // Fallback to string representation if f64 is not a valid JSON number
+            self.0
+                .insert(field.name().to_string(), Value::String(value.to_string()));
+        }
     }
 
     fn record_i64(&mut self, field: &Field, value: i64) {

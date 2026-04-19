@@ -213,11 +213,9 @@ where
         }
 
         // Try to inherit from parent span
-        if let Some(parent_id) = span.parent() {
-            if let Some(parent_span) = ctx.span(&parent_id) {
-                if let Some(parent_ext) = parent_span.extensions().get::<NanoSpanExt>() {
-                    span_ext.merge_from_parent(parent_ext);
-                }
+        if let Some(parent_span) = span.parent() {
+            if let Some(parent_ext) = parent_span.extensions().get::<NanoSpanExt>() {
+                span_ext.merge_from_parent(parent_ext);
             }
         }
 
