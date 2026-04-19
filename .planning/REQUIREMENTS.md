@@ -25,8 +25,8 @@
 - [ ] **API-01**: fetch() handler interface (Cloudflare Workers style)
 - [ ] **API-02**: console.log/warn/error output to structured logs
 - [ ] **API-03**: TextEncoder/TextDecoder for UTF-8
-- [ ] **API-04**: setTimeout/setInterval/clearTimeout/clearInterval (event loop integration)
-- [ ] **API-05**: AbortController/AbortSignal for cancellation
+ - [x] **API-04**: setTimeout/setInterval/clearTimeout/clearInterval (event loop integration) ✅
+ - [x] **API-05**: AbortController/AbortSignal for cancellation ✅
 - [ ] **API-06**: structuredClone() for object serialization
 - [ ] **API-07**: crypto.getRandomValues() for random bytes
 - [ ] **API-08**: performance.now() for high-res timing
@@ -151,8 +151,8 @@
 | API-01 | Phase 3 | Pending |
 | API-02 | Phase 3 | Pending |
 | API-03 | Phase 3 | Pending |
-| API-04 | Phase 3 | Pending |
-| API-05 | Phase 3 | Pending |
+| API-04 | Phase 3 | Complete ✅ |
+| API-05 | Phase 3 | Complete ✅ |
 | API-06 | Phase 3 | Pending |
 | API-07 | Phase 3 | Pending |
 | API-08 | Phase 3 | Pending |
