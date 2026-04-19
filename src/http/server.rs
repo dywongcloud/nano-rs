@@ -13,7 +13,7 @@ use axum::{
     routing::{any, get},
     Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -28,14 +28,14 @@ use crate::http::router::{virtual_host_handler, AppState, HandlerType, RouteTarg
 use crate::signal::ShutdownState;
 
 /// Health check response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct HealthResponse {
     status: String,
     version: String,
 }
 
 /// Readiness check response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ReadyResponse {
     ready: bool,
     message: String,
@@ -71,12 +71,14 @@ async fn admin_health_handler() -> (StatusCode, Json<HealthResponse>) {
 /// or HTTP 503 if the server is shutting down or not initialized.
 /// Used by load balancers to stop sending traffic before shutdown.
 async fn ready_handler(
-    AxumState(state): AxumState<Arc<ServerSharedState>>,
+    AxumState(state): AxumState<Arc<AppStateWithShutdown>>,
 ) -> (StatusCode, Json<ReadyResponse>) {
     let shutting_down = state.shutdown_state.is_shutting_down();
+    let active_count = state.shutdown_state.active_requests();
+
     tracing::debug!(
         shutting_down = shutting_down,
-        active_requests = state.shutdown_state.active_requests(),
+        active_requests = active_count,
         "Readiness check received"
     );
 
@@ -99,30 +101,50 @@ async fn ready_handler(
     }
 }
 
-/// Shared server state
+/// Application state with shutdown tracking
 ///
-/// Contains the virtual host router and shutdown state for coordination
+/// Wraps the existing AppState and adds shutdown state for coordination
 /// between graceful shutdown and readiness checks.
 #[derive(Debug)]
-pub struct ServerSharedState {
-    /// Virtual host router for request dispatch
-    app_state: AppState,
+pub struct AppStateWithShutdown {
+    /// Original application state with router and work queue
+    pub app_state: AppState,
     /// Shutdown state for readiness checks
-    shutdown_state: ShutdownState,
+    pub shutdown_state: ShutdownState,
 }
 
-impl ServerSharedState {
-    /// Create new shared state with router and shutdown state
+impl AppStateWithShutdown {
+    /// Create new state with app state and shutdown state
     pub fn new(app_state: AppState, shutdown_state: ShutdownState) -> Self {
         Self {
             app_state,
             shutdown_state,
         }
     }
+}
 
-    /// Get the shutdown state
-    pub fn shutdown_state(&self) -> &ShutdownState {
-        &self.shutdown_state
+/// Legacy application state shared across all request handlers
+///
+/// This is a simpler version without shutdown tracking, kept for
+/// backward compatibility with existing tests and simple use cases.
+#[derive(Debug)]
+pub struct State {
+    // Future fields:
+    // - worker_pool: Arc<WorkerPool>
+    // - virtual_hosts: Arc<RwLock<HashMap<String, App>>>
+    // - metrics: Arc<Metrics>
+}
+
+impl State {
+    /// Creates a new empty application state
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -136,17 +158,15 @@ impl ServerSharedState {
 ///
 /// # Arguments
 ///
-/// * `shared_state` - Shared server state including shutdown state
+/// * `state` - Shared application state with shutdown tracking
 ///
 /// # Returns
 ///
 /// A configured `Router` ready to be passed to `axum::serve()`.
-///
-/// # Panics
-///
-/// This function does not panic.
-#[allow(deprecated)]
-pub fn create_app_with_state(shared_state: Arc<ServerSharedState>) -> Router {
+pub fn create_app_with_shutdown(state: Arc<AppStateWithShutdown>) -> Router {
+    // Create a clone for the virtual host handler
+    let app_state_clone = Arc::new(state.app_state.clone());
+
     // Build axum router with middleware
     Router::new()
         // Basic health endpoint (backward compatible)
@@ -154,20 +174,22 @@ pub fn create_app_with_state(shared_state: Arc<ServerSharedState>) -> Router {
         // Admin endpoints
         .route("/_admin/health", get(admin_health_handler))
         .route("/_admin/ready", get(ready_handler))
-        // Catch-all for virtual hosts (axum 0.8 syntax)
-        .route("/{*path}", any(virtual_host_handler))
+        // Catch-all for virtual hosts - use the app_state directly
+        .route("/{*path}", any({
+            let state = app_state_clone;
+            move |req| virtual_host_handler(AxumState(state.clone()), req)
+        }))
         // Middleware stack (applied in reverse order)
         .layer(TraceLayer::new_for_http())
         .layer(TimeoutLayer::new(Duration::from_secs(30)))
         .layer(CompressionLayer::new())
-        .with_state(shared_state)
+        .with_state(state)
 }
 
 /// Create the default axum application router (backward compatible)
 ///
 /// Creates an app with default state and no shutdown tracking.
-/// For graceful shutdown support, use `create_app_with_state()`.
-#[allow(deprecated)]
+/// For graceful shutdown support, use `create_app_with_shutdown()`.
 pub fn create_app() -> Router {
     // Create default handler (per D-04)
     let default_target = RouteTarget {
@@ -200,12 +222,12 @@ pub fn create_app() -> Router {
         router.route_count()
     );
 
-    // Create shared state with the router and shutdown state
-    let app_state = AppState::new(router, 4); // 4 workers per hostname pool
+    // Create state with the router and WorkQueue
+    let app_state = AppState::new(router, 4);  // 4 workers per hostname pool
     let shutdown_state = ShutdownState::default();
-    let shared_state = Arc::new(ServerSharedState::new(app_state, shutdown_state));
+    let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
 
-    create_app_with_state(shared_state)
+    create_app_with_shutdown(state)
 }
 
 /// Start the HTTP server
@@ -275,18 +297,21 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
 /// ```rust,no_run
 /// use nano::http::{start_server_with_shutdown, ServerConfig};
 /// use nano::signal::GracefulShutdown;
+/// use std::time::Duration;
 ///
 /// # async fn example() -> anyhow::Result<()> {
 /// let config = ServerConfig::default();
-/// let shutdown = GracefulShutdown::default();
+/// let (tx, mut rx) = tokio::sync::broadcast::channel(1);
 ///
-/// start_server_with_shutdown(config, shutdown.shutdown_signal()).await?;
+/// start_server_with_shutdown(config, async move {
+///     let _ = rx.recv().await;
+/// }).await?;
 /// # Ok(())
 /// # }
 /// ```
 pub async fn start_server_with_shutdown<F>(config: ServerConfig, shutdown_signal: F) -> Result<()>
 where
-    F: std::future::Future<Output = ()>,
+    F: std::future::Future<Output = ()> + Send + 'static,
 {
     let addr = config
         .socket_addr()
@@ -310,10 +335,10 @@ where
     Ok(())
 }
 
-/// Start the HTTP server with graceful shutdown and shared state
+/// Start the HTTP server with graceful shutdown and full state integration
 ///
 /// This is the full-featured version that integrates with the graceful
-/// shutdown system and tracks in-flight requests.
+/// shutdown system and tracks in-flight requests for the readiness probe.
 ///
 /// # Arguments
 ///
@@ -329,15 +354,13 @@ where
 ///
 /// ```rust,no_run
 /// use nano::http::{start_server_with_state, ServerConfig};
-/// use nano::signal::{GracefulShutdown, ShutdownConfig};
-/// use nano::app::drain::RequestDrain;
+/// use nano::signal::ShutdownState;
 ///
 /// # async fn example() -> anyhow::Result<()> {
 /// let config = ServerConfig::default();
-/// let drain = RequestDrain::new();
-/// let shutdown = GracefulShutdown::new(ShutdownConfig::default(), drain);
+/// let shutdown_state = ShutdownState::default();
 ///
-/// start_server_with_state(config, shutdown.state().clone()).await?;
+/// start_server_with_state(config, shutdown_state).await?;
 /// # Ok(())
 /// # }
 /// ```
@@ -385,21 +408,12 @@ pub async fn start_server_with_state(
         router.route_count()
     );
 
-    // Create shared state
+    // Create state with the router and shutdown tracking
     let app_state = AppState::new(router, 4);
-    let shared_state = Arc::new(ServerSharedState::new(app_state, shutdown_state.clone()));
+    let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
 
-    let app = create_app_with_state(shared_state);
+    let app = create_app_with_shutdown(state);
 
-    // Create shutdown signal that triggers graceful shutdown
-    let shutdown_signal = async move {
-        let mut rx = shutdown_state.drain().clone();
-        // Wait for shutdown notification (we need a way to signal this)
-        // For now, we'll use a simple approach with a separate signal
-        tracing::info!("Waiting for shutdown signal...");
-    };
-
-    // Use a simpler approach - wait for the shutdown state's drain to indicate completion
     axum::serve(listener, app)
         .await
         .context("Server error")?;
@@ -481,8 +495,8 @@ mod tests {
             }),
             4,
         );
-        let shared_state = Arc::new(ServerSharedState::new(app_state, shutdown_state));
-        let app = create_app_with_state(shared_state);
+        let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
+        let app = create_app_with_shutdown(state);
 
         let response = app
             .oneshot(
@@ -570,5 +584,42 @@ mod tests {
 
         assert!(ready.ready);
         assert_eq!(ready.message, "Server is ready");
+    }
+
+    #[tokio::test]
+    async fn test_ready_response_when_shutting_down() {
+        let drain = crate::app::drain::RequestDrain::new();
+        let shutdown_state = ShutdownState::new(drain);
+        shutdown_state.mark_shutting_down();
+
+        let app_state = AppState::new(
+            VirtualHostRouter::new(RouteTarget {
+                hostname: "default".to_string(),
+                handler_type: HandlerType::StaticResponse("NANO Runtime".to_string()),
+            }),
+            4,
+        );
+        let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
+        let app = create_app_with_shutdown(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/_admin/ready")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        let ready: ReadyResponse = serde_json::from_slice(&body_bytes).unwrap();
+
+        assert!(!ready.ready);
+        assert_eq!(ready.message, "Server is shutting down");
     }
 }

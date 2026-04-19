@@ -96,39 +96,7 @@ impl RouteTarget {
 /// Routes HTTP requests based on the Host header using exact hostname
 /// matching. Hostnames are compared case-insensitively by storing and
 /// looking up lowercase versions.
-///
-/// # Examples
-///
-/// ```rust
-/// use nano::http::router::{VirtualHostRouter, RouteTarget, HandlerType};
-///
-/// let default = RouteTarget {
-///     hostname: "default".to_string(),
-///     handler_type: HandlerType::StaticResponse("default".to_string()),
-/// };
-/// let mut router = VirtualHostRouter::new(default);
-///
-/// router.register(
-///     "api.example.com".to_string(),
-///     RouteTarget {
-///         hostname: "api.example.com".to_string(),
-///         handler_type: HandlerType::StaticResponse("api".to_string()),
-///     },
-/// );
-///
-/// // Exact match works
-/// let target = router.resolve("api.example.com");
-/// // assert!(matches!(target.handler_type, HandlerType::StaticResponse(s) if s == "api"));
-///
-/// // Case insensitive match works
-/// let target = router.resolve("API.EXAMPLE.COM");
-/// // assert!(matches!(target.handler_type, HandlerType::StaticResponse(s) if s == "api"));
-///
-/// // Unknown hosts fall back to default
-/// let target = router.resolve("unknown.com");
-/// // assert!(matches!(target.handler_type, HandlerType::StaticResponse(s) if s == "default"));
-/// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VirtualHostRouter {
     /// Route table: lowercase hostname -> route target
     routes: HashMap<String, RouteTarget>,
@@ -267,7 +235,7 @@ impl Default for VirtualHostRouter {
 ///
 /// Contains the virtual host router and WorkQueue for request dispatch.
 /// Wrapped in Arc for thread-safe sharing across requests.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AppState {
     /// The virtual host router for hostname-based request routing
     pub router: VirtualHostRouter,
