@@ -17,7 +17,7 @@ This roadmap maps NANO's migration from Zig to Rust, delivering a multi-tenant e
 
 - [x] **Phase 1: V8 Foundation** — rusty_v8 integration with EPT fix, single isolate proof-of-concept ✅
 - [x] **Phase 2: HTTP Server Core** — axum server with virtual host routing and WinterCG request/response objects ✅
-- [ ] **Phase 3: Runtime APIs** — Core JavaScript APIs (fetch handler, console, timers, encoding, crypto basics) — 2/4 complete
+- [x] **Phase 3: Runtime APIs** — Core JavaScript APIs (fetch handler, console, timers, encoding, crypto basics) ✅
 - [ ] **Phase 4: WorkerPool & Dispatch** — Multi-threaded worker pools with context reset and affine dispatch
 - [ ] **Phase 5: Multi-App Hosting** — JSON config, per-app isolation, hot-reload, graceful drain
 - [ ] **Phase 6: Outbound I/O** — Async fetch() from JavaScript with streaming request/response bodies
@@ -78,10 +78,10 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — JavaScript handler interface with Request/Response flow
+- [x] 03-01-PLAN.md — JavaScript handler interface with Request/Response flow ✅
 - [x] 03-02-PLAN.md — Console API and TextEncoder/TextDecoder ✅
 - [x] 03-03-PLAN.md — setTimeout/setInterval and AbortController/AbortSignal ✅
-- [ ] 03-04-PLAN.md — crypto, performance, structuredClone, Blob, FormData, DOMException
+- [x] 03-04-PLAN.md — crypto, performance, structuredClone, Blob, FormData, DOMException ✅
 
 ### Phase 4: WorkerPool & Dispatch
 **Goal:** Requests dispatch to isolated worker threads with proper context lifecycle management
@@ -93,7 +93,12 @@ Plans:
   3. Same hostname always routes to same pool index (affine dispatch)
   4. Context reset between requests completes in <10ms (dispose + recreate)
   5. Isolates never move between threads (thread-local ownership enforced)
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — WorkerPool infrastructure with thread-local isolate ownership
+- [ ] 04-02-PLAN.md — WorkQueue with bounded MPSC channel and affine dispatch
+- [ ] 04-03-PLAN.md — Context lifecycle management with sub-10ms context reset
 
 ### Phase 5: Multi-App Hosting
 **Goal:** Multiple isolated apps run in parallel with per-app configuration and resource limits
@@ -158,8 +163,8 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. V8 Foundation | 3/3 | ✅ Complete | 2026-04-19 |
 | 2. HTTP Server Core | 3/3 | ✅ Complete | 2026-04-19 |
-| 3. Runtime APIs | 4/4 | ✅ Planned | 2026-04-19 |
-| 4. WorkerPool & Dispatch | 0/3 | Not started | - |
+| 3. Runtime APIs | 4/4 | ✅ Complete | 2026-04-19 |
+| 4. WorkerPool & Dispatch | 0/3 | 📋 Planned | 2026-04-19 |
 | 5. Multi-App Hosting | 0/3 | Not started | - |
 | 6. Outbound I/O | 0/2 | Not started | - |
 | 7. Production Features | 0/2 | Not started | - |
@@ -178,9 +183,9 @@ Plans:
 - [x] WinterCG objects compatible
 
 ### Phase 3
-- [ ] fetch() handler interface works
-- [ ] Console, timers, encoding, basic crypto functional
-- [ ] All 10 core APIs verified
+- [x] fetch() handler interface works
+- [x] Console, timers, encoding, basic crypto functional
+- [x] All 10 core APIs verified
 
 ### Phase 4
 - [ ] Multi-threaded dispatch working
