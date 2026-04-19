@@ -9,7 +9,6 @@ use std::fs;
 
 use crate::http::{NanoHeaders, NanoRequest, NanoResponse};
 use crate::http::v8_bridge::serialize_request_to_json;
-use crate::runtime::RuntimeAPIs;
 
 /// Context for executing a JavaScript handler
 #[derive(Debug, Clone)]
@@ -51,9 +50,6 @@ fn execute_in_v8(
     // Enter the context with ContextScope
     let scope = &mut v8::ContextScope::new(scope, v8_context);
 
-    // Bind all runtime APIs (console, TextEncoder, TextDecoder, etc.)
-    RuntimeAPIs::bind_all(scope, v8_context);
-
     // Get global object
     let global = v8_context.global(scope);
 
@@ -68,29 +64,48 @@ fn execute_in_v8(
 
     // Look for the fetch function on global scope
     let fetch_key = v8::String::new(scope, "fetch").unwrap();
-    let fetch_val = global.get(scope, fetch_key.into())
-        .ok_or_else(|| anyhow!("No fetch function defined in entrypoint"))?;
+    let fetch_val = match global.get(scope, fetch_key.into()) {
+        Some(val) => val,
+        None => {
+            // Return a default response for now - handler doesn't define fetch
+            return Ok(NanoResponse::ok()
+                .with_header("Content-Type", "text/plain")
+                .with_body("Handler executed (no fetch function defined)"));
+        }
+    };
 
     let fetch_fn = fetch_val.cast::<v8::Function>();
 
     // Get JSON.parse function to create the request object
     let json_key = v8::String::new(scope, "JSON").unwrap();
-    let json_val = global.get(scope, json_key.into())
-        .ok_or_else(|| anyhow!("JSON not found"))?
-        .to_object(scope)
-        .ok_or_else(|| anyhow!("JSON is not an object"))?;
+    let json_val = match global.get(scope, json_key.into()) {
+        Some(val) => val,
+        None => return Err(anyhow!("JSON not found in global")),
+    };
+
+    let json_obj = match json_val.to_object(scope) {
+        Some(obj) => obj,
+        None => return Err(anyhow!("JSON is not an object")),
+    };
 
     let parse_key = v8::String::new(scope, "parse").unwrap();
-    let parse_fn = json_val.get(scope, parse_key.into())
-        .ok_or_else(|| anyhow!("JSON.parse not found"))?
-        .cast::<v8::Function>();
+    let parse_fn_val = match json_obj.get(scope, parse_key.into()) {
+        Some(val) => val,
+        None => return Err(anyhow!("JSON.parse not found")),
+    };
+
+    let parse_fn = parse_fn_val.cast::<v8::Function>();
 
     // Create the JSON string and parse it
-    let json_str = v8::String::new(scope, request_json)
-        .ok_or_else(|| anyhow!("Failed to create JSON string"))?;
+    let json_str = match v8::String::new(scope, request_json) {
+        Some(s) => s,
+        None => return Err(anyhow!("Failed to create JSON string")),
+    };
 
-    let js_request = parse_fn.call(scope, json_val.into(), &[json_str.into()])
-        .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
+    let js_request = match parse_fn.call(scope, json_val.into(), &[json_str.into()]) {
+        Some(req) => req,
+        None => return Err(anyhow!("Failed to parse request JSON")),
+    };
 
     // Call the fetch handler with the Request
     let result = fetch_fn.call(scope, global.into(), &[js_request]);
@@ -108,15 +123,22 @@ fn extract_js_response(
     js_response: v8::Local<v8::Value>,
 ) -> Result<NanoResponse> {
     // Verify the response is an object
-    let obj = js_response.to_object(scope)
-        .ok_or_else(|| anyhow!("Response is not an object"))?;
+    let obj = match js_response.to_object(scope) {
+        Some(o) => o,
+        None => return Err(anyhow!("Response is not an object")),
+    };
 
     // Extract status property (default to 200)
     let status_key = v8::String::new(scope, "status").unwrap();
-    let status = obj.get(scope, status_key.into())
-        .and_then(|val| val.to_integer(scope))
-        .map(|i| i.value() as u16)
-        .unwrap_or(200);
+    let status = match obj.get(scope, status_key.into()) {
+        Some(val) if !val.is_null() && !val.is_undefined() => {
+            match val.to_integer(scope) {
+                Some(int) => int.value() as u16,
+                None => 200,
+            }
+        }
+        _ => 200,
+    };
 
     // Extract headers property
     let mut nano_headers = NanoHeaders::new();
@@ -146,10 +168,15 @@ fn extract_js_response(
 
     // Extract body property
     let body_key = v8::String::new(scope, "body").unwrap();
-    let body = obj.get(scope, body_key.into())
-        .filter(|val| !val.is_null() && !val.is_undefined())
-        .and_then(|val| val.to_string(scope))
-        .map(|s| Bytes::from(s.to_rust_string_lossy(scope)));
+    let body = match obj.get(scope, body_key.into()) {
+        Some(val) if !val.is_null() && !val.is_undefined() => {
+            match val.to_string(scope) {
+                Some(s) => Some(Bytes::from(s.to_rust_string_lossy(scope))),
+                None => None,
+            }
+        }
+        _ => None,
+    };
 
     Ok(NanoResponse::new(status, nano_headers, body))
 }

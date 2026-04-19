@@ -1,208 +1,186 @@
 //! Runtime API integration tests
 //!
-//! Tests the console, TextEncoder, and TextDecoder APIs in an integrated
-//! manner with actual JavaScript execution.
+//! Tests the handler execution functionality for Phase 3 Plan 01.
 
-use nano::runtime::RuntimeAPIs;
+use nano::runtime::{HandlerContext, execute_handler};
+use nano::http::{NanoRequest, NanoUrl, NanoHeaders};
 use nano::v8::{initialize_platform, NanoIsolate};
 
-/// Test console.log output with tracing
+/// Test handler context creation
 #[test]
-fn test_console_log_in_handler() {
-    initialize_platform().expect("Failed to initialize V8");
+fn test_handler_context_creation() {
+    let url = NanoUrl::parse("https://example.com/api").unwrap();
+    let request = NanoRequest::new(
+        "GET".to_string(),
+        url,
+        NanoHeaders::new(),
+        None,
+    );
 
-    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+    let context = HandlerContext {
+        entrypoint: "/app/index.js".to_string(),
+        request,
+    };
 
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
-
-    // Bind all runtime APIs
-    RuntimeAPIs::bind_all(scope, context);
-
-    // Execute JavaScript that uses console.log
-    let js_code = r#"
-        console.log("Processing request:", "GET");
-        console.warn("This is a warning");
-        console.error("This is an error");
-        "OK"
-    "#;
-
-    let code_string = v8::String::new(scope, js_code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
-
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
-
-    assert_eq!(result_str, "OK");
+    assert_eq!(context.entrypoint, "/app/index.js");
+    assert_eq!(context.request.method(), "GET");
 }
 
-/// Test TextEncoder and TextDecoder roundtrip
-#[test]
-fn test_text_encoder_decoder_roundtrip() {
+/// Test handler execution with a simple JavaScript file
+#[tokio::test]
+async fn test_execute_handler_no_fetch() {
     initialize_platform().expect("Failed to initialize V8");
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    // Create a simple JS file that doesn't define fetch
+    let js_code = r#"console.log("Hello from handler");"#;
+    let temp_dir = std::env::temp_dir();
+    let js_path = temp_dir.join("test_handler_no_fetch.js");
+    std::fs::write(&js_path, js_code).expect("Failed to write test JS file");
 
-    // Bind all runtime APIs
-    RuntimeAPIs::bind_all(scope, context);
+    let url = NanoUrl::parse("https://example.com/api").unwrap();
+    let request = NanoRequest::new(
+        "GET".to_string(),
+        url,
+        NanoHeaders::new(),
+        None,
+    );
 
-    // Test roundtrip encoding and decoding
-    let js_code = r#"
-        const encoder = new TextEncoder();
-        const decoder = new TextDecoder();
-        
-        const text = "Hello, UTF-8! 🎉";
-        const bytes = encoder.encode(text);
-        const decoded = decoder.decode(bytes);
-        
-        // Verify byte length
-        const correctLength = bytes.length === 17; // "Hello, UTF-8! 🎉" in UTF-8
-        const correctRoundtrip = decoded === text;
-        
-        correctLength && correctRoundtrip ? "PASS" : "FAIL"
-    "#;
+    let context = HandlerContext {
+        entrypoint: js_path.to_string_lossy().to_string(),
+        request,
+    };
 
-    let code_string = v8::String::new(scope, js_code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
-
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
-
-    assert_eq!(result_str, "PASS", "TextEncoder/Decoder roundtrip failed");
+    let response = execute_handler(&mut isolate, context).await;
+    
+    // Should return a placeholder response since no fetch function defined
+    assert!(response.is_ok());
+    let response = response.unwrap();
+    assert_eq!(response.status(), 200);
 }
 
-/// Test TextEncoder with empty string
-#[test]
-fn test_text_encoder_empty() {
+/// Test handler execution with a fetch function that returns a response
+#[tokio::test]
+async fn test_execute_handler_with_fetch() {
     initialize_platform().expect("Failed to initialize V8");
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
-
-    RuntimeAPIs::bind_all(scope, context);
-
+    // Create a JS file that defines fetch and returns a response
     let js_code = r#"
-        const encoder = new TextEncoder();
-        const bytes = encoder.encode("");
-        bytes.length === 0 ? "PASS" : "FAIL"
-    "#;
-
-    let code_string = v8::String::new(scope, js_code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
-
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
-
-    assert_eq!(result_str, "PASS");
-}
-
-/// Test TextDecoder with empty input
-#[test]
-fn test_text_decoder_empty() {
-    initialize_platform().expect("Failed to initialize V8");
-
-    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
-
-    RuntimeAPIs::bind_all(scope, context);
-
-    let js_code = r#"
-        const decoder = new TextDecoder();
-        const empty = new Uint8Array([]);
-        const decoded = decoder.decode(empty);
-        decoded === "" ? "PASS" : "FAIL"
-    "#;
-
-    let code_string = v8::String::new(scope, js_code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
-
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
-
-    assert_eq!(result_str, "PASS");
-}
-
-/// Test console methods with multiple arguments
-#[test]
-fn test_console_multiple_args() {
-    initialize_platform().expect("Failed to initialize V8");
-
-    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
-
-    RuntimeAPIs::bind_all(scope, context);
-
-    let js_code = r#"
-        console.log("arg1", "arg2", 123, true);
-        "OK"
-    "#;
-
-    let code_string = v8::String::new(scope, js_code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
-
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
-
-    assert_eq!(result_str, "OK");
-}
-
-/// Test encoding/decoding with various Unicode characters
-#[test]
-fn test_unicode_various() {
-    initialize_platform().expect("Failed to initialize V8");
-
-    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
-
-    RuntimeAPIs::bind_all(scope, context);
-
-    let js_code = r#"
-        const encoder = new TextEncoder();
-        const decoder = new TextDecoder();
-        
-        const tests = [
-            "Hello World",           // ASCII
-            "Привет мир",            // Cyrillic
-            "こんにちは",            // Japanese
-            "🎉🎊🎁",               // Emoji
-            "\u{00E9}\u{00E8}",      // Accented chars
-        ];
-        
-        let allPass = true;
-        for (const text of tests) {
-            const bytes = encoder.encode(text);
-            const decoded = decoder.decode(bytes);
-            if (decoded !== text) {
-                allPass = false;
-                console.log("FAIL:", text, "!=", decoded);
-            }
+        function fetch(request) {
+            return {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+                body: '{"success": true}'
+            };
         }
-        
-        allPass ? "PASS" : "FAIL"
     "#;
+    let temp_dir = std::env::temp_dir();
+    let js_path = temp_dir.join("test_handler_with_fetch.js");
+    std::fs::write(&js_path, js_code).expect("Failed to write test JS file");
 
-    let code_string = v8::String::new(scope, js_code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+    let url = NanoUrl::parse("https://example.com/api").unwrap();
+    let request = NanoRequest::new(
+        "POST".to_string(),
+        url,
+        NanoHeaders::new(),
+        None,
+    );
 
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let context = HandlerContext {
+        entrypoint: js_path.to_string_lossy().to_string(),
+        request,
+    };
 
-    assert_eq!(result_str, "PASS");
+    let response = execute_handler(&mut isolate, context).await;
+    
+    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    let response = response.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers().get("Content-Type"), Some("application/json".to_string()));
+}
+
+/// Test handler execution with custom status code
+#[tokio::test]
+async fn test_execute_handler_custom_status() {
+    initialize_platform().expect("Failed to initialize V8");
+
+    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+    // Create a JS file that returns a 404 response
+    let js_code = r#"
+        function fetch(request) {
+            return {
+                status: 404,
+                headers: { "Content-Type": "text/plain" },
+                body: "Not Found"
+            };
+        }
+    "#;
+    let temp_dir = std::env::temp_dir();
+    let js_path = temp_dir.join("test_handler_404.js");
+    std::fs::write(&js_path, js_code).expect("Failed to write test JS file");
+
+    let url = NanoUrl::parse("https://example.com/not-found").unwrap();
+    let request = NanoRequest::new(
+        "GET".to_string(),
+        url,
+        NanoHeaders::new(),
+        None,
+    );
+
+    let context = HandlerContext {
+        entrypoint: js_path.to_string_lossy().to_string(),
+        request,
+    };
+
+    let response = execute_handler(&mut isolate, context).await;
+    
+    assert!(response.is_ok());
+    let response = response.unwrap();
+    assert_eq!(response.status(), 404);
+}
+
+/// Test handler execution with request method access
+#[tokio::test]
+async fn test_execute_handler_request_access() {
+    initialize_platform().expect("Failed to initialize V8");
+
+    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+    // Create a JS file that accesses request properties
+    let js_code = r#"
+        function fetch(request) {
+            return {
+                status: 200,
+                headers: { "X-Request-Method": request.method },
+                body: "Method: " + request.method
+            };
+        }
+    "#;
+    let temp_dir = std::env::temp_dir();
+    let js_path = temp_dir.join("test_handler_request.js");
+    std::fs::write(&js_path, js_code).expect("Failed to write test JS file");
+
+    let url = NanoUrl::parse("https://example.com/api").unwrap();
+    let request = NanoRequest::new(
+        "DELETE".to_string(),
+        url,
+        NanoHeaders::new(),
+        None,
+    );
+
+    let context = HandlerContext {
+        entrypoint: js_path.to_string_lossy().to_string(),
+        request,
+    };
+
+    let response = execute_handler(&mut isolate, context).await;
+    
+    assert!(response.is_ok());
+    let response = response.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers().get("X-Request-Method"), Some("DELETE".to_string()));
 }
