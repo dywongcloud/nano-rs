@@ -2,8 +2,8 @@ use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing subscriber for structured logging
-    tracing_subscriber::fmt::init();
+    // Initialize structured JSON logging with env-filter support
+    nano::logging::init_logging();
 
     tracing::info!("NANO Edge Runtime starting...");
 
