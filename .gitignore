@@ -1,0 +1,48 @@
+# Rust
+/target/
+/Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+*.key
+*.pem
+*.p12
+*.crt
+
+# Build artifacts
+/dist/
+/build/
+*.o
+*.so
+*.dll
+*.dylib
+
+# Test artifacts
+/tmp/
+/test-results/
+
+# Nano specific
+*.isolate
+*.snapshot
+/var/
+/run/
+
+# GSD/planning (kept locally, not committed)
+.planning/
