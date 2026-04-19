@@ -13,8 +13,10 @@
 pub mod context;
 pub mod isolate;
 pub mod platform;
+pub mod script;
 
 // Re-export key functions and types for convenience
 pub use context::create_context;
 pub use isolate::NanoIsolate;
 pub use platform::{initialize_platform, is_initialized, shutdown_platform};
+pub use script::execute_script;
