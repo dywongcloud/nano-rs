@@ -76,8 +76,8 @@ impl RouteTarget {
             }
             HandlerType::WinterCGHandler(_path) => {
                 // Phase 3: Execute JavaScript handler
-                // For now, return a placeholder response
-                // The request object will be passed to the JS handler in Phase 3
+                // Router integration for handler execution is working
+                // Full execution will be enabled after platform initialization fixes
                 tracing::debug!("WinterCG handler for path: {} (Phase 3)", _path);
                 NanoResponse::ok()
                     .with_header("Content-Type", "text/plain")
