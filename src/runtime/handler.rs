@@ -260,10 +260,10 @@ fn execute_in_v8(
 }
 
 /// Resolve a Promise and extract the result
-fn resolve_promise(
-    scope: &mut v8::ContextScope<v8::HandleScope>,
-    promise: v8::Local<v8::Value>,
-) -> Option<v8::Local<v8::Value>> {
+fn resolve_promise<'s>(
+    scope: &mut v8::ContextScope<'s, v8::HandleScope>,
+    promise: v8::Local<'s, v8::Value>,
+) -> Option<v8::Local<'s, v8::Value>> {
     // Check if it's a Promise
     if !promise.is_promise() {
         return Some(promise);
