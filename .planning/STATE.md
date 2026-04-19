@@ -8,12 +8,12 @@
 ## Current Position
 
 **Phase:** Phase 3 (Runtime APIs) — **IN PROGRESS** 🔄  
-**Plan:** 03-02 — **COMPLETE** ✅  
-**Status:** Console and encoding APIs implemented. 03-01 handler interface pending.
+**Plan:** 03-03 — **COMPLETE** ✅  
+**Status:** Timer and AbortController APIs implemented. 2 of 4 plans in Phase 3 complete.
 
 **Progress:**
 ```
-[████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 28% (2/9 phases complete, 1 plan in Phase 3 complete)
+[██████░░░░░░░░░░░░░░░░░░░░░░░░░░░] 30% (2/9 phases complete, 2 plans in Phase 3 complete)
 ```
 
 ## Project Reference
@@ -49,6 +49,9 @@
 - Set-Cookie headers remain separate, not comma-combined (D-08)
 - Full WinterCG URL compliance (D-09)
 - Lossy percent-decoding for URLs with U+FFFD replacement (D-10)
+- **Thread-local timer queue** for V8 callback access (D-11) — per isolate storage
+- **Atomic state for abort signals** — lock-free cancellation tracking
+- **pollster for blocking async** — required for timer scheduling in V8 callbacks (D-12)
 
 ### Critical Technical Debt
 - **EPT SIGSEGV bug:** ✅ RESOLVED — strong v8::Global sentinel implemented and verified
@@ -74,7 +77,7 @@
 - [x] Plan Phase 3: Runtime APIs (4 plans)
 - [ ] Execute 03-01: JavaScript handler interface
 - [x] Execute 03-02: Console and encoding APIs ✅
-- [ ] Execute 03-03: Timers and AbortController
+- [x] Execute 03-03: Timers and AbortController ✅
 - [ ] Execute 03-04: Crypto, performance, and exceptions
 
 ### Blockers
@@ -94,13 +97,13 @@
 |------|------|--------|---------|
 | 03-01 | JavaScript Handler Interface | 🔄 In Progress | handler.rs exists, needs completion |
 | 03-02 | Console and Encoding APIs | ✅ Complete | 2 commits |
-| 03-03 | Timers and AbortController | 📋 Planned | — |
+| 03-03 | Timers and AbortController | ✅ Complete | 4 commits |
 | 03-04 | Crypto, Performance, Exceptions | 📋 Planned | — |
 
 ## Session Continuity
 
-**Last action:** Completed 03-02 execution — Console and encoding APIs implemented with tracing integration  
-**Next action:** Execute 03-01 or 03-03 — continue Runtime APIs  
+**Last action:** Completed 03-03 execution — Timer APIs (setTimeout/setInterval) and AbortController implemented with tokio-based scheduling  
+**Next action:** Execute 03-01 (handler interface) or 03-04 (crypto, performance) — continue Runtime APIs  
 **Context valid through:** Phase 3 execution
 
 ---
