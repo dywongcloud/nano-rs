@@ -1,4 +1,6 @@
 use anyhow::Result;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,6 +23,9 @@ async fn main() -> Result<()> {
     );
     tracing::info!("Graceful shutdown initialized (timeout: {}s)", shutdown.state().drain().active_count());
 
+    // Create app registry for sharing between main server and admin API
+    let registry = Arc::new(RwLock::new(nano::app::registry::AppRegistry::default()));
+
     // Start HTTP server with virtual host routing and graceful shutdown
     let config = nano::http::ServerConfig::default();
     tracing::info!("Starting HTTP server on {}", config.socket_addr()?);
@@ -28,10 +33,31 @@ async fn main() -> Result<()> {
     // Clone shutdown state for passing to server
     let shutdown_state = shutdown.state().clone();
 
-    // Spawn the server in a separate task with graceful shutdown support
+    // Spawn the main HTTP server in a separate task with graceful shutdown support
     let server_handle = tokio::spawn(async move {
         nano::http::start_server_with_state(config, shutdown_state).await
     });
+
+    // Start Admin API server (optional - only if API key is configured)
+    let admin_api_key = std::env::var("NANO_ADMIN_API_KEY").unwrap_or_default();
+    let admin_handle = if !admin_api_key.is_empty() {
+        let admin_config = nano::admin::server::AdminConfig::new(admin_api_key);
+        let admin_state = nano::admin::server::AdminState::new(registry);
+
+        match nano::admin::server::start_admin_server(admin_config, admin_state).await {
+            Ok(admin_server) => {
+                tracing::info!("Admin API server started on {}", admin_server.local_addr);
+                Some(admin_server)
+            }
+            Err(e) => {
+                tracing::error!("Failed to start Admin API server: {}", e);
+                None
+            }
+        }
+    } else {
+        tracing::info!("Admin API server not started (NANO_ADMIN_API_KEY not set)");
+        None
+    };
 
     // Wait for shutdown signal
     tracing::info!("Waiting for shutdown signal (SIGTERM or Ctrl+C)...");
@@ -41,7 +67,13 @@ async fn main() -> Result<()> {
     // Perform graceful shutdown
     shutdown.shutdown().await;
 
-    // Wait for server to complete
+    // Shut down admin server if running
+    if let Some(admin_server) = admin_handle {
+        tracing::info!("Shutting down Admin API server...");
+        admin_server.shutdown().await;
+    }
+
+    // Wait for main server to complete
     match server_handle.await {
         Ok(result) => {
             if let Err(e) = result {
