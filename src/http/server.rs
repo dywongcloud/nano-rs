@@ -301,7 +301,7 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
 ///
 /// # async fn example() -> anyhow::Result<()> {
 /// let config = ServerConfig::default();
-/// let (tx, mut rx) = tokio::sync::broadcast::channel(1);
+/// let (tx, mut rx) = tokio::sync::broadcast::channel::<()>(1);
 ///
 /// start_server_with_shutdown(config, async move {
 ///     let _ = rx.recv().await;
