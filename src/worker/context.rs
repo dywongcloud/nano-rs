@@ -121,31 +121,24 @@ impl ContextManager {
         &mut self.isolate
     }
 
+    /// Clone the current Global<Context>
+    ///
+    /// This can be used to reopen a Local<Context> within a HandleScope.
+    /// Cloning a Global is cheap - it's just a handle reference.
+    pub fn clone_context(&self) -> Option<v8::Global<v8::Context>> {
+        self.current_context.clone()
+    }
+
     /// Execute a function with the current context and isolate
     ///
-    /// This method handles the borrow checker issues by using interior raw pointers.
+    /// This method handles the borrow checker issues by using raw pointers.
+    /// The caller is responsible for creating HandleScope and ContextScope.
     ///
-    /// # Safety
-    ///
-    /// This method is safe because we're in a single-threaded context and the isolate
-    /// cannot move while we're executing. The HandleScope is dropped before we call
-    /// the function, so there's no lifetime overlap.
-    pub fn with_context_and_isolate<F, R>(&mut self, f: F) -> Option<R>
-    where
-        F: FnOnce(&mut NanoIsolate, v8::Local<v8::Context>) -> R,
-    {
-        // Get the context first using a fresh scope
-        let scope = &mut v8::HandleScope::new(self.isolate.isolate());
-        let context = self
-            .current_context
-            .as_ref()
-            .map(|global| v8::Local::new(scope, global))?;
-
-        // Store the context in an Option to extend its lifetime
-        // The scope will be dropped when we return, but we need the context
-        // Actually, Local is tied to the scope, so we can't keep it
-        // We need to execute while the scope is alive
-        Some(f(&mut self.isolate, context))
+    /// NOTE: This method reopens the Global<Context> to get a fresh Local.
+    /// The returned Local is only valid within the caller's HandleScope.
+    pub fn get_context_for_execution(&mut self) -> Option<*mut v8::OwnedIsolate> {
+        // Just return the isolate pointer - caller will create scopes
+        Some(self.isolate.isolate())
     }
 
     /// Check if a context is available

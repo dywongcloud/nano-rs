@@ -4,11 +4,206 @@
 //! each owning a V8 isolate. Tasks are dispatched via MPSC channels
 //! and responses are returned via oneshot channels.
 
-use crate::runtime::{execute_handler, HandlerContext};
+use crate::http::NanoResponse;
+use crate::runtime::HandlerContext;
 use crate::v8::{initialize_platform, NanoIsolate};
+use crate::worker::context::ContextManager;
 use crate::worker::HandlerTask;
 
 use anyhow::{anyhow, Result};
+use std::fs;
+
+/// Execute a handler within a specific V8 context
+///
+/// This helper function is used by the worker thread to execute JavaScript
+/// handlers after context reset. It creates the necessary scopes and invokes
+/// the fetch function.
+/// Execute handler using the ContextManager's current context
+///
+/// This function properly manages V8 scope lifecycle to avoid "active scope" errors.
+fn execute_with_context_manager(
+    context_manager: &mut ContextManager,
+    handler_ctx: &HandlerContext,
+) -> Result<NanoResponse> {
+    // Clone the Global<Context> (cheap - just a handle reference)
+    let global_ctx = context_manager.clone_context();
+
+    // Now get the isolate pointer - this borrows context_manager mutably
+    let isolate = context_manager.isolate_mut().isolate();
+
+    // Create fresh HandleScope
+    let handle_scope = &mut v8::HandleScope::new(isolate);
+
+    // Reopen Local<Context> from Global within the new scope
+    let v8_context = match global_ctx {
+        Some(g) => v8::Local::new(handle_scope, &g),
+        None => return Err(anyhow!("No context available")),
+    };
+
+    // Enter context scope and execute
+    let context_scope = &mut v8::ContextScope::new(handle_scope, v8_context);
+
+    // Read and execute handler
+    execute_handler_code(context_scope, v8_context, handler_ctx)
+}
+
+/// Execute the actual handler code within an established context scope
+fn execute_handler_code(
+    scope: &mut v8::ContextScope<v8::HandleScope>,
+    v8_context: v8::Local<v8::Context>,
+    handler_ctx: &HandlerContext,
+) -> Result<NanoResponse> {
+    // Read the handler code
+    let code = fs::read_to_string(&handler_ctx.entrypoint)
+        .map_err(|e| anyhow!("Failed to read entrypoint: {}", e))?;
+
+    // Compile and run script to define fetch function
+    let code_str =
+        v8::String::new(scope, &code).ok_or_else(|| anyhow!("Failed to create code string"))?;
+    let script = v8::Script::compile(scope, code_str, None)
+        .ok_or_else(|| anyhow!("Script compilation failed"))?;
+    script.run(scope);
+
+    // Get global and look for fetch function
+    let global = v8_context.global(scope);
+    let fetch_key = v8::String::new(scope, "fetch").unwrap();
+    let fetch_val = match global.get(scope, fetch_key.into()) {
+        Some(val) => val,
+        None => {
+            return Ok(NanoResponse::ok()
+                .with_header("Content-Type", "text/plain")
+                .with_body("Handler executed (no fetch function defined)"));
+        }
+    };
+
+    let fetch_fn = fetch_val.cast::<v8::Function>();
+
+    // Create request object
+    let request_json = format!("{{\"method\":\"{}\"}}", handler_ctx.request.method());
+    let request_str = v8::String::new(scope, &request_json)
+        .ok_or_else(|| anyhow!("Failed to create request string"))?;
+
+    // Call fetch function
+    let result = fetch_fn.call(scope, global.into(), &[request_str.into()]);
+
+    // Extract response
+    match result {
+        Some(response) => extract_js_response(scope, response),
+        None => Err(anyhow!("Handler returned None")),
+    }
+}
+
+fn execute_handler_in_context(
+    isolate: &mut v8::OwnedIsolate,
+    v8_context: v8::Local<v8::Context>,
+    handler_ctx: &HandlerContext,
+) -> Result<NanoResponse> {
+    // Create scope stack for execution - must be dropped in reverse order
+    let handle_scope = &mut v8::HandleScope::new(isolate);
+    let context_scope = &mut v8::ContextScope::new(handle_scope, v8_context);
+
+    // Read the handler code
+    let code = fs::read_to_string(&handler_ctx.entrypoint)
+        .map_err(|e| anyhow!("Failed to read entrypoint: {}", e))?;
+
+    // Compile and run script to define fetch function
+    let code_str = v8::String::new(context_scope, &code)
+        .ok_or_else(|| anyhow!("Failed to create code string"))?;
+    let script = v8::Script::compile(context_scope, code_str, None)
+        .ok_or_else(|| anyhow!("Script compilation failed"))?;
+    script.run(context_scope);
+
+    // Get global and look for fetch function
+    let global = v8_context.global(context_scope);
+    let fetch_key = v8::String::new(context_scope, "fetch").unwrap();
+    let fetch_val = match global.get(context_scope, fetch_key.into()) {
+        Some(val) => val,
+        None => {
+            // No fetch function defined - return default response
+            return Ok(NanoResponse::ok()
+                .with_header("Content-Type", "text/plain")
+                .with_body("Handler executed (no fetch function defined)"));
+        }
+    };
+
+    let fetch_fn = fetch_val.cast::<v8::Function>();
+
+    // Create a simple request object
+    let request_json = format!("{{\"method\":\"{}\"}}", handler_ctx.request.method());
+    let request_str = v8::String::new(context_scope, &request_json)
+        .ok_or_else(|| anyhow!("Failed to create request string"))?;
+
+    // Call fetch function
+    let result = fetch_fn.call(context_scope, global.into(), &[request_str.into()]);
+
+    // Extract response from result
+    match result {
+        Some(response) => extract_js_response(context_scope, response),
+        None => Err(anyhow!("Handler returned None")),
+    }
+}
+
+/// Extract a NanoResponse from a V8 JavaScript object
+fn extract_js_response(
+    scope: &mut v8::ContextScope<v8::HandleScope>,
+    js_response: v8::Local<v8::Value>,
+) -> Result<NanoResponse> {
+    use crate::http::NanoHeaders;
+    use bytes::Bytes;
+
+    // Verify the response is an object
+    let obj = match js_response.to_object(scope) {
+        Some(o) => o,
+        None => return Err(anyhow!("Response is not an object")),
+    };
+
+    // Extract status property (default to 200)
+    let status_key = v8::String::new(scope, "status").unwrap();
+    let status = match obj.get(scope, status_key.into()) {
+        Some(val) if !val.is_null() && !val.is_undefined() => match val.to_integer(scope) {
+            Some(int) => int.value() as u16,
+            None => 200,
+        },
+        _ => 200,
+    };
+
+    // Extract headers property
+    let mut nano_headers = NanoHeaders::new();
+    let headers_key = v8::String::new(scope, "headers").unwrap();
+
+    if let Some(headers_val) = obj.get(scope, headers_key.into()) {
+        if let Some(headers_obj) = headers_val.to_object(scope) {
+            if let Some(names) = headers_obj.get_own_property_names(scope, Default::default()) {
+                let len = names.length();
+                for i in 0..len {
+                    if let Some(key) = names.get_index(scope, i) {
+                        if let Some(key_str) = key.to_string(scope) {
+                            let key_name = key_str.to_rust_string_lossy(scope);
+                            if let Some(value) = headers_obj.get(scope, key.into()) {
+                                if let Some(value_str) = value.to_string(scope) {
+                                    let value_string = value_str.to_rust_string_lossy(scope);
+                                    nano_headers.set(&key_name, &value_string);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Extract body property
+    let body_key = v8::String::new(scope, "body").unwrap();
+    let body = match obj.get(scope, body_key.into()) {
+        Some(val) if !val.is_null() && !val.is_undefined() => match val.to_string(scope) {
+            Some(s) => Some(Bytes::from(s.to_rust_string_lossy(scope))),
+            None => None,
+        },
+        _ => None,
+    };
+
+    Ok(NanoResponse::new(status, nano_headers, body))
+}
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
@@ -114,7 +309,7 @@ impl WorkerPool {
 
                 // Create isolate in this thread - NEVER moves to another thread
                 // This is the critical POOL-05 constraint: isolate is !Send + !Sync
-                let mut isolate = match NanoIsolate::new() {
+                let isolate = match NanoIsolate::new() {
                     Ok(isol) => isol,
                     Err(e) => {
                         error!("Worker {} failed to create isolate: {}", id, e);
@@ -122,7 +317,13 @@ impl WorkerPool {
                     }
                 };
 
-                debug!("Worker {} isolate created successfully", id);
+                // Create context manager for this worker
+                let mut context_manager = ContextManager::new(isolate);
+                if let Err(e) = context_manager.create_initial_context() {
+                    error!("Worker {} failed to create context: {}", id, e);
+                    return;
+                }
+                info!("Worker {} initialized with context", id);
 
                 // Event loop: receive tasks and execute
                 loop {
@@ -130,16 +331,38 @@ impl WorkerPool {
                         Ok(task) => {
                             debug!("Worker {} received task for {}", id, task.entrypoint);
 
+                            // POOL-04: Reset context before each request
+                            match context_manager.reset_context() {
+                                Ok(elapsed) => {
+                                    let ms = elapsed.as_secs_f64() * 1000.0;
+                                    if ms > 10.0 {
+                                        warn!(
+                                            "Worker {} context reset took {:.2}ms (target <10ms)",
+                                            id, ms
+                                        );
+                                    } else {
+                                        debug!("Worker {} context reset took {:.2}ms", id, ms);
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Worker {} context reset failed: {}", id, e);
+                                    let _ =
+                                        task.response_tx.send(Err(anyhow!("Context reset failed")));
+                                    continue;
+                                }
+                            }
+
                             // Create handler context
-                            let context = HandlerContext {
+                            let handler_ctx = HandlerContext {
                                 entrypoint: task.entrypoint,
                                 request: task.request,
                             };
 
-                            // Execute handler using pollster for async in sync thread
-                            let result = pollster::block_on(execute_handler(&mut isolate, context));
+                            // Execute handler with fresh context scope
+                            let result =
+                                execute_with_context_manager(&mut context_manager, &handler_ctx);
 
-                            // Send response back (ignore send errors - receiver may have dropped)
+                            // Send response back
                             let _ = task.response_tx.send(result);
                         }
                         Err(_) => {
@@ -151,7 +374,11 @@ impl WorkerPool {
                 }
 
                 // Isolate is dropped here when worker thread exits
-                info!("Worker {} shutting down (isolate cleaned up)", id);
+                info!(
+                    "Worker {} shutting down (avg context reset: {:.2}ms)",
+                    id,
+                    context_manager.average_reset_time_ms()
+                );
             });
 
             workers.push(WorkerHandle {

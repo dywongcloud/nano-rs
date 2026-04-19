@@ -19,7 +19,7 @@ pub mod handler;
 pub mod apis;
 
 // Re-export handler types for convenience
-pub use handler::{HandlerContext, execute_handler};
+pub use handler::{HandlerContext, execute_handler, execute_handler_with_context};
 
 // Re-export APIs for handler
 pub use apis::RuntimeAPIs;
