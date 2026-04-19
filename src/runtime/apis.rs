@@ -41,6 +41,7 @@ impl RuntimeAPIs {
         Self::bind_dom_exception(scope, context);
         Self::bind_blob(scope, context);
         Self::bind_form_data(scope, context);
+        Self::bind_response(scope, context);
         Self::bind_fetch(scope, context);
     }
 
@@ -206,6 +207,19 @@ impl RuntimeAPIs {
 
         // Attach to global
         let key = v8::String::new(scope, "FormData").unwrap();
+        global.set(scope, key.into(), ctor.into());
+    }
+
+    /// Bind Response constructor for WinterCG compatibility
+    fn bind_response(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        let global = context.global(scope);
+
+        // Create Response constructor
+        let template = v8::FunctionTemplate::new(scope, response_constructor);
+        let ctor = template.get_function(scope).unwrap();
+
+        // Attach to global
+        let key = v8::String::new(scope, "Response").unwrap();
         global.set(scope, key.into(), ctor.into());
     }
 }
@@ -659,6 +673,118 @@ fn form_data_constructor(
     this.set(scope, data_key.into(), data_val.into());
 
     retval.set(this.into());
+}
+
+/// Response constructor implementation for WinterCG compatibility
+fn response_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    // Get body argument (first argument - string or null)
+    let mut body_string = String::new();
+    if args.length() > 0 {
+        let arg = args.get(0);
+        if !arg.is_null() && !arg.is_undefined() {
+            if let Some(s) = arg.to_string(scope) {
+                body_string = s.to_rust_string_lossy(scope);
+            }
+        }
+    }
+
+    // Get options argument (second argument - { status, headers })
+    let mut status = 200;
+    let mut headers_obj: Option<v8::Local<v8::Object>> = None;
+
+    if args.length() > 1 {
+        let options = args.get(1);
+        if let Some(opts) = options.to_object(scope) {
+            // Extract status
+            let status_key = v8::String::new(scope, "status").unwrap();
+            if let Some(status_val) = opts.get(scope, status_key.into()) {
+                if let Some(num) = status_val.to_number(scope) {
+                    status = num.value() as u16;
+                }
+            }
+
+            // Extract headers
+            let headers_key = v8::String::new(scope, "headers").unwrap();
+            headers_obj = opts.get(scope, headers_key.into()).and_then(|h| h.to_object(scope));
+        }
+    }
+
+    // Set status property
+    let status_key = v8::String::new(scope, "status").unwrap();
+    let status_val = v8::Number::new(scope, status as f64);
+    this.set(scope, status_key.into(), status_val.into());
+
+    // Create headers object
+    let headers = v8::Object::new(scope);
+    if let Some(hdrs) = headers_obj {
+        // Copy headers from options
+        if let Some(names) = hdrs.get_own_property_names(scope, Default::default()) {
+            let len = names.length();
+            for i in 0..len {
+                if let Some(key) = names.get_index(scope, i) {
+                    if let Some(key_str) = key.to_string(scope) {
+                        let key_name = key_str.to_rust_string_lossy(scope);
+                        if let Some(value) = hdrs.get(scope, key.into()) {
+                            if let Some(value_str) = value.to_string(scope) {
+                                let value_string = value_str.to_rust_string_lossy(scope);
+                                let hkey = v8::String::new(scope, &key_name).unwrap();
+                                let hval = v8::String::new(scope, &value_string).unwrap();
+                                headers.set(scope, hkey.into(), hval.into());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Set headers property
+    let headers_key = v8::String::new(scope, "headers").unwrap();
+    this.set(scope, headers_key.into(), headers.into());
+
+    // Set body property
+    let body_key = v8::String::new(scope, "body").unwrap();
+    let body_val = v8::String::new(scope, &body_string).unwrap();
+    this.set(scope, body_key.into(), body_val.into());
+
+    // Add headers.set method for CORS middleware support
+    let set_key = v8::String::new(scope, "set").unwrap();
+    if let Some(set_fn) = v8::Function::new(scope, headers_set_callback) {
+        headers.set(scope, set_key.into(), set_fn.into());
+    }
+
+    retval.set(this.into());
+}
+
+/// Callback for headers.set() method
+fn headers_set_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    // Get the headers object (this)
+    let this = args.this();
+
+    // Get header name and value
+    if args.length() >= 2 {
+        let name = args.get(0).to_string(scope)
+            .map(|s| s.to_rust_string_lossy(scope))
+            .unwrap_or_default();
+        let value = args.get(1).to_string(scope)
+            .map(|s| s.to_rust_string_lossy(scope))
+            .unwrap_or_default();
+
+        // Set the header
+        let key = v8::String::new(scope, &name).unwrap();
+        let val = v8::String::new(scope, &value).unwrap();
+        this.set(scope, key.into(), val.into());
+    }
 }
 
 #[cfg(test)]

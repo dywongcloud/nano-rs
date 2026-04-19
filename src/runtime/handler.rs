@@ -168,6 +168,8 @@ fn execute_in_v8(
     code: &str,
     request_json: &str,
 ) -> Result<NanoResponse> {
+    use crate::runtime::apis::RuntimeAPIs;
+    
     // Transform ES6 module syntax to V8-compatible code
     let transformed_code = transform_module_code(code);
 
@@ -176,6 +178,9 @@ fn execute_in_v8(
 
     // Create context within the scope
     let v8_context = v8::Context::new(scope, Default::default());
+    
+    // Bind runtime APIs (Response, console, crypto, etc.)
+    RuntimeAPIs::bind_all(scope, v8_context);
 
     // Enter the context with ContextScope
     let scope = &mut v8::ContextScope::new(scope, v8_context);
