@@ -11,6 +11,16 @@
 //! - Hostname lookup is case-insensitive per HTTP spec
 
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use axum::{
+    body::Body,
+    extract::{Host, State},
+    http::{Request, Response, StatusCode},
+    response::IntoResponse,
+    Json,
+};
+use serde::{Deserialize, Serialize};
 
 /// Handler type for routed requests
 ///
@@ -199,6 +209,105 @@ impl Default for VirtualHostRouter {
             handler_type: HandlerType::StaticResponse("NANO Runtime".to_string()),
         };
         Self::new(default_target)
+    }
+}
+
+/// Application state shared with axum handlers
+///
+/// Contains the virtual host router for request routing decisions.
+/// Wrapped in Arc for thread-safe sharing across requests.
+#[derive(Debug)]
+pub struct AppState {
+    /// The virtual host router for hostname-based request routing
+    pub router: VirtualHostRouter,
+}
+
+/// JSON error response structure (per D-11)
+///
+/// Standard error format for routing errors and other failures.
+#[derive(Debug, Serialize, Deserialize)]
+struct ErrorResponse {
+    error: String,
+    message: String,
+    code: u16,
+}
+
+/// Creates a JSON error response (per D-11)
+///
+/// Returns a structured JSON error response with the format:
+/// `{"error": "...", "message": "...", "code": N}`
+///
+/// # Arguments
+///
+/// * `error` - Short error identifier
+/// * `message` - Human-readable error description
+/// * `code` - HTTP status code
+///
+/// # Returns
+///
+/// A JSON response with the error details
+fn error_response(error: &str, message: &str, code: StatusCode) -> impl IntoResponse {
+    (
+        code,
+        Json(ErrorResponse {
+            error: error.to_string(),
+            message: message.to_string(),
+            code: code.as_u16(),
+        }),
+    )
+}
+
+/// Main virtual host request handler
+///
+/// Routes incoming HTTP requests based on the Host header. Extracts the hostname,
+/// looks up the route target, and dispatches to the appropriate handler.
+///
+/// # Arguments
+///
+/// * `state` - Application state containing the virtual host router
+/// * `host` - The Host header value extracted by axum
+/// * `request` - The full HTTP request
+///
+/// # Returns
+///
+/// An HTTP response appropriate for the matched route target
+///
+/// # Example Flow
+///
+/// 1. Request arrives with `Host: api.example.com`
+/// 2. Handler extracts hostname and calls `router.resolve("api.example.com")`
+/// 3. Router returns the RouteTarget for that hostname
+/// 4. Handler dispatches based on handler_type:
+///    - `StaticResponse`: Returns the configured string
+///    - `JavaScriptEntrypoint`: Returns placeholder (Phase 3 will execute JS)
+pub async fn virtual_host_handler(
+    State(state): State<Arc<AppState>>,
+    Host(host): Host,
+    _request: Request<Body>,
+) -> impl IntoResponse {
+    tracing::debug!("Request received for host: {}", host);
+
+    let target = state.router.resolve(&host);
+
+    match &target.handler_type {
+        HandlerType::StaticResponse(response) => {
+            tracing::debug!("Routing to static response for host: {}", host);
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "text/plain")
+                .body(Body::from(response.clone()))
+                .unwrap()
+        }
+        HandlerType::JavaScriptEntrypoint(path) => {
+            // Phase 3: Will execute JS handler
+            // For now, return placeholder with the path info
+            tracing::debug!("Routing to JS entrypoint: {} for host: {}", path, host);
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "text/plain")
+                .body(Body::from(format!("JS handler (Phase 3): {}", path)))
+                .unwrap()
+        }
     }
 }
 
