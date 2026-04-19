@@ -30,6 +30,8 @@ use tokio::sync::Mutex;
 
 use crate::http::{NanoRequest, NanoResponse, NanoHeaders, NanoUrl};
 use crate::worker::{HandlerTask, QueueError, WorkQueue};
+use crate::logging::{create_request_span, NanoSpanExt};
+use uuid::Uuid;
 
 /// Handler type for routed requests
 ///
@@ -361,6 +363,11 @@ pub async fn virtual_host_handler(
         .map(|s| s.to_string())
         .unwrap_or_else(|| "default".to_string());
 
+    // Generate request ID and create span with context
+    let request_id = format!("req_{}", Uuid::new_v4().to_string()[..8].to_string());
+    let span = create_request_span(&host, &request_id);
+    let _enter = span.enter();
+
     tracing::debug!("Request received for host: {}", host);
 
     // Convert axum request to NanoRequest (WinterCG compatible)
@@ -429,6 +436,13 @@ pub async fn virtual_host_handler(
     // Handle the request using the WinterCG-compatible handler
     let nano_response = target.handle(nano_request).await;
 
+    // Log request completion with status
+    tracing::info!(
+        event = "request_complete",
+        status = 200,
+        "Request completed successfully"
+    );
+
     // Convert NanoResponse to axum response
     nano_response.to_axum_response()
 }
@@ -458,6 +472,11 @@ pub async fn dispatch_to_worker_pool(
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "default".to_string());
+
+    // Generate request ID and create span with context
+    let request_id = format!("req_{}", Uuid::new_v4().to_string()[..8].to_string());
+    let span = create_request_span(&host, &request_id);
+    let _enter = span.enter();
 
     tracing::debug!("Dispatching request to worker pool for host: {}", host);
 
