@@ -126,7 +126,11 @@ Plans:
   1. fetch() from JavaScript makes outbound HTTP requests via tokio/hyper
   2. Response body streams via ReadableStream (backpressure handled)
   3. Request body streams via WritableStream for large uploads
-**Plans:** TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Outbound fetch() with hyper client and ReadableStream response bodies
+- [ ] 06-02-PLAN.md — WritableStream for streaming request body uploads
 
 ### Phase 7: Production Features & Admin API
 **Goal:** Runtime has production-grade observability, metrics, operational stability, and remote management capabilities
@@ -182,9 +186,9 @@ Plans:
 | 3. Runtime APIs | 4/4 | ✅ Complete | 2026-04-19 |
 | 4. WorkerPool & Dispatch | 3/3 | ✅ Complete | 2026-04-19 |
 | 5. Multi-App Hosting | 0/3 | Not started | - |
-| 6. Outbound I/O | 0/2 | Not started | - |
-| 7. Production Features | 0/2 | Not started | - |
-| 8. Framework Compatibility | 0/3 | Not started | - |
+| 6. Outbound I/O | 0/2 | Planned | - |
+| 7. Production Features | 0/5 | Not started | - |
+| 8. Framework Compatibility | 0/2 | Not started | - |
 | 9. Crypto Core | 0/2 | Not started | - |
 
 ## Success Criteria by Phase
