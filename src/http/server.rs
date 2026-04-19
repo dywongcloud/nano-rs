@@ -1,13 +1,13 @@
 //! HTTP server implementation
 //!
 //! Provides the HTTP server for NANO runtime using axum. Includes
-//! configurable middleware stack (tracing, timeout, compression) and
-//! health endpoint for liveness checks.
+//! configurable middleware stack (tracing, timeout, compression),
+//! health endpoint, and virtual host routing.
 
 use anyhow::{Context, Result};
 use axum::{
     http::StatusCode,
-    routing::get,
+    routing::{any, get},
     Router,
 };
 use std::sync::Arc;
@@ -20,6 +20,7 @@ use tower_http::{
 };
 
 use crate::http::config::ServerConfig;
+use crate::http::router::{virtual_host_handler, AppState, HandlerType, RouteTarget, VirtualHostRouter};
 
 /// Application state shared across all request handlers
 ///
@@ -58,12 +59,12 @@ async fn health_handler() -> StatusCode {
     StatusCode::OK
 }
 
-/// Create the axum application router
+/// Create the axum application router with virtual host routing
 ///
-/// Builds the router with the full middleware stack per D-01:
-/// 1. TracingLayer - Request/response logging
-/// 2. TimeoutLayer - Request timeout (30s)
-/// 3. CompressionLayer - Response compression
+/// Builds the router with:
+/// 1. Health endpoint at /health (for load balancer checks)
+/// 2. Virtual host routing for all other paths
+/// 3. Middleware stack per D-01: Tracing → Timeout → Compression
 ///
 /// # Returns
 ///
@@ -74,10 +75,41 @@ async fn health_handler() -> StatusCode {
 /// This function does not panic.
 #[allow(deprecated)]
 pub fn create_app() -> Router {
-    let state = Arc::new(State::new());
+    // Create default handler (per D-04)
+    let default_target = RouteTarget {
+        hostname: "default".to_string(),
+        handler_type: HandlerType::StaticResponse("NANO Runtime".to_string()),
+    };
 
+    // Create router with example routes for testing
+    let mut router = VirtualHostRouter::new(default_target);
+
+    // Register example routes (will be configurable in Phase 5)
+    router.register(
+        "api.example.com".to_string(),
+        RouteTarget {
+            hostname: "api.example.com".to_string(),
+            handler_type: HandlerType::StaticResponse("API Handler".to_string()),
+        },
+    );
+
+    router.register(
+        "blog.example.com".to_string(),
+        RouteTarget {
+            hostname: "blog.example.com".to_string(),
+            handler_type: HandlerType::StaticResponse("Blog Handler".to_string()),
+        },
+    );
+
+    tracing::info!("Virtual host router initialized with {} routes", router.route_count());
+
+    // Create shared state with the router
+    let state = Arc::new(AppState { router });
+
+    // Build axum router with middleware
     Router::new()
-        .route("/health", get(health_handler))
+        .route("/health", get(health_handler))  // Keep health endpoint
+        .route("/{*path}", any(virtual_host_handler))  // Catch-all for virtual hosts (axum 0.8 syntax)
         .layer(TraceLayer::new_for_http())
         .layer(TimeoutLayer::new(Duration::from_secs(30)))
         .layer(CompressionLayer::new())

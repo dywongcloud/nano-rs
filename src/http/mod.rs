@@ -4,11 +4,14 @@
 //! - Configurable server binding
 //! - Middleware stack (tracing, timeout, compression)
 //! - Health endpoint for liveness checks
+//! - Virtual host routing by hostname
 //!
-//! Future phases add virtual host routing and WinterCG object handling.
+//! Future phases add WinterCG object handling.
 
 pub mod config;
+pub mod router;
 pub mod server;
 
 pub use config::ServerConfig;
+pub use router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};
 pub use server::start_server;

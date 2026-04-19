@@ -37,18 +37,31 @@ pub struct ServerConfig {
     /// Default: "0.0.0.0"
     /// Environment variable: `NANO_HOST`
     pub host: String,
+
+    /// Virtual host routes for testing
+    ///
+    /// Pairs of (hostname, handler_name) for registering test routes.
+    /// Full configuration file support comes in Phase 5.
+    ///
+    /// Default: Example routes for api.example.com and blog.example.com
+    pub routes: Vec<(String, String)>, // (hostname, handler_name)
 }
 
 impl Default for ServerConfig {
     /// Creates a default server configuration
     ///
     /// Uses port 8080 and binds to all interfaces (0.0.0.0).
+    /// Includes example virtual host routes for testing.
     /// These defaults are suitable for containerized deployments
     /// and local development.
     fn default() -> Self {
         Self {
             port: 8080,
             host: "0.0.0.0".to_string(),
+            routes: vec![
+                ("api.example.com".to_string(), "api".to_string()),
+                ("blog.example.com".to_string(), "blog".to_string()),
+            ],
         }
     }
 }
@@ -122,7 +135,13 @@ impl ServerConfig {
 
         let host = std::env::var("NANO_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
 
-        Ok(Self { port, host })
+        // Default routes for from_env (full config file support in Phase 5)
+        let routes = vec![
+            ("api.example.com".to_string(), "api".to_string()),
+            ("blog.example.com".to_string(), "blog".to_string()),
+        ];
+
+        Ok(Self { port, host, routes })
     }
 }
 
@@ -150,6 +169,7 @@ mod tests {
         let config = ServerConfig {
             port: 9090,
             host: "::1".to_string(),
+            routes: vec![],
         };
         let addr = config.socket_addr().unwrap();
         assert_eq!(addr.port(), 9090);

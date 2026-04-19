@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use axum::{
     body::Body,
-    extract::{Host, State},
-    http::{Request, Response, StatusCode},
+    extract::State,
+    http::{header, Request, Response, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -123,6 +123,13 @@ impl VirtualHostRouter {
             routes: HashMap::new(),
             default,
         }
+    }
+
+    /// Returns the number of registered routes
+    ///
+    /// Useful for logging and monitoring the router state.
+    pub fn route_count(&self) -> usize {
+        self.routes.len()
     }
 
     /// Registers a new hostname route
@@ -265,8 +272,7 @@ fn error_response(error: &str, message: &str, code: StatusCode) -> impl IntoResp
 /// # Arguments
 ///
 /// * `state` - Application state containing the virtual host router
-/// * `host` - The Host header value extracted by axum
-/// * `request` - The full HTTP request
+/// * `request` - The full HTTP request (includes Host header)
 ///
 /// # Returns
 ///
@@ -275,16 +281,23 @@ fn error_response(error: &str, message: &str, code: StatusCode) -> impl IntoResp
 /// # Example Flow
 ///
 /// 1. Request arrives with `Host: api.example.com`
-/// 2. Handler extracts hostname and calls `router.resolve("api.example.com")`
+/// 2. Handler extracts hostname from headers and calls `router.resolve("api.example.com")`
 /// 3. Router returns the RouteTarget for that hostname
 /// 4. Handler dispatches based on handler_type:
 ///    - `StaticResponse`: Returns the configured string
 ///    - `JavaScriptEntrypoint`: Returns placeholder (Phase 3 will execute JS)
 pub async fn virtual_host_handler(
     State(state): State<Arc<AppState>>,
-    Host(host): Host,
-    _request: Request<Body>,
+    request: Request<Body>,
 ) -> impl IntoResponse {
+    // Extract Host header from the request
+    let host = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "default".to_string());
+
     tracing::debug!("Request received for host: {}", host);
 
     let target = state.router.resolve(&host);
