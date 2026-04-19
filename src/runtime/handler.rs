@@ -35,6 +35,105 @@ pub async fn execute_handler(
     execute_in_v8(isolate, &code, &request_json)
 }
 
+/// Execute a JavaScript handler with an explicit V8 context
+///
+/// This variant is used by WorkerPool to execute handlers with a pre-existing
+/// V8 context (for context reset optimization).
+///
+/// # Arguments
+///
+/// * `isolate` - The V8 isolate
+/// * `v8_context` - The V8 context to execute in
+/// * `context` - The handler context with entrypoint and request
+///
+/// # Returns
+///
+/// Result containing NanoResponse or an error
+pub fn execute_handler_with_context(
+    isolate: &mut crate::v8::NanoIsolate,
+    v8_context: v8::Local<v8::Context>,
+    context: HandlerContext,
+) -> Result<NanoResponse> {
+    // Read the entrypoint file
+    let code = fs::read_to_string(&context.entrypoint)
+        .map_err(|e| anyhow!("Failed to read entrypoint '{}': {}", context.entrypoint, e))?;
+
+    // Create HandleScope for the isolate
+    let scope = &mut v8::HandleScope::new(isolate.isolate());
+
+    // Enter the provided context with ContextScope
+    let scope = &mut v8::ContextScope::new(scope, v8_context);
+
+    // Get global object
+    let global = v8_context.global(scope);
+
+    // Compile and execute the script
+    let code_string = v8::String::new(scope, &code)
+        .ok_or_else(|| anyhow!("Failed to create code string"))?;
+    let script = v8::Script::compile(scope, code_string, None)
+        .ok_or_else(|| anyhow!("Script compilation failed"))?;
+
+    // Execute script to define the fetch function
+    script.run(scope);
+
+    // Look for the fetch function on global scope
+    let fetch_key = v8::String::new(scope, "fetch").unwrap();
+    let fetch_val = match global.get(scope, fetch_key.into()) {
+        Some(val) => val,
+        None => {
+            // Return a default response for now - handler doesn't define fetch
+            return Ok(NanoResponse::ok()
+                .with_header("Content-Type", "text/plain")
+                .with_body("Handler executed (no fetch function defined)"));
+        }
+    };
+
+    let fetch_fn = fetch_val.cast::<v8::Function>();
+
+    // Serialize request to JSON and parse in V8
+    let request_json = serialize_request_to_json(&context.request);
+
+    // Get JSON.parse function
+    let json_key = v8::String::new(scope, "JSON").unwrap();
+    let json_val = match global.get(scope, json_key.into()) {
+        Some(val) => val,
+        None => return Err(anyhow!("JSON not found in global")),
+    };
+
+    let json_obj = match json_val.to_object(scope) {
+        Some(obj) => obj,
+        None => return Err(anyhow!("JSON is not an object")),
+    };
+
+    let parse_key = v8::String::new(scope, "parse").unwrap();
+    let parse_fn_val = match json_obj.get(scope, parse_key.into()) {
+        Some(val) => val,
+        None => return Err(anyhow!("JSON.parse not found")),
+    };
+
+    let parse_fn = parse_fn_val.cast::<v8::Function>();
+
+    // Create the JSON string and parse it
+    let json_str = match v8::String::new(scope, &request_json) {
+        Some(s) => s,
+        None => return Err(anyhow!("Failed to create JSON string")),
+    };
+
+    let js_request = match parse_fn.call(scope, json_val.into(), &[json_str.into()]) {
+        Some(req) => req,
+        None => return Err(anyhow!("Failed to parse request JSON")),
+    };
+
+    // Call the fetch handler with the Request
+    let result = fetch_fn.call(scope, global.into(), &[js_request]);
+
+    // Extract the response
+    match result {
+        Some(response) => extract_js_response(scope, response),
+        None => Err(anyhow!("Handler returned None")),
+    }
+}
+
 /// Internal function to execute handler in V8
 fn execute_in_v8(
     isolate: &mut crate::v8::NanoIsolate,
