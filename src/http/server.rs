@@ -23,6 +23,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+use crate::admin::metrics::metrics_handler;
 use crate::http::config::ServerConfig;
 use crate::http::router::{virtual_host_handler, AppState, HandlerType, RouteTarget, VirtualHostRouter};
 use crate::signal::ShutdownState;
@@ -174,6 +175,7 @@ pub fn create_app_with_shutdown(state: Arc<AppStateWithShutdown>) -> Router {
         // Admin endpoints
         .route("/_admin/health", get(admin_health_handler))
         .route("/_admin/ready", get(ready_handler))
+        .route("/_admin/metrics", get(metrics_handler))
         // Catch-all for virtual hosts - use the app_state directly
         .route("/{*path}", any({
             let state = app_state_clone;
