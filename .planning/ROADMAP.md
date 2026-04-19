@@ -180,7 +180,12 @@ Plans:
   2. crypto.subtle.importKey/exportKey handle JWK format for supported algorithms
   3. crypto.subtle.encrypt/decrypt work with AES-GCM (via ring crate)
   4. crypto.subtle.sign/verify work with HMAC (via ring crate)
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 09-01-PLAN.md — crypto.subtle infrastructure with CryptoKey and ring integration
+- [ ] 09-02-PLAN.md — AES-GCM encrypt/decrypt with key generation and JWK import/export
+- [ ] 09-03-PLAN.md — HMAC sign/verify with key generation and JWK import/export
 
 ## Progress
 
@@ -194,7 +199,7 @@ Plans:
 | 6. Outbound I/O | 0/2 | Planned | - |
 | 7. Production Features | 0/5 | Not started | - |
 | 8. Framework Compatibility | 2/2 | 📋 Ready to execute | - |
-| 9. Crypto Core | 0/2 | Not started | - |
+| 9. Crypto Core | 0/3 | 📋 Ready to execute | - |
 
 ## Success Criteria by Phase
 
