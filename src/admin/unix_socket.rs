@@ -125,11 +125,14 @@ pub async fn create_unix_socket(path: &Path) -> Result<UnixListener, std::io::Er
     let listener = UnixListener::bind(path)?;
     tracing::info!("Unix socket bound to: {}", path.display());
 
-    // Set socket permissions (owner + group read/write)
-    // Note: Using std::fs::set_permissions since tokio::fs version needs extra features
-    let perms = std::fs::Permissions::from_mode(0o660);
-    std::fs::set_permissions(path, perms)?;
-    tracing::info!("Unix socket permissions set to 0o660 (owner+group)");
+    // Set socket permissions (owner + group read/write) on Unix only
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o660);
+        std::fs::set_permissions(path, perms)?;
+        tracing::info!("Unix socket permissions set to 0o660 (owner+group)");
+    }
 
     Ok(listener)
 }

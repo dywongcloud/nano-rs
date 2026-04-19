@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
     
     let admin_handle = if !admin_api_key.is_empty() {
         let admin_config = nano::admin::server::AdminConfig::new(admin_api_key);
-        let admin_state = nano::admin::server::AdminState::new(registry);
+        let admin_state = nano::admin::server::AdminState::new(registry.clone());
 
         match nano::admin::server::start_admin_server(admin_config, admin_state).await {
             Ok(admin_server) => {
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
     let unix_socket_handle = if let Some(socket_path) = unix_socket_path {
         let unix_config = nano::admin::unix_socket::UnixSocketConfig::new(socket_path);
         let unix_auth = std::sync::Arc::new(nano::admin::auth::AdminAuth::new("unix-socket-unused"));
-        let unix_state = nano::admin::server::AdminState::new(registry);
+        let unix_state = nano::admin::server::AdminState::new(registry.clone());
 
         match nano::admin::unix_socket::start_unix_socket_server(unix_config, unix_state, unix_auth).await {
             Ok(unix_server) => {
