@@ -322,21 +322,11 @@ fn extract_js_response(
     let status = match obj.get(scope, status_key.into()) {
         Some(val) if !val.is_null() && !val.is_undefined() => {
             match val.to_integer(scope) {
-                Some(int) => {
-                    let s = int.value() as u16;
-                    eprintln!("DEBUG: Extracted status = {}", s);
-                    s
-                }
-                None => {
-                    eprintln!("DEBUG: Status value not an integer, defaulting to 200");
-                    200
-                }
+                Some(int) => int.value() as u16,
+                None => 200,
             }
         }
-        _ => {
-            eprintln!("DEBUG: Status not found, defaulting to 200");
-            200
-        }
+        _ => 200,
     };
 
     // Extract headers property
