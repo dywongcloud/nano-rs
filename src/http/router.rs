@@ -26,8 +26,10 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 
 use crate::http::{NanoRequest, NanoResponse, NanoHeaders, NanoUrl};
+use crate::worker::{HandlerTask, QueueError, WorkQueue};
 
 /// Handler type for routed requests
 ///
@@ -261,12 +263,33 @@ impl Default for VirtualHostRouter {
 
 /// Application state shared with axum handlers
 ///
-/// Contains the virtual host router for request routing decisions.
+/// Contains the virtual host router and WorkQueue for request dispatch.
 /// Wrapped in Arc for thread-safe sharing across requests.
 #[derive(Debug)]
 pub struct AppState {
     /// The virtual host router for hostname-based request routing
     pub router: VirtualHostRouter,
+    /// The WorkQueue for dispatching requests to worker pools
+    pub work_queue: Arc<Mutex<WorkQueue>>,
+}
+
+impl AppState {
+    /// Create a new AppState with the given router and worker configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `router` - The virtual host router
+    /// * `workers_per_pool` - Number of workers to create per hostname pool
+    ///
+    /// # Returns
+    ///
+    /// A new `AppState` with initialized WorkQueue
+    pub fn new(router: VirtualHostRouter, workers_per_pool: usize) -> Self {
+        Self {
+            router,
+            work_queue: Arc::new(Mutex::new(WorkQueue::new(workers_per_pool))),
+        }
+    }
 }
 
 /// JSON error response structure (per D-11)
@@ -408,6 +431,159 @@ pub async fn virtual_host_handler(
 
     // Convert NanoResponse to axum response
     nano_response.to_axum_response()
+}
+
+/// Dispatch request to worker pool via WorkQueue
+///
+/// This handler integrates the virtual host router with the WorkQueue,
+/// enabling affine dispatch: same hostname always routes to same worker.
+/// Returns HTTP 503 with Retry-After header when channel is full.
+///
+/// # Arguments
+///
+/// * `state` - Application state containing the router and WorkQueue
+/// * `request` - The full HTTP request
+///
+/// # Returns
+///
+/// An HTTP response from the worker pool or an error response
+pub async fn dispatch_to_worker_pool(
+    State(state): State<Arc<AppState>>,
+    request: Request<Body>,
+) -> impl IntoResponse {
+    // Extract Host header from the request
+    let host = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "default".to_string());
+
+    tracing::debug!("Dispatching request to worker pool for host: {}", host);
+
+    // Convert axum request to NanoRequest
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let headers = request.headers().clone();
+    let body = request.into_body();
+
+    // Construct full URL
+    let full_url = if uri.scheme().is_some() {
+        uri.to_string()
+    } else {
+        let path_and_query = uri.path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or("/");
+        format!("http://{}{}", host, path_and_query)
+    };
+
+    // Parse URL
+    let nano_url = match NanoUrl::parse(&full_url) {
+        Ok(url) => url,
+        Err(e) => {
+            tracing::error!("Failed to parse URL '{}': {}", full_url, e);
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"error":"BadRequest","message":"Invalid URL","code":400}}"#
+                )))
+                .unwrap();
+        }
+    };
+
+    let nano_headers = NanoHeaders::from_axum_headers(&headers);
+
+    // Read body (1MB limit per D-05)
+    let body_bytes = match axum::body::to_bytes(body, 1048576).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::error!("Failed to read body: {}", e);
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"error":"BadRequest","message":"Failed to read body","code":400}}"#
+                )))
+                .unwrap();
+        }
+    };
+    let nano_body = if body_bytes.is_empty() { None } else { Some(body_bytes) };
+
+    // Create NanoRequest
+    let nano_request = NanoRequest::new(
+        method.to_string(),
+        nano_url,
+        nano_headers,
+        nano_body,
+    );
+
+    // Look up route target
+    let target = state.router.resolve(&host);
+
+    // Extract entrypoint from target
+    let entrypoint = match &target.handler_type {
+        HandlerType::WinterCGHandler(path) => path.clone(),
+        HandlerType::StaticResponse(_) => {
+            // Static responses don't need worker dispatch
+            let nano_response = target.handle(nano_request).await;
+            return nano_response.to_axum_response();
+        }
+    };
+
+    // Create oneshot channel for response
+    let (tx, rx) = tokio::sync::oneshot::channel();
+
+    // Create handler task
+    let task = HandlerTask {
+        entrypoint,
+        request: nano_request,
+        response_tx: tx,
+    };
+
+    // Dispatch to WorkQueue (async Mutex lock)
+    let mut queue = state.work_queue.lock().await;
+    match queue.dispatch(&host, task) {
+        Ok(()) => {
+            // Wait for response from worker
+            match rx.await {
+                Ok(Ok(response)) => response.to_axum_response(),
+                Ok(Err(e)) => {
+                    tracing::error!("Handler error: {}", e);
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header("content-type", "text/plain")
+                        .body(Body::from("Internal Server Error"))
+                        .unwrap()
+                }
+                Err(_) => {
+                    tracing::error!("Response channel closed");
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header("content-type", "text/plain")
+                        .body(Body::from("Internal Server Error"))
+                        .unwrap()
+                }
+            }
+        }
+        Err(QueueError::ChannelFull) => {
+            tracing::warn!("WorkQueue full for hostname: {}", host);
+            Response::builder()
+                .status(StatusCode::SERVICE_UNAVAILABLE)
+                .header("Retry-After", "1")
+                .header("content-type", "text/plain")
+                .body(Body::from("Service Unavailable - Queue Full"))
+                .unwrap()
+        }
+        Err(e) => {
+            tracing::error!("Dispatch error: {}", e);
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("content-type", "text/plain")
+                .body(Body::from("Internal Server Error"))
+                .unwrap()
+        }
+    }
 }
 
 #[cfg(test)]

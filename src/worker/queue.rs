@@ -55,7 +55,7 @@ impl std::fmt::Display for QueueError {
 impl std::error::Error for QueueError {}
 
 /// Statistics for monitoring WorkQueue performance
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct QueueStats {
     /// Total tasks submitted
     pub tasks_submitted: AtomicU64,
@@ -147,14 +147,16 @@ impl WorkerPool {
     pub fn new(hostname: &str, worker_count: usize) -> Self {
         let mut workers = Vec::with_capacity(worker_count);
         let channel_capacity = 256; // POOL-02 requirement
+        let hostname_owned = hostname.to_string();
 
         for id in 0..worker_count {
             // Create bounded MPSC channel (256 slots per POOL-02)
             let (task_tx, task_rx) = sync_channel::<HandlerTask>(channel_capacity);
 
             // Spawn worker thread
+            let hostname_thread = hostname_owned.clone();
             let thread = thread::spawn(move || {
-                tracing::info!("Worker {} started for {}", id, hostname);
+                tracing::info!("Worker {} started for {}", id, hostname_thread);
 
                 // Worker loop - blocks on channel receive
                 loop {
@@ -180,7 +182,7 @@ impl WorkerPool {
                     }
                 }
 
-                tracing::info!("Worker {} stopped for {}", id, hostname);
+                tracing::info!("Worker {} stopped for {}", id, hostname_thread);
             });
 
             workers.push(WorkerHandle {
@@ -315,18 +317,20 @@ impl WorkQueue {
     ///
     /// `Ok(())` if dispatched, `Err(QueueError::ChannelFull)` for backpressure
     pub fn dispatch(&mut self, hostname: &str, task: HandlerTask) -> Result<(), QueueError> {
+        // Calculate worker index first (doesn't need pool reference)
+        let hostname_hash = hash_hostname(hostname);
+
         // Get or create pool for this hostname
         let pool = self.get_or_create_pool(hostname);
-
-        // Calculate worker index using hash % worker_count (affine dispatch per POOL-03)
-        let hostname_hash = hash_hostname(hostname);
         let worker_index = (hostname_hash % pool.worker_count as u64) as usize;
 
-        // Update stats
+        // Try dispatch with bounded channel (consume the pool reference)
+        let result = pool.try_dispatch(task, worker_index);
+
+        // Update stats after pool borrow is released
         self.stats.tasks_submitted.fetch_add(1, Ordering::Relaxed);
 
-        // Try dispatch with bounded channel
-        match pool.try_dispatch(task, worker_index) {
+        match result {
             Ok(()) => Ok(()),
             Err(QueueError::ChannelFull) => {
                 self.stats.tasks_dropped.fetch_add(1, Ordering::Relaxed);

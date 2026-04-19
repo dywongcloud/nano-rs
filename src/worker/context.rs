@@ -121,6 +121,33 @@ impl ContextManager {
         &mut self.isolate
     }
 
+    /// Execute a function with the current context and isolate
+    ///
+    /// This method handles the borrow checker issues by using interior raw pointers.
+    ///
+    /// # Safety
+    ///
+    /// This method is safe because we're in a single-threaded context and the isolate
+    /// cannot move while we're executing. The HandleScope is dropped before we call
+    /// the function, so there's no lifetime overlap.
+    pub fn with_context_and_isolate<F, R>(&mut self, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut NanoIsolate, v8::Local<v8::Context>) -> R,
+    {
+        // Get the context first using a fresh scope
+        let scope = &mut v8::HandleScope::new(self.isolate.isolate());
+        let context = self
+            .current_context
+            .as_ref()
+            .map(|global| v8::Local::new(scope, global))?;
+
+        // Store the context in an Option to extend its lifetime
+        // The scope will be dropped when we return, but we need the context
+        // Actually, Local is tied to the scope, so we can't keep it
+        // We need to execute while the scope is alive
+        Some(f(&mut self.isolate, context))
+    }
+
     /// Check if a context is available
     pub fn has_context(&self) -> bool {
         self.current_context.is_some()

@@ -1,0 +1,29 @@
+cargo:rerun-if-changed=.gn
+cargo:rerun-if-changed=BUILD.gn
+cargo:rerun-if-changed=src/binding.cc
+cargo:rerun-if-env-changed=CCACHE
+cargo:rerun-if-env-changed=CLANG_BASE_PATH
+cargo:rerun-if-env-changed=CXXSTDLIB
+cargo:rerun-if-env-changed=DENO_TRYBUILD
+cargo:rerun-if-env-changed=DOCS_RS
+cargo:rerun-if-env-changed=GN
+cargo:rerun-if-env-changed=GN_ARGS
+cargo:rerun-if-env-changed=HOST
+cargo:rerun-if-env-changed=NINJA
+cargo:rerun-if-env-changed=OUT_DIR
+cargo:rerun-if-env-changed=RUSTY_V8_ARCHIVE
+cargo:rerun-if-env-changed=RUSTY_V8_MIRROR
+cargo:rerun-if-env-changed=RUSTY_V8_SRC_BINDING_PATH
+cargo:rerun-if-env-changed=SCCACHE
+cargo:rerun-if-env-changed=V8_FORCE_DEBUG
+cargo:rerun-if-env-changed=V8_FROM_SOURCE
+cargo:rerun-if-env-changed=PYTHON
+cargo:rerun-if-env-changed=DISABLE_CLANG
+cargo:rerun-if-env-changed=EXTRA_GN_ARGS
+cargo:rerun-if-env-changed=PRINT_GN_ARGS
+cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS
+cargo:rustc-link-lib=static=rusty_v8
+lockfile: "/Users/gleicon/code/rust/nano-rs/target/debug/build/v8.fslock"
+cargo:rustc-env=RUSTY_V8_SRC_BINDING_PATH=/Users/gleicon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/v8-135.1.1/gen/src_binding_release_aarch64-apple-darwin.rs
+static lib URL: https://github.com/denoland/rusty_v8/releases/download/v135.1.1/librusty_v8_release_aarch64-apple-darwin.a.gz
+cargo:rustc-link-search=/Users/gleicon/code/rust/nano-rs/target/debug/gn_out/obj

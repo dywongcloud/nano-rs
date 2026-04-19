@@ -22,16 +22,16 @@
 
 ### JavaScript Runtime APIs
 
-- [ ] **API-01**: fetch() handler interface (Cloudflare Workers style)
-- [ ] **API-02**: console.log/warn/error output to structured logs
-- [ ] **API-03**: TextEncoder/TextDecoder for UTF-8
- - [x] **API-04**: setTimeout/setInterval/clearTimeout/clearInterval (event loop integration) ✅
- - [x] **API-05**: AbortController/AbortSignal for cancellation ✅
-- [ ] **API-06**: structuredClone() for object serialization
-- [ ] **API-07**: crypto.getRandomValues() for random bytes
-- [ ] **API-08**: performance.now() for high-res timing
-- [ ] **API-09**: Blob and FormData for binary/form handling
-- [ ] **API-10**: DOMException for error types
+- [x] **API-01**: fetch() handler interface (Cloudflare Workers style) ✅
+- [x] **API-02**: console.log/warn/error output to structured logs ✅
+- [x] **API-03**: TextEncoder/TextDecoder for UTF-8 ✅
+- [x] **API-04**: setTimeout/setInterval/clearTimeout/clearInterval (event loop integration) ✅
+- [x] **API-05**: AbortController/AbortSignal for cancellation ✅
+- [x] **API-06**: structuredClone() for object serialization ✅
+- [x] **API-07**: crypto.getRandomValues() for random bytes ✅
+- [x] **API-08**: performance.now() for high-res timing ✅
+- [x] **API-09**: Blob and FormData for binary/form handling ✅
+- [x] **API-10**: DOMException for error types ✅
 
 ### WorkerPool & Dispatch
 

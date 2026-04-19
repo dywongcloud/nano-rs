@@ -28,10 +28,12 @@
 
 pub mod context;
 pub mod pool;
+pub mod queue;
 
 // Re-export types
 pub use context::ContextManager;
 pub use pool::{WorkerHandle, WorkerPool};
+pub use queue::{hash_hostname, QueueError, QueueStats, StatsSnapshot, WorkQueue};
 
 use crate::http::{NanoRequest, NanoResponse};
 use tokio::sync::oneshot;

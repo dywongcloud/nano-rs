@@ -103,8 +103,8 @@ pub fn create_app() -> Router {
 
     tracing::info!("Virtual host router initialized with {} routes", router.route_count());
 
-    // Create shared state with the router
-    let state = Arc::new(AppState { router });
+    // Create shared state with the router and WorkQueue
+    let state = Arc::new(AppState::new(router, 4));  // 4 workers per hostname pool
 
     // Build axum router with middleware
     Router::new()

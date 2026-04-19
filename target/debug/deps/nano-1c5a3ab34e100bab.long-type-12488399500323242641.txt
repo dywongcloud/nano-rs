@@ -1,0 +1,2 @@
+fn(axum::extract::State<Arc<AppState>>, {type error}, axum::http::Request<Body>) -> impl Future<Output = impl IntoResponse> {virtual_host_handler}
+fn(axum::extract::State<Arc<AppState>>, {type error}, axum::http::Request<Body>) -> impl Future<Output = impl IntoResponse> {virtual_host_handler}: Handler<_, _>

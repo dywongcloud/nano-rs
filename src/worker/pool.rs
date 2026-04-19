@@ -4,7 +4,7 @@
 //! each owning a V8 isolate. Tasks are dispatched via MPSC channels
 //! and responses are returned via oneshot channels.
 
-use crate::runtime::handler::{execute_handler, HandlerContext};
+use crate::runtime::{execute_handler, HandlerContext};
 use crate::v8::{initialize_platform, NanoIsolate};
 use crate::worker::HandlerTask;
 
@@ -40,7 +40,9 @@ impl WorkerHandle {
     ///
     /// `Ok(())` if the task was sent, `Err` if the channel is closed
     pub fn send(&self, task: HandlerTask) -> Result<()> {
-        self.task_tx.send(task).map_err(|_| anyhow!("Worker {} channel closed", self.id))
+        self.task_tx
+            .send(task)
+            .map_err(|_| anyhow!("Worker {} channel closed", self.id))
     }
 
     /// Take the join handle for thread cleanup
@@ -135,9 +137,7 @@ impl WorkerPool {
                             };
 
                             // Execute handler using pollster for async in sync thread
-                            let result = pollster::block_on(
-                                execute_handler(&mut isolate, context)
-                            );
+                            let result = pollster::block_on(execute_handler(&mut isolate, context));
 
                             // Send response back (ignore send errors - receiver may have dropped)
                             let _ = task.response_tx.send(result);
@@ -310,7 +310,8 @@ mod tests {
     fn create_test_handler(dir: &TempDir, filename: &str, code: &str) -> String {
         let path = dir.path().join(filename);
         let mut file = fs::File::create(&path).expect("Failed to create test file");
-        file.write_all(code.as_bytes()).expect("Failed to write test code");
+        file.write_all(code.as_bytes())
+            .expect("Failed to write test code");
         path.to_string_lossy().to_string()
     }
 
@@ -351,12 +352,7 @@ function fetch(request) {
 
         // Create task
         let url = NanoUrl::parse("http://test/").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let (tx, rx) = oneshot::channel();
         let task = HandlerTask::new(entrypoint, request, tx);
@@ -403,12 +399,7 @@ function fetch(request) {
         let mut receivers = vec![];
         for i in 0..10 {
             let url = NanoUrl::parse(&format!("http://test/{}", i)).unwrap();
-            let request = NanoRequest::new(
-                "GET".to_string(),
-                url,
-                NanoHeaders::new(),
-                None,
-            );
+            let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
             let (tx, rx) = oneshot::channel();
             let task = HandlerTask::new(entrypoint.clone(), request, tx);
@@ -419,8 +410,15 @@ function fetch(request) {
 
         // All should complete successfully
         for (i, rx) in receivers.into_iter().enumerate() {
-            let response = rx.blocking_recv().expect(&format!("Failed to receive response {}", i));
-            assert!(response.is_ok(), "Request {} failed: {:?}", i, response.err());
+            let response = rx
+                .blocking_recv()
+                .expect(&format!("Failed to receive response {}", i));
+            assert!(
+                response.is_ok(),
+                "Request {} failed: {:?}",
+                i,
+                response.err()
+            );
             let resp = response.unwrap();
             assert_eq!(resp.status(), 200);
         }
@@ -444,12 +442,7 @@ function fetch(request) {
         // Dispatch 6 tasks - should hit workers 0,1,2,0,1,2
         for _ in 0..6 {
             let url = NanoUrl::parse("http://test/").unwrap();
-            let request = NanoRequest::new(
-                "GET".to_string(),
-                url,
-                NanoHeaders::new(),
-                None,
-            );
+            let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
             let (tx, rx) = oneshot::channel();
             let task = HandlerTask::new(entrypoint.clone(), request, tx);
@@ -477,17 +470,13 @@ function fetch(request) {
 
         // Dispatch to specific worker
         let url = NanoUrl::parse("http://test/").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let (tx, rx) = oneshot::channel();
         let task = HandlerTask::new(entrypoint, request, tx);
 
-        pool.dispatch_to(1, task).expect("Dispatch to worker 1 failed");
+        pool.dispatch_to(1, task)
+            .expect("Dispatch to worker 1 failed");
 
         let response = rx.blocking_recv().expect("Failed to receive");
         assert!(response.is_ok());
@@ -508,12 +497,7 @@ function fetch(request) {
         let pool = WorkerPool::new("test.example.com".to_string(), 2);
 
         let url = NanoUrl::parse("http://test/").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let (tx, _rx) = oneshot::channel();
         let task = HandlerTask::new(entrypoint, request, tx);
