@@ -294,9 +294,9 @@ fn resolve_promise<'s>(
 }
 
 /// Extract a NanoResponse from a V8 JavaScript Response object
-fn extract_js_response(
-    scope: &mut v8::ContextScope<v8::HandleScope>,
-    js_response: v8::Local<v8::Value>,
+fn extract_js_response<'a>(
+    scope: &mut v8::ContextScope<'a, v8::HandleScope<'a>>,
+    js_response: v8::Local<'a, v8::Value>,
 ) -> Result<NanoResponse> {
     // First, resolve the Promise if needed
     let js_response = match resolve_promise(scope, js_response) {
