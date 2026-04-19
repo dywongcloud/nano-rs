@@ -6,6 +6,10 @@ authors = ["Gleicon Moraes <gleicon@gmail.com>"]
 description = "Multi-tenant JavaScript edge runtime (Rust + rusty_v8)"
 license = "MIT"
 
+[lib]
+name = "nano"
+path = "src/lib.rs"
+
 [[bin]]
 name = "nano-rs"
 path = "src/main.rs"

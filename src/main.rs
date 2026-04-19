@@ -7,7 +7,7 @@ fn main() -> Result<()> {
     tracing::info!("NANO Edge Runtime starting...");
 
     // Run the library entry point
-    nano_rs::run()?;
+    nano::run()?;
 
     Ok(())
 }
