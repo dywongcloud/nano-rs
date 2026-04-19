@@ -261,7 +261,11 @@ fn execute_in_v8(
                 match promise.state() {
                     v8::PromiseState::Fulfilled => Some(promise.result(scope)),
                     v8::PromiseState::Rejected => {
-                        return Err(anyhow!("Promise rejected"));
+                        let error = promise.result(scope);
+                        let error_str = error.to_string(scope)
+                            .map(|s| s.to_rust_string_lossy(scope))
+                            .unwrap_or_else(|| "Unknown error".to_string());
+                        return Err(anyhow!("Promise rejected: {}", error_str));
                     }
                     v8::PromiseState::Pending => {
                         return Err(anyhow!("Promise still pending - async execution not fully supported"));
