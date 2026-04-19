@@ -15,7 +15,7 @@ This roadmap maps NANO's migration from Zig to Rust, delivering a multi-tenant e
 
 ## Phases
 
-- [ ] **Phase 1: V8 Foundation** — rusty_v8 integration with EPT fix, single isolate proof-of-concept
+- [x] **Phase 1: V8 Foundation** — rusty_v8 integration with EPT fix, single isolate proof-of-concept ✅
 - [ ] **Phase 2: HTTP Server Core** — axum server with virtual host routing and WinterCG request/response objects
 - [ ] **Phase 3: Runtime APIs** — Core JavaScript APIs (fetch handler, console, timers, encoding, crypto basics)
 - [ ] **Phase 4: WorkerPool & Dispatch** — Multi-threaded worker pools with context reset and affine dispatch
@@ -39,9 +39,9 @@ This roadmap maps NANO's migration from Zig to Rust, delivering a multi-tenant e
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Project skeleton with cargo config and rusty_v8 dependencies
-- [ ] 01-02-PLAN.md — V8 platform initialization with EPT fix sentinel
-- [ ] 01-03-PLAN.md — JavaScript execution with console.log binding
+- [x] 01-01-PLAN.md — Project skeleton with cargo config and rusty_v8 dependencies
+- [x] 01-02-PLAN.md — V8 platform initialization with EPT fix sentinel
+- [x] 01-03-PLAN.md — JavaScript execution with console.log binding
 
 ### Phase 2: HTTP Server Core
 **Goal:** HTTP server accepts requests and routes by Host header with WinterCG-compatible objects
@@ -145,7 +145,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. V8 Foundation | 3/3 | Ready to execute | - |
+| 1. V8 Foundation | 3/3 | ✅ Complete | 2026-04-19 |
 | 2. HTTP Server Core | 0/3 | Not started | - |
 | 3. Runtime APIs | 0/4 | Not started | - |
 | 4. WorkerPool & Dispatch | 0/3 | Not started | - |
@@ -158,8 +158,8 @@ Plans:
 ## Success Criteria by Phase
 
 ### Phase 1
-- [ ] Platform initializes without EPT crashes
-- [ ] Basic JS execution works
+- [x] Platform initializes without EPT crashes (100 isolate stress test passed)
+- [x] Basic JS execution works (console.log("hello") prints to stdout)
 
 ### Phase 2
 - [ ] HTTP server responds to requests
