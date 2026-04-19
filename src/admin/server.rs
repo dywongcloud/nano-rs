@@ -78,6 +78,11 @@ pub struct AdminConfig {
     /// Path to TLS key (optional, for HTTPS)
     #[serde(default)]
     pub tls_key_path: Option<String>,
+
+    /// Unix socket path for local admin access (optional)
+    /// When set, creates a Unix socket at this path with no API key required
+    #[serde(default)]
+    pub unix_socket_path: Option<std::path::PathBuf>,
 }
 
 fn default_admin_port() -> u16 {
@@ -96,6 +101,7 @@ impl Default for AdminConfig {
             api_key: String::new(),
             tls_cert_path: None,
             tls_key_path: None,
+            unix_socket_path: None,
         }
     }
 }
@@ -220,7 +226,8 @@ impl AdminServer {
 /// Simple admin state wrapper for axum
 #[derive(Debug, Clone)]
 pub struct AdminStateAxum {
-    inner: AdminState,
+    /// The inner admin state
+    pub inner: AdminState,
 }
 
 impl AdminStateAxum {
