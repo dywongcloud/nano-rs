@@ -60,7 +60,7 @@ struct MetricsError {
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// GET /_admin/metrics
 ///
 /// # HELP nano_requests_total Total HTTP requests

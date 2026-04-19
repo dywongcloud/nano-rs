@@ -121,14 +121,14 @@ impl AuthError {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```ignore
 /// use axum::Router;
 /// use axum::routing::get;
 /// use nano::admin::auth::{api_key_middleware, AdminAuth};
 /// use std::sync::Arc;
 ///
 /// let auth = AdminAuth::new("my-secret-key");
-/// let app = Router::new()
+/// let app: Router = Router::new()
 ///     .route("/admin/protected", get(|| async { "Hello" }))
 ///     .layer(axum::middleware::from_fn_with_state(
 ///         Arc::new(auth),

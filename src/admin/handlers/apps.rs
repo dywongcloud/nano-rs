@@ -207,7 +207,7 @@ fn config_to_info(config: &AppConfig, status: AppStatus, created_at: &str) -> Ap
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// GET /admin/apps
 ///
 /// Response:
@@ -255,7 +255,7 @@ pub async fn list_apps(
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// GET /admin/apps/api.example.com
 ///
 /// Response:
@@ -291,7 +291,7 @@ pub async fn get_app(
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// POST /admin/apps
 /// {
 ///   "hostname": "new-app.example.com",
@@ -393,7 +393,7 @@ pub async fn create_app(
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// PATCH /admin/apps/api.example.com
 /// {
 ///   "limits": {"memory_mb": 256, "timeout_secs": 60, "workers": 8}
@@ -464,7 +464,7 @@ pub async fn update_app(
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// DELETE /admin/apps/api.example.com
 ///
 /// Response (200 OK):
@@ -514,7 +514,7 @@ pub async fn delete_app(
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// POST /admin/apps/new-app.example.com/activate
 ///
 /// Response:
@@ -552,7 +552,7 @@ pub async fn activate_app(
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// POST /admin/apps/api.example.com/disable
 ///
 /// Response:
@@ -588,7 +588,7 @@ pub async fn disable_app(
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// POST /admin/apps/api.example.com/enable
 ///
 /// Response:
@@ -624,7 +624,7 @@ pub async fn enable_app(
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// POST /admin/apps/api.example.com/reload
 ///
 /// Response:
@@ -660,7 +660,7 @@ pub async fn reload_app(
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// POST /admin/apps/api.example.com/scale?workers=8
 ///
 /// Response:
@@ -718,7 +718,7 @@ pub struct ScaleRequest {
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// POST /admin/apps/api.example.com/drain
 ///
 /// Response:

@@ -183,7 +183,7 @@ fn convert_isolate(info: &IsolateInfo) -> IsolateResponse {
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// GET /admin/isolates
 ///
 /// Response:

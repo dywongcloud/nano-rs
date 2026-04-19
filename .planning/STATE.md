@@ -102,6 +102,11 @@
 - [x] Plan Phase 6: Outbound I/O (2 plans)
 - [x] Execute 06-01: Outbound fetch() core ✅
 - [x] Execute 06-02: WritableStream uploads ✅
+- [x] Plan Phase 7: Production Features & Admin API ✅
+  - [x] Research structured logging, metrics, signals, Unix sockets
+  - [x] Create 07-RESEARCH.md
+  - [x] Create PLAN.md with 6 executable plans
+  - [x] Update ROADMAP.md
 
 ### Blockers
 (None)
@@ -152,11 +157,26 @@
 | 04-02 | WorkQueue & Affine Dispatch | ✅ Complete | Part of 04-03 |
 | 04-03 | Context Lifecycle Management | ✅ Complete | 7127a27, 75f1d75 |
 
+## Phase 7 Status
+
+| Plan | Name | Status | Requirements |
+|------|------|--------|--------------|
+| 07-01 | Structured JSON Logging | 📝 Planned | PROD-01 |
+| 07-02 | Prometheus Metrics Endpoint | 📝 Planned | PROD-02 |
+| 07-03 | Graceful Shutdown | 📝 Planned | PROD-03 |
+| 07-04 | OOM Detection Integration | 📝 Planned | PROD-04 |
+| 07-05 | Admin API HTTP Server | 📝 Planned | PROD-05, PROD-07, PROD-08 |
+| 07-06 | Unix Domain Socket Admin | 📝 Planned | PROD-06 |
+
+**Research:** [07-RESEARCH.md](./phases/07-production-features/07-RESEARCH.md) — Technical domains researched  
+**Context:** [07-CONTEXT.md](./phases/07-production-features/07-CONTEXT.md) — 17 implementation decisions (D-01 to D-17)  
+**Plan:** [PLAN.md](./phases/07-production-features/PLAN.md) — 6 executable plans with integration strategy
+
 ## Session Continuity
 
-**Last action:** Executed Plan 06-02 — WritableStream with backpressure and fetch() streaming body integration  
-**Next action:** Continue Phase 6: Add V8 binding for WritableStream, wire streaming to actual HTTP requests  
-**Context valid through:** Phase 6 Plans 1-2 complete, 48 tests passing
+**Last action:** Planned Phase 7 — Created executable plan for Production Features & Admin API  
+**Next action:** Execute Phase 7 plans: Start with 07-01 Structured JSON Logging  
+**Context valid through:** Phase 6 complete (48 tests), Phase 7 planned with 6 executable plans
 
 ---
 *State file: Updates at phase transitions and session boundaries*

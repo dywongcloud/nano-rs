@@ -41,7 +41,7 @@ pub struct ReadyResponse {
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// GET /admin/health
 ///
 /// Response:
@@ -80,7 +80,7 @@ pub async fn health_handler() -> (StatusCode, Json<HealthResponse>) {
 ///
 /// # Example
 ///
-/// ```
+/// ```text
 /// GET /admin/ready
 ///
 /// Response (ready):

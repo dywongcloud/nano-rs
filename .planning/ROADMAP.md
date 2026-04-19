@@ -145,14 +145,16 @@ Plans:
   6. Unix domain socket at /var/run/nano/control.sock for local access
   7. Admin endpoints: /admin/isolates, /admin/apps, /admin/logs, /admin/drain, /admin/reload
   8. Runtime app CRUD: add, remove, disable, enable, scale workers without restart
-**Plans:** 5 plans
+**Plans:** 6 plans — PLANNED ✅
 
 Plans:
-- [ ] 07-01-PLAN.md — Structured logging and request tracing
-- [ ] 07-02-PLAN.md — Metrics endpoint with Prometheus export
-- [ ] 07-03-PLAN.md — Graceful shutdown and OOM detection
-- [ ] 07-04-PLAN.md — HTTP Admin API foundation with authentication
-- [ ] 07-05-PLAN.md — Unix socket, CLI tool, and runtime app management
+- [x] PLAN.md — Phase 7 master plan (6 executable plans)
+- [ ] 07-01 — Structured JSON Logging with rich context fields
+- [ ] 07-02 — Prometheus Metrics Endpoint with counters/gauges/histograms
+- [ ] 07-03 — Graceful Shutdown with SIGTERM/SIGINT handling
+- [ ] 07-04 — OOM Detection Integration with heap monitoring
+- [ ] 07-05 — Admin API HTTP Server with API key authentication
+- [ ] 07-06 — Unix Domain Socket Admin for local access
 
 ### Phase 8: Framework Compatibility
 **Goal:** Popular JavaScript frameworks run without modification on NANO

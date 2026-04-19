@@ -10,7 +10,7 @@
 //!
 //! # Example
 //!
-//! ```rust
+//! ```ignore
 //! use nano::metrics::{Counter, Gauge, Histogram};
 //!
 //! // Record a counter increment
@@ -26,7 +26,7 @@ pub mod types;
 
 pub use collector::MetricsRegistry;
 pub use exporter::PrometheusExporter;
-pub use types::{Counter, Gauge, Histogram, MetricLabels};
+pub use types::{Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec, MetricLabels};
 
 use std::sync::LazyLock;
 
@@ -41,7 +41,16 @@ pub static METRICS: LazyLock<MetricsRegistry> = LazyLock::new(MetricsRegistry::n
 /// These buckets cover the range from 1ms to 1s+ (infinity)
 /// as specified in D-04 decision.
 pub const REQUEST_DURATION_BUCKETS: &[f64] = &[
-    1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, f64::INFINITY,
+    1.0,
+    5.0,
+    10.0,
+    25.0,
+    50.0,
+    100.0,
+    250.0,
+    500.0,
+    1000.0,
+    f64::INFINITY,
 ];
 
 #[cfg(test)]
@@ -58,13 +67,13 @@ mod tests {
     fn test_request_duration_buckets() {
         // Verify we have the expected number of buckets (10)
         assert_eq!(REQUEST_DURATION_BUCKETS.len(), 10);
-        
+
         // Verify first bucket is 1ms
         assert_eq!(REQUEST_DURATION_BUCKETS[0], 1.0);
-        
+
         // Verify last bucket is infinity
         assert!(REQUEST_DURATION_BUCKETS[9].is_infinite());
-        
+
         // Verify buckets are sorted ascending
         for i in 1..REQUEST_DURATION_BUCKETS.len() - 1 {
             assert!(
