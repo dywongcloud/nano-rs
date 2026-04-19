@@ -120,7 +120,7 @@ impl RuntimeAPIs {
         global.set(scope, key.into(), decoder_ctor.into());
     }
 
-    /// Bind crypto API with getRandomValues
+    /// Bind crypto API with getRandomValues and subtle
     fn bind_crypto(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
@@ -132,6 +132,55 @@ impl RuntimeAPIs {
             let key = v8::String::new(scope, "getRandomValues").unwrap();
             crypto.set(scope, key.into(), grv_fn.into());
         }
+
+        // Bind subtle object with crypto.subtle methods
+        let subtle = v8::Object::new(scope);
+        
+        // generateKey method
+        if let Some(fn_gen) = v8::Function::new(scope, subtle_generate_key) {
+            let key = v8::String::new(scope, "generateKey").unwrap();
+            subtle.set(scope, key.into(), fn_gen.into());
+        }
+        
+        // importKey method
+        if let Some(fn_imp) = v8::Function::new(scope, subtle_import_key) {
+            let key = v8::String::new(scope, "importKey").unwrap();
+            subtle.set(scope, key.into(), fn_imp.into());
+        }
+        
+        // exportKey method
+        if let Some(fn_exp) = v8::Function::new(scope, subtle_export_key) {
+            let key = v8::String::new(scope, "exportKey").unwrap();
+            subtle.set(scope, key.into(), fn_exp.into());
+        }
+        
+        // encrypt method
+        if let Some(fn_enc) = v8::Function::new(scope, subtle_encrypt) {
+            let key = v8::String::new(scope, "encrypt").unwrap();
+            subtle.set(scope, key.into(), fn_enc.into());
+        }
+        
+        // decrypt method
+        if let Some(fn_dec) = v8::Function::new(scope, subtle_decrypt) {
+            let key = v8::String::new(scope, "decrypt").unwrap();
+            subtle.set(scope, key.into(), fn_dec.into());
+        }
+        
+        // sign method
+        if let Some(fn_sign) = v8::Function::new(scope, subtle_sign) {
+            let key = v8::String::new(scope, "sign").unwrap();
+            subtle.set(scope, key.into(), fn_sign.into());
+        }
+        
+        // verify method
+        if let Some(fn_verify) = v8::Function::new(scope, subtle_verify) {
+            let key = v8::String::new(scope, "verify").unwrap();
+            subtle.set(scope, key.into(), fn_verify.into());
+        }
+        
+        // Attach subtle to crypto
+        let subtle_key = v8::String::new(scope, "subtle").unwrap();
+        crypto.set(scope, subtle_key.into(), subtle.into());
 
         // Attach crypto to global
         let key = v8::String::new(scope, "crypto").unwrap();
@@ -1062,6 +1111,87 @@ fn headers_foreach_callback(
             }
         }
     }
+}
+
+// === SubtleCrypto V8 callbacks ===
+
+/// crypto.subtle.generateKey()
+fn subtle_generate_key(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    // For now, return a rejected promise with NotSupported
+    // Full implementation in Waves 2 and 3
+    let msg = v8::String::new(scope, "Not implemented").unwrap();
+    let error = v8::Exception::error(scope, msg);
+    retval.set(error);
+}
+
+/// crypto.subtle.importKey()
+fn subtle_import_key(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let msg = v8::String::new(scope, "Not implemented").unwrap();
+    let error = v8::Exception::error(scope, msg);
+    retval.set(error);
+}
+
+/// crypto.subtle.exportKey()
+fn subtle_export_key(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let msg = v8::String::new(scope, "Not implemented").unwrap();
+    let error = v8::Exception::error(scope, msg);
+    retval.set(error);
+}
+
+/// crypto.subtle.encrypt()
+fn subtle_encrypt(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let msg = v8::String::new(scope, "Not implemented").unwrap();
+    let error = v8::Exception::error(scope, msg);
+    retval.set(error);
+}
+
+/// crypto.subtle.decrypt()
+fn subtle_decrypt(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let msg = v8::String::new(scope, "Not implemented").unwrap();
+    let error = v8::Exception::error(scope, msg);
+    retval.set(error);
+}
+
+/// crypto.subtle.sign()
+fn subtle_sign(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let msg = v8::String::new(scope, "Not implemented").unwrap();
+    let error = v8::Exception::error(scope, msg);
+    retval.set(error);
+}
+
+/// crypto.subtle.verify()
+fn subtle_verify(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let msg = v8::String::new(scope, "Not implemented").unwrap();
+    let error = v8::Exception::error(scope, msg);
+    retval.set(error);
 }
 
 #[cfg(test)]

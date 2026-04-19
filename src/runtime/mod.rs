@@ -19,6 +19,7 @@ pub mod handler;
 pub mod apis;
 pub mod fetch;
 pub mod stream;
+pub mod crypto;
 
 // Re-export handler types for convenience
 pub use handler::{HandlerContext, execute_handler, execute_handler_with_context};
