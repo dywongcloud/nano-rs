@@ -75,7 +75,13 @@ Plans:
   8. performance.now() returns monotonic high-resolution timestamps
   9. Blob and FormData handle binary data and form field construction
   10. DOMException throws with standard error names and messages
-**Plans:** TBD
+**Plans:** 4 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — JavaScript handler interface with Request/Response flow
+- [ ] 03-02-PLAN.md — Console API and TextEncoder/TextDecoder
+- [ ] 03-03-PLAN.md — setTimeout/setInterval and AbortController/AbortSignal
+- [ ] 03-04-PLAN.md — crypto, performance, structuredClone, Blob, FormData, DOMException
 
 ### Phase 4: WorkerPool & Dispatch
 **Goal:** Requests dispatch to isolated worker threads with proper context lifecycle management
@@ -151,8 +157,8 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. V8 Foundation | 3/3 | ✅ Complete | 2026-04-19 |
-| 2. HTTP Server Core | 0/3 | Not started | - |
-| 3. Runtime APIs | 0/4 | Not started | - |
+| 2. HTTP Server Core | 3/3 | ✅ Complete | 2026-04-19 |
+| 3. Runtime APIs | 4/4 | ✅ Planned | 2026-04-19 |
 | 4. WorkerPool & Dispatch | 0/3 | Not started | - |
 | 5. Multi-App Hosting | 0/3 | Not started | - |
 | 6. Outbound I/O | 0/2 | Not started | - |
@@ -167,9 +173,9 @@ Plans:
 - [x] Basic JS execution works (console.log("hello") prints to stdout)
 
 ### Phase 2
-- [ ] HTTP server responds to requests
-- [ ] Virtual host routing functional
-- [ ] WinterCG objects compatible
+- [x] HTTP server responds to requests
+- [x] Virtual host routing functional
+- [x] WinterCG objects compatible
 
 ### Phase 3
 - [ ] fetch() handler interface works
