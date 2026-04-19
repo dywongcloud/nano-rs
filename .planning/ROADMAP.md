@@ -165,8 +165,11 @@ Plans:
   2. Next.js static export (HTML/CSS/JS assets) serves all files correctly
   3. Astro static build (islands architecture) renders and hydrates correctly
   4. Generic WinterCG-compliant app (not framework-specific) runs correctly
-**Plans:** TBD
-**UI hint:** yes
+**Plans:** 2 plans
+
+Plans:
+- [ ] 08-01-PLAN.md — Hono.js and Generic WinterCG test apps with integration tests
+- [ ] 08-02-PLAN.md — Next.js static export and Astro islands test apps
 
 ### Phase 9: Crypto Core
 **Goal:** Full WebCrypto implementation for encryption, signing, and key management
@@ -190,7 +193,7 @@ Plans:
 | 5. Multi-App Hosting | 0/3 | Not started | - |
 | 6. Outbound I/O | 0/2 | Planned | - |
 | 7. Production Features | 0/5 | Not started | - |
-| 8. Framework Compatibility | 0/2 | Not started | - |
+| 8. Framework Compatibility | 2/2 | 📋 Ready to execute | - |
 | 9. Crypto Core | 0/2 | Not started | - |
 
 ## Success Criteria by Phase
