@@ -252,58 +252,39 @@ fn execute_in_v8(
     // Call the fetch handler with the Request
     let result = fetch_fn.call(scope, global.into(), &[js_request]);
 
-    // Extract the response
+    // Extract the response (may be a Promise, so resolve it)
     match result {
-        Some(response) => extract_js_response(scope, response),
+        Some(response) => {
+            // Check if response is a Promise and resolve if needed
+            let resolved = if response.is_promise() {
+                let promise = response.cast::<v8::Promise>();
+                match promise.state() {
+                    v8::PromiseState::Fulfilled => Some(promise.result(scope)),
+                    v8::PromiseState::Rejected => {
+                        return Err(anyhow!("Promise rejected"));
+                    }
+                    v8::PromiseState::Pending => {
+                        return Err(anyhow!("Promise still pending - async execution not fully supported"));
+                    }
+                }
+            } else {
+                Some(response)
+            };
+            
+            match resolved {
+                Some(response) => extract_js_response(scope, response),
+                None => Err(anyhow!("Failed to resolve Promise")),
+            }
+        }
         None => Err(anyhow!("Handler returned None")),
     }
 }
 
-/// Resolve a Promise and extract the result
-fn resolve_promise<'s>(
-    _scope: &'s mut v8::ContextScope<'s, v8::HandleScope>,
-    promise: v8::Local<'s, v8::Value>,
-) -> Option<v8::Local<'s, v8::Value>> {
-    // Check if it's a Promise
-    if !promise.is_promise() {
-        return Some(promise);
-    }
-
-    let promise = promise.cast::<v8::Promise>();
-    
-    // Check promise state
-    match promise.state() {
-        v8::PromiseState::Fulfilled => {
-            // Promise is already resolved, get the result
-            Some(promise.result(scope))
-        }
-        v8::PromiseState::Rejected => {
-            // Promise was rejected
-            let result = promise.result(scope);
-            eprintln!("DEBUG: Promise rejected with: {:?}", result.to_string(scope).map(|s| s.to_rust_string_lossy(scope)));
-            None
-        }
-        v8::PromiseState::Pending => {
-            // Promise is still pending - this shouldn't happen for synchronous handlers
-            // but async handlers would need special handling
-            eprintln!("DEBUG: Promise is still pending");
-            // For now, return None - in production we'd need to properly await
-            None
-        }
-    }
-}
-
 /// Extract a NanoResponse from a V8 JavaScript Response object
-fn extract_js_response<'s>(
-    scope: &'s mut v8::ContextScope<'s, v8::HandleScope>,
-    js_response: v8::Local<'s, v8::Value>,
+fn extract_js_response(
+    scope: &mut v8::ContextScope<v8::HandleScope>,
+    js_response: v8::Local<v8::Value>,
 ) -> Result<NanoResponse> {
-    // First, resolve the Promise if needed
-    let js_response = match resolve_promise(scope, js_response) {
-        Some(response) => response,
-        None => return Err(anyhow!("Failed to resolve Promise")),
-    };
-    
     // Verify the response is an object
     let obj = match js_response.to_object(scope) {
         Some(o) => o,
