@@ -10,6 +10,8 @@ pub mod v8;
 pub mod runtime;
 pub mod http;
 pub mod worker;
+pub mod config;
+pub mod app;
 
 /// Library entry point for running the NANO runtime
 ///

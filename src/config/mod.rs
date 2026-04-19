@@ -1,0 +1,487 @@
+//! Configuration management for NANO runtime
+//!
+//! Provides configuration loading, validation, and file watching for
+//! multi-app hosting scenarios. Supports JSON configuration files with
+//! environment variable substitution.
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use nano::config::{load_config, default_config_path};
+//! use std::path::Path;
+//!
+//! # async fn example() -> anyhow::Result<()> {
+//! let config = load_config(Path::new("nano.json")).await?;
+//! println!("Loaded {} applications", config.apps.len());
+//! # Ok(())
+//! # }
+//! ```
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::Path;
+
+pub mod loader;
+pub mod watcher;
+
+/// Application configuration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AppConfig {
+    /// Hostname for this app
+    pub hostname: String,
+    /// Path to the JavaScript entrypoint
+    pub entrypoint: String,
+    /// Environment variables for this app
+    #[serde(default)]
+    pub env_vars: HashMap<String, String>,
+    /// Resource limits
+    #[serde(default)]
+    pub limits: AppLimits,
+}
+
+/// Validation errors container
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValidationErrors {
+    /// List of validation error messages
+    pub errors: Vec<String>,
+}
+
+impl ValidationErrors {
+    /// Create a new empty validation errors container
+    pub fn new() -> Self {
+        Self { errors: Vec::new() }
+    }
+
+    /// Add an error message
+    pub fn add(&mut self, error: impl Into<String>) {
+        self.errors.push(error.into());
+    }
+
+    /// Returns true if there are no errors
+    pub fn is_empty(&self) -> bool {
+        self.errors.is_empty()
+    }
+}
+
+impl Default for ValidationErrors {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for ValidationErrors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, error) in self.errors.iter().enumerate() {
+            if i > 0 {
+                writeln!(f)?;
+            }
+            write!(f, "- {}", error)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ValidationErrors {}
+
+/// Resource limits for an application
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AppLimits {
+    /// Memory limit in MB (16-2048, default: 128)
+    #[serde(default = "default_memory_limit")]
+    pub memory_mb: u32,
+    /// Request timeout in seconds (1-300, default: 30)
+    #[serde(default = "default_timeout_secs")]
+    pub timeout_secs: u32,
+    /// Number of worker threads (1-32, default: 4)
+    #[serde(default = "default_workers")]
+    pub workers: usize,
+}
+
+impl Default for AppLimits {
+    fn default() -> Self {
+        Self {
+            memory_mb: default_memory_limit(),
+            timeout_secs: default_timeout_secs(),
+            workers: default_workers(),
+        }
+    }
+}
+
+fn default_memory_limit() -> u32 {
+    128 // 128MB default
+}
+
+fn default_timeout_secs() -> u32 {
+    30 // 30 seconds default
+}
+
+fn default_workers() -> usize {
+    4 // 4 workers default
+}
+
+/// Server configuration section
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ServerConfigSection {
+    /// Server port (default: 8080)
+    #[serde(default = "default_port")]
+    pub port: u16,
+    /// Server bind address (default: "0.0.0.0")
+    #[serde(default = "default_bind")]
+    pub host: String,
+}
+
+impl Default for ServerConfigSection {
+    fn default() -> Self {
+        Self {
+            port: default_port(),
+            host: default_bind(),
+        }
+    }
+}
+
+fn default_bind() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_port() -> u16 {
+    8080
+}
+
+/// NANO runtime configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NanoConfig {
+    /// List of applications
+    pub apps: Vec<AppConfig>,
+    /// Server configuration
+    #[serde(default)]
+    pub server: ServerConfigSection,
+}
+
+/// Legacy global settings (for backward compatibility)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GlobalSettings {
+    /// Default workers per app
+    #[serde(default = "default_workers")]
+    pub workers_per_app: usize,
+    /// Server bind address
+    #[serde(default = "default_bind")]
+    pub bind_address: String,
+    /// Server port
+    #[serde(default = "default_port")]
+    pub port: u16,
+}
+
+impl NanoConfig {
+    /// Create a new empty configuration
+    pub fn new() -> Self {
+        Self {
+            apps: Vec::new(),
+            server: ServerConfigSection::default(),
+        }
+    }
+
+    /// Validate the configuration (legacy method)
+    pub fn validate(&self) -> anyhow::Result<()> {
+        validate_nano_config(self, None)
+            .map_err(|e| anyhow::anyhow!("{}", e))
+    }
+}
+
+/// Validates an individual AppConfig
+///
+/// Performs comprehensive validation of an application configuration:
+/// - Hostname is non-empty and valid DNS name
+/// - Entrypoint path exists and is readable (if base_path provided)
+/// - Memory limits within bounds (16-2048 MB)
+/// - Timeout within bounds (1-300 seconds)
+/// - Worker count within bounds (1-32)
+/// - Environment variable keys are valid
+pub fn validate_config(config: &AppConfig, base_path: Option<&std::path::Path>) -> Result<(), ValidationErrors> {
+    let mut errors = ValidationErrors::new();
+
+    // Validate hostname
+    if config.hostname.is_empty() {
+        errors.add("hostname cannot be empty");
+    } else if !is_valid_hostname(&config.hostname) {
+        errors.add(format!("'{}' is not a valid hostname", config.hostname));
+    }
+
+    // Validate entrypoint
+    if config.entrypoint.is_empty() {
+        errors.add("entrypoint cannot be empty");
+    } else if config.entrypoint.contains("..") {
+        // Path traversal prevention
+        errors.add(format!(
+            "entrypoint '{}' contains '..' which is not allowed for security",
+            config.entrypoint
+        ));
+    } else if let Some(base) = base_path {
+        let full_path = if std::path::Path::new(&config.entrypoint).is_absolute() {
+            std::path::PathBuf::from(&config.entrypoint)
+        } else {
+            base.join(&config.entrypoint)
+        };
+
+        if !full_path.exists() {
+            errors.add(format!(
+                "entrypoint '{}' not found (resolved to: {})",
+                config.entrypoint,
+                full_path.display()
+            ));
+        } else if !full_path.is_file() {
+            errors.add(format!(
+                "entrypoint '{}' is not a file",
+                config.entrypoint
+            ));
+        }
+    }
+
+    // Validate limits
+    if config.limits.memory_mb < 16 || config.limits.memory_mb > 2048 {
+        errors.add(format!(
+            "memory_mb must be between 16 and 2048, got {}",
+            config.limits.memory_mb
+        ));
+    }
+
+    if config.limits.timeout_secs < 1 || config.limits.timeout_secs > 300 {
+        errors.add(format!(
+            "timeout_secs must be between 1 and 300, got {}",
+            config.limits.timeout_secs
+        ));
+    }
+
+    if config.limits.workers < 1 || config.limits.workers > 32 {
+        errors.add(format!(
+            "workers must be between 1 and 32, got {}",
+            config.limits.workers
+        ));
+    }
+
+    // Validate env vars
+    for (key, value) in &config.env_vars {
+        if key.is_empty() {
+            errors.add("environment variable key cannot be empty");
+        }
+        if key.contains("..") || key.contains('/') || key.contains('\\') {
+            errors.add(format!(
+                "suspicious environment variable key: '{}'",
+                key
+            ));
+        }
+        if value.len() > 65536 {
+            errors.add(format!(
+                "environment variable '{}' value exceeds 64KB limit",
+                key
+            ));
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Validates a complete NanoConfig
+///
+/// Validates the entire configuration including:
+/// - At least one app is defined
+/// - Maximum 1000 apps (DoS prevention)
+/// - No duplicate hostnames (case-insensitive)
+/// - Each app passes individual validation
+pub fn validate_nano_config(config: &NanoConfig, base_path: Option<&std::path::Path>) -> Result<(), ValidationErrors> {
+    let mut errors = ValidationErrors::new();
+
+    // Check app count bounds
+    if config.apps.is_empty() {
+        errors.add("configuration must define at least one application");
+    } else if config.apps.len() > 1000 {
+        errors.add(format!(
+            "too many applications: {} (max 1000)",
+            config.apps.len()
+        ));
+    }
+
+    // Check for duplicate hostnames
+    let mut seen_hostnames: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for app in &config.apps {
+        let lower_hostname = app.hostname.to_lowercase();
+        if seen_hostnames.contains(&lower_hostname) {
+            errors.add(format!(
+                "duplicate hostname: '{}' (case-insensitive)",
+                app.hostname
+            ));
+        } else {
+            seen_hostnames.insert(lower_hostname);
+        }
+    }
+
+    // Validate each app
+    for (i, app) in config.apps.iter().enumerate() {
+        match validate_config(app, base_path) {
+            Ok(()) => {}
+            Err(app_errors) => {
+                for error in &app_errors.errors {
+                    errors.add(format!("app[{}] ({}): {}", i, app.hostname, error));
+                }
+            }
+        }
+    }
+
+    // Validate server config
+    if config.server.port == 0 {
+        errors.add("server port cannot be 0");
+    }
+
+    if config.server.host.is_empty() {
+        errors.add("server host cannot be empty");
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Checks if a string is a valid hostname per RFC 1123
+fn is_valid_hostname(hostname: &str) -> bool {
+    if hostname.is_empty() {
+        return false;
+    }
+
+    if hostname.len() > 253 {
+        return false;
+    }
+
+    let labels: Vec<&str> = hostname.split('.').collect();
+    for label in labels {
+        if label.is_empty() {
+            return false;
+        }
+
+        if label.len() > 63 {
+            return false;
+        }
+
+        let bytes = label.as_bytes();
+
+        if bytes[0] == b'-' || bytes[bytes.len() - 1] == b'-' {
+            return false;
+        }
+
+        for &b in bytes {
+            if !(b.is_ascii_alphanumeric() || b == b'-') {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+/// Load configuration from a JSON file
+pub fn load_config(path: &Path) -> anyhow::Result<NanoConfig> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read config file: {}", e))?;
+
+    let config: NanoConfig = serde_json::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("Failed to parse config JSON: {}", e))?;
+
+    config.validate()?;
+
+    Ok(config)
+}
+
+/// Load configuration from a string (useful for testing)
+pub fn load_config_from_str(content: &str) -> anyhow::Result<NanoConfig> {
+    let config: NanoConfig = serde_json::from_str(content)
+        .map_err(|e| anyhow::anyhow!("Failed to parse config JSON: {}", e))?;
+
+    config.validate()?;
+
+    Ok(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_validation_empty() {
+        let config = NanoConfig::new();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validation_duplicate_hostname() {
+        let config = NanoConfig {
+            apps: vec![
+                AppConfig {
+                    hostname: "example.com".to_string(),
+                    entrypoint: "/app1.js".to_string(),
+                    env_vars: HashMap::new(),
+                    limits: AppLimits::default(),
+                },
+                AppConfig {
+                    hostname: "example.com".to_string(),
+                    entrypoint: "/app2.js".to_string(),
+                    env_vars: HashMap::new(),
+                    limits: AppLimits::default(),
+                },
+            ],
+            server: ServerConfigSection::default(),
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Duplicate hostname"));
+    }
+
+    #[test]
+    fn test_config_validation_empty_entrypoint() {
+        let config = NanoConfig {
+            apps: vec![AppConfig {
+                hostname: "example.com".to_string(),
+                entrypoint: "".to_string(),
+                env_vars: HashMap::new(),
+                limits: AppLimits::default(),
+            }],
+            server: ServerConfigSection::default(),
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("entrypoint"));
+    }
+
+    #[test]
+    fn test_load_config_from_str() {
+        let json = r#"{
+            "apps": [
+                {
+                    "hostname": "api.example.com",
+                    "entrypoint": "/apps/api.js",
+                    "env_vars": {"API_KEY": "secret123"},
+                    "limits": {"memory_mb": 256, "timeout_secs": 60}
+                }
+            ],
+            "server": {
+                "port": 8080,
+                "host": "0.0.0.0"
+            }
+        }"#;
+
+        let config = load_config_from_str(json).unwrap();
+        assert_eq!(config.apps.len(), 1);
+        assert_eq!(config.apps[0].hostname, "api.example.com");
+        assert_eq!(config.apps[0].limits.memory_mb, 256);
+        assert_eq!(config.server.port, 8080);
+    }
+}

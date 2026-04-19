@@ -252,11 +252,66 @@ The critical path for minimum viable product (MVP) is Phases 1-5:
 
 After Phase 5, NANO can host multiple isolated JavaScript applications. Phases 6-9 add production polish, framework compatibility, and advanced features.
 
+## Backlog
+
+### Phase 999.1: Isolate Checkpoint/Restore (Docker-like Image Portability) — BACKLOG
+
+**Goal:** Enable serialization and migration of V8 isolates between NANO instances  
+**Description:** Implement a mechanism to "snapshot" a running isolate's state (JavaScript heap, compiled code, global state) and serialize it for transport. This would allow:
+- Saving isolate state to disk (isolate images)
+- Loading saved isolates on different NANO instances
+- Fast cold-start by restoring from pre-warmed snapshots
+- Potential use cases: session persistence, function migration, backup/restore
+
+**Key Technical Challenges:**
+- V8 snapshot API limitations (v8::SnapshotCreator)
+- Handling external references (bindings to Rust code)
+- Version compatibility between NANO/V8 versions
+- Security implications of serialized code execution
+
+**Requirements:** TBD  
+**Plans:** 0 plans  
+**Priority:** Post-v1 exploration
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.2: Virtual File System (VFS) for Isolates — BACKLOG
+
+**Goal:** Provide a per-isolate in-memory filesystem for carrying data and files  
+**Description:** Implement a VFS layer that allows isolates to have their own private filesystem namespace, similar to a container's filesystem. This enables:
+- Self-contained "isolate images" with bundled assets
+- File I/O operations (read/write) within the isolate
+- Data persistence across requests (within the same isolate context)
+- Isolation between apps (each sees only its own files)
+
+**Use Cases:**
+- Static assets bundled with the isolate image
+- Temporary file storage during request processing
+- Small data persistence without external storage
+- Compatibility with libraries that expect filesystem access
+
+**API Surface:**
+```javascript
+Nano.fs.readFile(path) -> Uint8Array
+Nano.fs.writeFile(path, data)
+Nano.fs.exists(path) -> boolean
+Nano.fs.mkdir(path)
+```
+
+**Requirements:** TBD  
+**Plans:** 0 plans  
+**Priority:** Post-v1, after checkpoint/restore research
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
 ## Revision History
 
 | Date | Change |
 |------|--------|
 | 2026-04-19 | Initial roadmap created with 9 phases mapping 42 v1 requirements |
+| 2026-04-19 | Added backlog items 999.1 (Isolate Checkpoint/Restore) and 999.2 (VFS) |
 
 ---
 *Roadmap version: 1.0 | Last updated: 2026-04-19*

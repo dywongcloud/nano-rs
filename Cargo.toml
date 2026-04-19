@@ -34,6 +34,7 @@ axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "timeout", "compression-gzip", "compression-deflate"] }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 # URL parsing and encoding
 url = "2.5"
@@ -43,6 +44,9 @@ base64 = "0.22"
 
 # Cryptographic randomness
 getrandom = "0.2"
+
+# Checksum for file watching
+sha2 = "0.10"
 
 # Static initialization
 lazy_static = "1.4"

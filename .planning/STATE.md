@@ -7,20 +7,20 @@
 
 ## Current Position
 
-**Phase:** Phase 4 (WorkerPool & Dispatch) — **COMPLETE** ✅  
+**Phase:** Phase 5 (Multi-App Hosting) — **COMPLETE** ✅  
 **Plan:** 3 plans executed  
-**Status:** WorkerPool with ContextManager integration complete. Context reset <10ms target achieved.
+**Status:** JSON config loading, app registry, per-app memory limits, timeout enforcement, and hot-reload infrastructure implemented.
 
 **Progress:**
 ```
-[█████████████░░░░░░░░░░░░░░░░░░░░] 39% (4/9 phases complete, Phase 5 pending)
+[██████████████░░░░░░░░░░░░░░░░░░░] 44% (5/9 phases complete, MVP achieved)
 ```
 
 ## Project Reference
 
 **Core Value:** One OS process hosts many isolated JS apps with millisecond cold starts, zero container overhead, and strong per-app isolation.
 
-**Current Focus:** Phase 4 WorkerPool & Dispatch — 3 plans ready. Multi-threaded dispatch with context reset <10ms.
+**Current Focus:** Phase 5 Multi-App Hosting — Config-driven app management, resource limits, hot-reload. MVP complete!
 
 **Stack:** Rust + rusty_v8 + tokio + axum
 
