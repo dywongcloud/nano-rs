@@ -16,7 +16,7 @@ pub mod subtle;
 pub mod aes_gcm;
 pub mod hmac;
 
-pub use crypto_key::{CryptoKey, CryptoKeyHandle, AlgorithmIdentifier, KeyUsage, HashAlgorithm};
+pub use crypto_key::{CryptoKey, CryptoKeyHandle, AlgorithmIdentifier, KeyUsage, HashAlgorithm, JwkObject};
 pub use subtle::SubtleCrypto;
 
 /// Errors that can occur during cryptographic operations

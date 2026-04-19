@@ -1327,9 +1327,125 @@ fn subtle_import_key(
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    let msg = v8::String::new(scope, "Not implemented").unwrap();
-    let error = v8::Exception::error(scope, msg);
-    retval.set(error);
+    if args.length() < 5 {
+        let msg = v8::String::new(scope, "importKey requires 5 arguments: format, keyData, algorithm, extractable, keyUsages").unwrap();
+        let error = v8::Exception::type_error(scope, msg);
+        retval.set(error);
+        return;
+    }
+    
+    // Extract format
+    let format = args.get(0)
+        .to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+    
+    // Get key data (JWK object for JWK format)
+    let key_data = args.get(1);
+    
+    // Extract algorithm
+    let algorithm_obj = args.get(2).to_object(scope);
+    if algorithm_obj.is_none() {
+        let msg = v8::String::new(scope, "Third argument must be an algorithm object").unwrap();
+        let error = v8::Exception::type_error(scope, msg);
+        retval.set(error);
+        return;
+    }
+    let algorithm_obj = algorithm_obj.unwrap();
+    
+    // Get algorithm name
+    let name_key = v8::String::new(scope, "name").unwrap();
+    let algorithm_name = algorithm_obj
+        .get(scope, name_key.into())
+        .and_then(|v| v.to_string(scope))
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+    
+    // Extract extractable flag
+    let extractable = args.get(3).is_true();
+    
+    // Extract key usages
+    let usages_val = args.get(4);
+    let mut usages = Vec::new();
+    if let Some(usages_arr) = usages_val.to_object(scope) {
+        if let Some(length_key) = v8::String::new(scope, "length") {
+            if let Some(length_val) = usages_arr.get(scope, length_key.into()) {
+                if let Some(length_num) = length_val.to_number(scope) {
+                    let length = length_num.value() as usize;
+                    for i in 0..length {
+                        let idx = v8::Number::new(scope, i as f64);
+                        if let Some(usage_val) = usages_arr.get(scope, idx.into()) {
+                            if let Some(usage_str) = usage_val.to_string(scope) {
+                                let usage = usage_str.to_rust_string_lossy(scope);
+                                if let Some(key_usage) = crate::runtime::crypto::KeyUsage::from_str(&usage) {
+                                    usages.push(key_usage);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Import based on format
+    let crypto_key = match format.as_str() {
+        "jwk" => {
+            // Parse JWK from the key data object
+            let jwk_obj = key_data.to_object(scope);
+            if jwk_obj.is_none() {
+                let msg = v8::String::new(scope, "JWK key data must be an object").unwrap();
+                let error = v8::Exception::type_error(scope, msg);
+                retval.set(error);
+                return;
+            }
+            let jwk_obj = jwk_obj.unwrap();
+            
+            // Parse JWK
+            let jwk = match crate::runtime::crypto::JwkObject::from_v8_object(scope, jwk_obj) {
+                Some(jwk) => jwk,
+                None => {
+                    let msg = v8::String::new(scope, "Invalid JWK format").unwrap();
+                    let error = v8::Exception::type_error(scope, msg);
+                    retval.set(error);
+                    return;
+                }
+            };
+            
+            // Import based on algorithm
+            match algorithm_name.as_str() {
+                "AES-GCM" => {
+                    crate::runtime::crypto::aes_gcm::import_key_jwk(&jwk, extractable, usages)
+                }
+                "HMAC" => {
+                    crate::runtime::crypto::hmac::import_key_jwk(&jwk, extractable, usages)
+                }
+                _ => {
+                    Err(crate::runtime::crypto::CryptoError::InvalidAlgorithm(algorithm_name))
+                }
+            }
+        }
+        _ => {
+            Err(crate::runtime::crypto::CryptoError::NotSupported)
+        }
+    };
+    
+    match crypto_key {
+        Ok(key) => {
+            if let Some(js_key) = create_crypto_key_js(scope, key) {
+                retval.set(js_key.into());
+            } else {
+                let msg = v8::String::new(scope, "Failed to create CryptoKey").unwrap();
+                let error = v8::Exception::error(scope, msg);
+                retval.set(error);
+            }
+        }
+        Err(e) => {
+            let msg = v8::String::new(scope, &e.to_string()).unwrap();
+            let error = v8::Exception::error(scope, msg);
+            retval.set(error);
+        }
+    }
 }
 
 /// crypto.subtle.exportKey()
@@ -1338,9 +1454,79 @@ fn subtle_export_key(
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    let msg = v8::String::new(scope, "Not implemented").unwrap();
-    let error = v8::Exception::error(scope, msg);
-    retval.set(error);
+    if args.length() < 2 {
+        let msg = v8::String::new(scope, "exportKey requires 2 arguments: format, key").unwrap();
+        let error = v8::Exception::type_error(scope, msg);
+        retval.set(error);
+        return;
+    }
+    
+    // Extract format
+    let format = args.get(0)
+        .to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+    
+    // Get key object
+    let key_obj = args.get(1).to_object(scope);
+    if key_obj.is_none() {
+        let msg = v8::String::new(scope, "Second argument must be a CryptoKey").unwrap();
+        let error = v8::Exception::type_error(scope, msg);
+        retval.set(error);
+        return;
+    }
+    let key_obj = key_obj.unwrap();
+    
+    // Extract CryptoKey from the JS object
+    let crypto_key = match extract_crypto_key(scope, key_obj) {
+        Some(key) => key,
+        None => {
+            let msg = v8::String::new(scope, "Invalid CryptoKey").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    
+    // Export based on format
+    match format.as_str() {
+        "jwk" => {
+            // Export to JWK
+            let result = match &crypto_key.algorithm {
+                crate::runtime::crypto::AlgorithmIdentifier::AesGcm { .. } => {
+                    crate::runtime::crypto::aes_gcm::export_key_jwk(&crypto_key)
+                }
+                crate::runtime::crypto::AlgorithmIdentifier::Hmac { .. } => {
+                    crate::runtime::crypto::hmac::export_key_jwk(&crypto_key)
+                }
+                _ => {
+                    Err(crate::runtime::crypto::CryptoError::InvalidKey)
+                }
+            };
+            
+            match result {
+                Ok(jwk) => {
+                    if let Some(js_jwk) = jwk.to_v8_object(scope) {
+                        retval.set(js_jwk.into());
+                    } else {
+                        let msg = v8::String::new(scope, "Failed to create JWK object").unwrap();
+                        let error = v8::Exception::error(scope, msg);
+                        retval.set(error);
+                    }
+                }
+                Err(e) => {
+                    let msg = v8::String::new(scope, &e.to_string()).unwrap();
+                    let error = v8::Exception::error(scope, msg);
+                    retval.set(error);
+                }
+            }
+        }
+        _ => {
+            let msg = v8::String::new(scope, "Only JWK format is supported for export").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+        }
+    }
 }
 
 /// crypto.subtle.encrypt()
@@ -1647,9 +1833,73 @@ fn subtle_sign(
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    let msg = v8::String::new(scope, "Not implemented").unwrap();
-    let error = v8::Exception::error(scope, msg);
-    retval.set(error);
+    if args.length() < 3 {
+        let msg = v8::String::new(scope, "sign requires 3 arguments: algorithm, key, data").unwrap();
+        let error = v8::Exception::type_error(scope, msg);
+        retval.set(error);
+        return;
+    }
+    
+    // Get key object
+    let key_obj = args.get(1).to_object(scope);
+    if key_obj.is_none() {
+        let msg = v8::String::new(scope, "Second argument must be a CryptoKey").unwrap();
+        let error = v8::Exception::type_error(scope, msg);
+        retval.set(error);
+        return;
+    }
+    let key_obj = key_obj.unwrap();
+    
+    // Extract CryptoKey from the JS object
+    let crypto_key = match extract_crypto_key(scope, key_obj) {
+        Some(key) => key,
+        None => {
+            let msg = v8::String::new(scope, "Invalid CryptoKey").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    
+    // Get data as bytes
+    let data = match extract_array_buffer_view(scope, args.get(2)) {
+        Some(bytes) => bytes,
+        None => {
+            let msg = v8::String::new(scope, "Third argument must be an ArrayBufferView").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    
+    // Perform signing based on key algorithm
+    let result = match &crypto_key.algorithm {
+        crate::runtime::crypto::AlgorithmIdentifier::Hmac { .. } => {
+            crate::runtime::crypto::hmac::sign(&crypto_key, &data)
+        }
+        _ => {
+            Err(crate::runtime::crypto::CryptoError::InvalidKey)
+        }
+    };
+    
+    match result {
+        Ok(signature) => {
+            // Create ArrayBuffer and return
+            let ab = v8::ArrayBuffer::new(scope, signature.len());
+            let store = ab.get_backing_store();
+            for (i, byte) in signature.iter().enumerate() {
+                if let Some(cell) = store.get(i) {
+                    cell.set(*byte);
+                }
+            }
+            retval.set(ab.into());
+        }
+        Err(e) => {
+            let msg = v8::String::new(scope, &e.to_string()).unwrap();
+            let error = v8::Exception::error(scope, msg);
+            retval.set(error);
+        }
+    }
 }
 
 /// crypto.subtle.verify()
@@ -1658,9 +1908,76 @@ fn subtle_verify(
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    let msg = v8::String::new(scope, "Not implemented").unwrap();
-    let error = v8::Exception::error(scope, msg);
-    retval.set(error);
+    if args.length() < 4 {
+        let msg = v8::String::new(scope, "verify requires 4 arguments: algorithm, key, signature, data").unwrap();
+        let error = v8::Exception::type_error(scope, msg);
+        retval.set(error);
+        return;
+    }
+    
+    // Get key object
+    let key_obj = args.get(1).to_object(scope);
+    if key_obj.is_none() {
+        let msg = v8::String::new(scope, "Second argument must be a CryptoKey").unwrap();
+        let error = v8::Exception::type_error(scope, msg);
+        retval.set(error);
+        return;
+    }
+    let key_obj = key_obj.unwrap();
+    
+    // Extract CryptoKey from the JS object
+    let crypto_key = match extract_crypto_key(scope, key_obj) {
+        Some(key) => key,
+        None => {
+            let msg = v8::String::new(scope, "Invalid CryptoKey").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    
+    // Get signature as bytes
+    let signature = match extract_array_buffer_view(scope, args.get(2)) {
+        Some(bytes) => bytes,
+        None => {
+            let msg = v8::String::new(scope, "Third argument (signature) must be an ArrayBufferView").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    
+    // Get data as bytes
+    let data = match extract_array_buffer_view(scope, args.get(3)) {
+        Some(bytes) => bytes,
+        None => {
+            let msg = v8::String::new(scope, "Fourth argument (data) must be an ArrayBufferView").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    
+    // Perform verification based on key algorithm
+    let result = match &crypto_key.algorithm {
+        crate::runtime::crypto::AlgorithmIdentifier::Hmac { .. } => {
+            crate::runtime::crypto::hmac::verify(&crypto_key, &data, &signature)
+        }
+        _ => {
+            Err(crate::runtime::crypto::CryptoError::InvalidKey)
+        }
+    };
+    
+    match result {
+        Ok(valid) => {
+            retval.set(v8::Boolean::new(scope, valid).into());
+        }
+        Err(e) => {
+            let msg = v8::String::new(scope, &e.to_string()).unwrap();
+            let error = v8::Exception::error(scope, msg);
+            retval.set(error);
+        }
+    }
 }
 
 #[cfg(test)]
