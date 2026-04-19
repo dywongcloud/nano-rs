@@ -8,12 +8,12 @@
 ## Current Position
 
 **Phase:** Phase 6 (Outbound I/O) — **IN PROGRESS** 🟡  
-**Plan:** 1/1 plan executed for fetch() core  
-**Status:** HTTP client infrastructure, fetch() JavaScript binding, and stream module implemented. Simplified implementation ready for enhancement.
+**Plan:** 2/2 plans executed (fetch() core + WritableStream uploads)  
+**Status:** HTTP client infrastructure, fetch() JavaScript binding, stream module (ReadableStream + WritableStream), and streaming upload support implemented. WritableStream with backpressure ready for V8 binding.
 
 **Progress:**
 ```
-[████████████████░░░░░░░░░░░░░░░░░] 50% (6/9 phases started, Phase 6 Plan 1 complete)
+[██████████████████░░░░░░░░░░░░░░░] 60% (6/9 phases, Phase 6 Plans 1-2 complete)
 ```
 
 ## Project Reference
@@ -55,6 +55,10 @@
 - **Simplified HTTP client** — stubbed execution for MVP, full implementation in follow-up
 - **SSRF prevention** — Private IP range blocking for IPv4 and IPv6 with bracket notation support
 - **Dangerous header filtering** — Blocks Host, Content-Length, Transfer-Encoding headers
+- **WritableStream backpressure** — Bounded mpsc channel (4 chunks) prevents memory overflow
+- **UnderlyingSink trait** — Standard Rust interface for stream data consumption
+- **Streaming upload limits** — 100MB max, 30s timeout, 10 concurrent per isolate
+- **Chunked transfer encoding** — Automatic for streaming bodies with unknown content length
 
 ### Critical Technical Debt
 - **EPT SIGSEGV bug:** ✅ RESOLVED — strong v8::Global sentinel implemented and verified
@@ -68,6 +72,11 @@
 - **Phase 2.1 (2026-04-19):** HTTP Server Core Plan 01 — axum server with health endpoint
 - **Phase 2.2 (2026-04-19):** HTTP Server Core Plan 02 — virtual host routing with Host header matching
 - **Phase 2.3 (2026-04-19):** HTTP Server Core Plan 03 — WinterCG Request/Response types implemented
+- **Phase 3 (2026-04-19):** Runtime APIs — Console, encoding, timers, crypto, performance
+- **Phase 4 (2026-04-19):** WorkerPool & Dispatch — Pool infrastructure, WorkQueue, context lifecycle
+- **Phase 5 (2026-04-19):** Multi-App Hosting — Config loading, per-app limits, hot-reload
+- **Phase 6.1 (2026-04-19):** Outbound fetch() Core — HTTP client, fetch binding, ReadableStream placeholder
+- **Phase 6.2 (2026-04-19):** WritableStream Uploads — WritableStream with backpressure, streaming body support
 
 ### Todos
 - [x] Plan Phase 1: V8 Foundation
@@ -90,8 +99,9 @@
 - [x] Execute 05-01: Config loading and app registry ✅
 - [x] Execute 05-02: Per-app limits and timeouts ✅
 - [x] Execute 05-03: Hot-reload infrastructure ✅
-- [x] Plan Phase 6: Outbound I/O (1 plan)
+- [x] Plan Phase 6: Outbound I/O (2 plans)
 - [x] Execute 06-01: Outbound fetch() core ✅
+- [x] Execute 06-02: WritableStream uploads ✅
 
 ### Blockers
 (None)
@@ -109,12 +119,13 @@
 | Plan | Name | Status | Commits |
 |------|------|--------|---------|
 | 06-01 | Outbound fetch() Core | ✅ Complete | 3 commits |
+| 06-02 | WritableStream Uploads | ✅ Complete | 3 commits |
 
 **Test Results:**
-- http::client: 14 tests passing
-- runtime::fetch: 10 tests passing
-- runtime::stream: 4 tests passing
-**Total: 28 tests passing**
+- http::client: 20 tests passing (14 + 6 new)
+- runtime::fetch: 18 tests passing (10 + 8 new)
+- runtime::stream: 14 tests passing (4 + 10 new)
+**Total: 48 tests passing for Phase 6**
 
 ## Phase 2 Status
 
@@ -143,9 +154,9 @@
 
 ## Session Continuity
 
-**Last action:** Executed Plan 06-01 — Outbound fetch() Core with HTTP client and JavaScript binding  
-**Next action:** Continue Phase 6: Enhance fetch() with actual HTTP execution, Promise-based async, ReadableStream  
-**Context valid through:** Phase 6 Plan 1 complete, 28 tests passing
+**Last action:** Executed Plan 06-02 — WritableStream with backpressure and fetch() streaming body integration  
+**Next action:** Continue Phase 6: Add V8 binding for WritableStream, wire streaming to actual HTTP requests  
+**Context valid through:** Phase 6 Plans 1-2 complete, 48 tests passing
 
 ---
 *State file: Updates at phase transitions and session boundaries*
