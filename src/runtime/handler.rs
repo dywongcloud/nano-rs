@@ -79,14 +79,21 @@ pub fn execute_handler_with_context(
     // Look for the fetch function on global scope
     let fetch_key = v8::String::new(scope, "fetch").unwrap();
     let fetch_val = match global.get(scope, fetch_key.into()) {
-        Some(val) => val,
-        None => {
+        Some(val) if !val.is_undefined() && !val.is_null() => val,
+        _ => {
             // Return a default response for now - handler doesn't define fetch
             return Ok(NanoResponse::ok()
                 .with_header("Content-Type", "text/plain")
                 .with_body("Handler executed (no fetch function defined)"));
         }
     };
+
+    // Verify it's actually a function
+    if !fetch_val.is_function() {
+        return Ok(NanoResponse::ok()
+            .with_header("Content-Type", "text/plain")
+            .with_body("Handler executed (fetch is not a function)"));
+    }
 
     let fetch_fn = fetch_val.cast::<v8::Function>();
 
@@ -164,14 +171,21 @@ fn execute_in_v8(
     // Look for the fetch function on global scope
     let fetch_key = v8::String::new(scope, "fetch").unwrap();
     let fetch_val = match global.get(scope, fetch_key.into()) {
-        Some(val) => val,
-        None => {
+        Some(val) if !val.is_undefined() && !val.is_null() => val,
+        _ => {
             // Return a default response for now - handler doesn't define fetch
             return Ok(NanoResponse::ok()
                 .with_header("Content-Type", "text/plain")
                 .with_body("Handler executed (no fetch function defined)"));
         }
     };
+
+    // Verify it's actually a function
+    if !fetch_val.is_function() {
+        return Ok(NanoResponse::ok()
+            .with_header("Content-Type", "text/plain")
+            .with_body("Handler executed (fetch is not a function)"));
+    }
 
     let fetch_fn = fetch_val.cast::<v8::Function>();
 

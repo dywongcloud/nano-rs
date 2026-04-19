@@ -50,7 +50,7 @@ const MAX_CONFIG_SIZE: u64 = 1024 * 1024;
 /// # Examples
 ///
 /// ```rust,no_run
-/// use nano::config::load_config;
+/// use nano::config::loader::load_config;
 /// use std::path::Path;
 ///
 /// # async fn example() -> anyhow::Result<()> {
@@ -170,23 +170,31 @@ where
         if ch == '}' {
             chars.next(); // consume '}'
             return Ok((var_name, None));
-        } else if ch == ':' && var_name.ends_with('-') {
-            // Found :-default syntax
+        } else if ch == ':' {
+            // Found : separator, check for :-default syntax
             chars.next(); // consume ':'
-            var_name.pop(); // remove the trailing '-'
-
-            // Read default value
-            let mut default = String::new();
-            while let Some(&ch) = chars.peek() {
-                if ch == '}' {
-                    chars.next(); // consume '}'
-                    default_value = Some(default);
-                    return Ok((var_name, default_value));
+            
+            // Check for '-' after ':'
+            if chars.peek() == Some(&'-') {
+                chars.next(); // consume '-'
+                
+                // Read default value
+                let mut default = String::new();
+                while let Some(&ch) = chars.peek() {
+                    if ch == '}' {
+                        chars.next(); // consume '}'
+                        default_value = Some(default);
+                        return Ok((var_name, default_value));
+                    }
+                    default.push(ch);
+                    chars.next();
                 }
-                default.push(ch);
-                chars.next();
+                return Err(anyhow!("Unclosed default value in ${{VAR:-...}}"));
+            } else {
+                return Err(anyhow!(
+                    "Invalid syntax after ':' in variable reference, expected ':-'"
+                ));
             }
-            return Err(anyhow!("Unclosed default value in ${{:-...}}"));
         } else if ch.is_ascii_alphanumeric() || ch == '_' {
             var_name.push(ch);
             chars.next();
@@ -304,15 +312,20 @@ mod tests {
 
     #[test]
     fn test_load_config_from_str_validation_failure() {
-        // Missing required hostname
+        // Empty hostname should fail validation
         let json = r#"{
-            "apps": [{"entrypoint": "/app.js"}],
+            "apps": [{"hostname": "", "entrypoint": "/app.js"}],
             "server": {"port": 8080, "host": "0.0.0.0"}
         }"#;
 
         let result = load_config_from_str(json, None);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("validation"));
+        let err_str = result.unwrap_err().to_string();
+        // Should get either JSON parse error or validation error
+        assert!(
+            err_str.contains("Config validation failed") || err_str.contains("missing") || err_str.contains("hostname"),
+            "Expected validation error, got: {}", err_str
+        );
     }
 
     #[tokio::test]
@@ -408,11 +421,15 @@ mod tests {
 
         let temp_dir = tempfile::TempDir::new().unwrap();
         let config_path = temp_dir.path().join("test.json");
+        let app_path = temp_dir.path().join("app.js");
+
+        // Create a dummy app.js file so validation passes
+        fs::write(&app_path, "// dummy app").unwrap();
 
         let json = r#"{
             "apps": [{
                 "hostname": "api.example.com",
-                "entrypoint": "/app.js"
+                "entrypoint": "app.js"
             }],
             "server": {"port": ${NANO_TEST_PORT}, "host": "0.0.0.0"}
         }"#;

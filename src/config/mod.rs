@@ -7,11 +7,11 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use nano::config::{load_config, default_config_path};
+//! use nano::config::load_config;
 //! use std::path::Path;
 //!
-//! # async fn example() -> anyhow::Result<()> {
-//! let config = load_config(Path::new("nano.json")).await?;
+//! # fn example() -> anyhow::Result<()> {
+//! let config = load_config(Path::new("nano.json"))?;
 //! println!("Loaded {} applications", config.apps.len());
 //! # Ok(())
 //! # }
@@ -441,7 +441,7 @@ mod tests {
 
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Duplicate hostname"));
+        assert!(result.unwrap_err().to_string().contains("duplicate hostname"));
     }
 
     #[test]

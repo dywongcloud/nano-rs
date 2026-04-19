@@ -159,7 +159,9 @@ impl TimeoutWatchdog {
     /// use nano::app::timeout::TimeoutWatchdog;
     ///
     /// let watchdog = TimeoutWatchdog::new(5, "app.example.com");
-    /// assert_eq!(watchdog.remaining_ms(), 5000);
+    /// // Use tolerance for timing-sensitive assertion
+    /// let remaining = watchdog.remaining_ms();
+    /// assert!(remaining >= 4990 && remaining <= 5000);
     /// ```
     pub fn new(timeout_secs: u32, app_hostname: impl Into<String>) -> Self {
         let timeout_duration = Duration::from_secs(timeout_secs as u64);
@@ -444,7 +446,10 @@ mod tests {
     #[test]
     fn test_watchdog_creation() {
         let watchdog = TimeoutWatchdog::new(5, "test.app");
-        assert_eq!(watchdog.remaining_ms(), 5000);
+        // Use tolerance for timing-sensitive assertion
+        let remaining = watchdog.remaining_ms();
+        assert!(remaining >= 4990 && remaining <= 5000, 
+            "Expected remaining_ms around 5000, got {}", remaining);
         assert!(!watchdog.check_expired());
     }
 

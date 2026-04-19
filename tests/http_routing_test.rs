@@ -11,7 +11,9 @@ use axum::{
     response::IntoResponse,
 };
 use nano::http::router::{virtual_host_handler, AppState, HandlerType, RouteTarget, VirtualHostRouter};
+use nano::worker::queue::WorkQueue;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Setup a test router with sample routes
 async fn setup_test_router() -> Arc<AppState> {
@@ -39,7 +41,8 @@ async fn setup_test_router() -> Arc<AppState> {
         },
     );
 
-    Arc::new(AppState { router })
+    let work_queue = Arc::new(Mutex::new(WorkQueue::new(4)));
+    Arc::new(AppState { router, work_queue })
 }
 
 #[tokio::test]
@@ -187,7 +190,8 @@ async fn test_javascript_entrypoint_routing() {
         },
     );
 
-    let state = Arc::new(AppState { router });
+    let work_queue = Arc::new(Mutex::new(WorkQueue::new(4)));
+    let state = Arc::new(AppState { router, work_queue });
 
     let request = Request::builder()
         .uri("/")

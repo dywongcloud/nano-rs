@@ -112,7 +112,7 @@ impl ConfigWatcher {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use nano::config::watcher::ConfigWatcher;
+    /// use nano::config::watcher::{ConfigWatcher, ConfigEvent};
     ///
     /// # async fn example() {
     /// let mut watcher = ConfigWatcher::new("/etc/nano/apps.json");

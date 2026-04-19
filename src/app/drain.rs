@@ -22,7 +22,8 @@ impl RequestDrain {
     pub fn new() -> Self {
         Self {
             active_requests: Arc::new(AtomicUsize::new(0)),
-            drain_semaphore: Arc::new(Semaphore::new(1)),
+            // Start with 0 permits - only add when last request completes
+            drain_semaphore: Arc::new(Semaphore::new(0)),
         }
     }
 
