@@ -36,7 +36,12 @@ This roadmap maps NANO's migration from Zig to Rust, delivering a multi-tenant e
   2. Platform initializes with strong v8::Global sentinel per isolate (EPT fix prevents SIGSEGV)
   3. JavaScript `console.log("hello")` executes and prints to stdout
   4. Isolate can be created and disposed without memory leaks or crashes
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Project skeleton with cargo config and rusty_v8 dependencies
+- [ ] 01-02-PLAN.md — V8 platform initialization with EPT fix sentinel
+- [ ] 01-03-PLAN.md — JavaScript execution with console.log binding
 
 ### Phase 2: HTTP Server Core
 **Goal:** HTTP server accepts requests and routes by Host header with WinterCG-compatible objects
@@ -140,7 +145,7 @@ This roadmap maps NANO's migration from Zig to Rust, delivering a multi-tenant e
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. V8 Foundation | 0/3 | Not started | - |
+| 1. V8 Foundation | 3/3 | Ready to execute | - |
 | 2. HTTP Server Core | 0/3 | Not started | - |
 | 3. Runtime APIs | 0/4 | Not started | - |
 | 4. WorkerPool & Dispatch | 0/3 | Not started | - |
