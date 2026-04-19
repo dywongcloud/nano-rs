@@ -32,7 +32,7 @@ thiserror = "2.0"
 # HTTP server
 axum = "0.8"
 tower = "0.5"
-tower-http = "0.6"
+tower-http = { version = "0.6", features = ["trace", "timeout", "compression-gzip", "compression-deflate"] }
 serde = { version = "1.0", features = ["derive"] }
 
 # Workaround for Rust version compatibility

@@ -1,11 +1,14 @@
-//! HTTP server (Phase 2)
+//! HTTP server module
 //!
-//! This module will implement the HTTP server using axum:
-//! - Configurable port binding
-//! - Virtual host routing via Host header
-//! - Request/Response object mapping (WinterCG compatible)
-//! - Headers API implementation
-//! - URL/URLSearchParams implementation
+//! Provides the HTTP layer for NANO runtime including:
+//! - Configurable server binding
+//! - Middleware stack (tracing, timeout, compression)
+//! - Health endpoint for liveness checks
 //!
-//! The server will dispatch requests to V8 isolates for execution
-//! and return responses from the JavaScript fetch() handlers.
+//! Future phases add virtual host routing and WinterCG object handling.
+
+pub mod config;
+pub mod server;
+
+pub use config::ServerConfig;
+pub use server::start_server;

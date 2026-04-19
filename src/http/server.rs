@@ -72,6 +72,7 @@ async fn health_handler() -> StatusCode {
 /// # Panics
 ///
 /// This function does not panic.
+#[allow(deprecated)]
 pub fn create_app() -> Router {
     let state = Arc::new(State::new());
 
