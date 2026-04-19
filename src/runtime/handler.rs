@@ -260,10 +260,10 @@ fn execute_in_v8(
 }
 
 /// Resolve a Promise and extract the result
-fn resolve_promise(
-    scope: &mut v8::ContextScope<v8::HandleScope>,
-    promise: v8::Local<v8::Value>,
-) -> Option<v8::Local<v8::Value>> {
+fn resolve_promise<'s>(
+    _scope: &'s mut v8::ContextScope<'s, v8::HandleScope>,
+    promise: v8::Local<'s, v8::Value>,
+) -> Option<v8::Local<'s, v8::Value>> {
     // Check if it's a Promise
     if !promise.is_promise() {
         return Some(promise);
@@ -294,9 +294,9 @@ fn resolve_promise(
 }
 
 /// Extract a NanoResponse from a V8 JavaScript Response object
-fn extract_js_response(
-    scope: &mut v8::ContextScope<v8::HandleScope>,
-    js_response: v8::Local<v8::Value>,
+fn extract_js_response<'s>(
+    scope: &'s mut v8::ContextScope<'s, v8::HandleScope>,
+    js_response: v8::Local<'s, v8::Value>,
 ) -> Result<NanoResponse> {
     // First, resolve the Promise if needed
     let js_response = match resolve_promise(scope, js_response) {
