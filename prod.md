@@ -44,7 +44,7 @@
   v1.0 — MVP
 
   - Single-app HTTP server, one V8 isolate
-  - fetch() handler interface (Cloudflare Workers style)
+  - fetch() handler interface (Edge Workers style)
   - Request / Response objects (WinterCG)
   - console.log/warn/error
   - TextEncoder / TextDecoder
@@ -105,7 +105,7 @@
   v1.5-02 — WebSocket & Events
 
   - WebSocket server: RFC 6455 framing, ping/pong, fragmentation
-  - WebSocketPair API (Cloudflare Workers compatible)
+  - WebSocketPair API ([WinterTC](https://wintertc.org/) Workers compatible)
   - EventTarget / Event / CustomEvent polyfill (V8 global)
   - WS framing loop runs on isolate-owning worker thread (no cross-thread V8 access)
   - LowMemoryNotification() in deinit to complete incremental GC before isolate teardown
@@ -169,7 +169,7 @@
   ├───────────────────────────┼─────────┼─────────────────────────────────────────────┤
   │ EventTarget               │ ✅      │                                             │
   ├───────────────────────────┼─────────┼─────────────────────────────────────────────┤
-  │ WebSocket (server)        │ ✅      │ Non-standard, Cloudflare Workers style      │
+  │ WebSocket (server)        │ ✅      │ Non-standard, [WinterTC](https://wintertc.org/) Workers style      │
   ├───────────────────────────┼─────────┼─────────────────────────────────────────────┤
   │ queueMicrotask            │ ❌      │ Not implemented                             │
   ├───────────────────────────┼─────────┼─────────────────────────────────────────────┤
@@ -181,7 +181,7 @@
   ---
   Competitive Analysis
 
-  vs. Cloudflare Workers (production target)
+  vs. Common Edge Workers (production target)
 
   Advantages of NANO:
   - Self-hosted: no vendor lock-in, no per-request pricing
@@ -242,9 +242,9 @@
   Pros (Strengths)
 
   1. Density: 10 apps × 10 worker threads = 100 isolates in one process. Each isolate ~10-20MB heap vs ~50-200MB per Docker container.
-  2. Cold start: ~50-100ms cold (V8 init) → ~2-5ms with snapshot. Cloudflare Workers-class startup.
+  2. Cold start: ~50-100ms cold (V8 init) → ~2-5ms with snapshot. 
   3. Isolation: V8 isolates are security boundaries. No shared heap. No shared globals. Cryptographic keys don't leak between apps.
-  4. WinterCG portable: Apps written to WinterCG spec run on Cloudflare Workers, Deno Deploy, and NANO without changes.
+  4. WinterCG portable: Apps written to WinterCG spec run on Edge Workers, Deno Deploy, and NANO without changes.
   5. Operational simplicity: One binary, one config file, no container orchestration.
   6. Resource governance: Per-app memory limits and timeouts enforced at the isolate level.
   7. WebSocket density: Many concurrent WS connections across many apps, all in one process.
@@ -403,7 +403,7 @@
   Summary Judgment
 
   NANO as a concept is sound. The density proposition (one process, many isolated apps, millisecond cold start, WinterCG portable) has genuine value that no existing runtime
-  delivers. Cloudflare Workers delivers this, but only as a vendor-locked hosted service.
+  delivers. Edge Workers delivers this, but only as a vendor-locked hosted service.
 
   The Zig implementation is a liability:
   - Build toolchain is fragile and slow
@@ -427,7 +427,7 @@
 
 NANO is a high-performance JavaScript runtime built for extreme density and sub-5ms cold start times. Written in Zig with embedded V8, NANO enables running thousands of lightweight JavaScript “nanoservices” in a single process—achieving 10x better resource efficiency than traditional Node.js deployments and outperforming Deno’s isolate model through manual memory control. The goal of this runtime is to optimize for hosting, to run more than one process and to be simple and nimble, not like a J2EE serv, way less bureaucractic and straight to the point. Think about a browser and its tabs.
 
-**Target Market:** Platform engineers and infrastructure teams running multi-tenant JavaScript workloads (API gateways, edge functions, webhook processors, serverless platforms) who need Cloudflare Workers-like performance without vendor lock-in.
+**Target Market:** Platform engineers and infrastructure teams running multi-tenant JavaScript workloads (API gateways, edge functions, webhook processors, serverless platforms) who need Edge Workers-like performance without vendor lock-in.
 
 **Key Differentiators:**
 

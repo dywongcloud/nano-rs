@@ -1,0 +1,384 @@
+//! Integration tests for AES-GCM encryption/decryption
+//!
+//! Tests AES-GCM key generation, encrypt/decrypt roundtrip,
+//! JWK import/export, and authentication tag verification.
+
+use nano::v8::{initialize_platform, NanoIsolate};
+use nano::runtime::apis::RuntimeAPIs;
+
+fn init_platform() {
+    initialize_platform().expect("Failed to initialize V8 platform");
+}
+
+#[test]
+fn test_aes_gcm_encrypt_decrypt_roundtrip() {
+    init_platform();
+    
+    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+    
+    RuntimeAPIs::bind_all(scope, context);
+    
+    let code = r#"
+        (function() {
+            try {
+                // Generate key
+                const key = crypto.subtle.generateKey(
+                    { name: "AES-GCM", length: 256 },
+                    true,
+                    ["encrypt", "decrypt"]
+                );
+                if (key instanceof Error) {
+                    return "Key generation error: " + key.message;
+                }
+                
+                // Create IV
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                
+                // Encrypt
+                const plaintext = new TextEncoder().encode("Hello, AES-GCM World!");
+                const enc_result = crypto.subtle.encrypt(
+                    { name: "AES-GCM", iv: iv },
+                    key,
+                    plaintext
+                );
+                
+                // Debug: check what encrypt returned
+                return "encrypt returned type:" + typeof enc_result + 
+                       ", is Error:" + (enc_result instanceof Error) +
+                       ", has message:" + (enc_result.message !== undefined) +
+                       ", message:" + enc_result.message;
+                
+                // Decrypt
+                const decrypted = crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv: iv },
+                    key,
+                    ciphertext
+                );
+                
+                if (decrypted === undefined || decrypted === null) {
+                    return "decrypted is " + decrypted;
+                }
+                if (decrypted instanceof Error) {
+                    return "Decrypt error: " + decrypted.message;
+                }
+                
+                // Verify decrypted matches original
+                const decoder = new TextDecoder();
+                const decryptedText = decoder.decode(decrypted);
+                
+                return "ct_len:" + ciphertext.length + 
+                       ", pt_len:" + plaintext.length + 
+                       ", decrypted:" + decryptedText;
+            } catch (e) {
+                return "Exception: " + e.message;
+            }
+        })()
+    "#;
+    
+    let code_string = v8::String::new(scope, code).unwrap();
+    let script = v8::Script::compile(scope, code_string, None)
+        .expect("Script compilation failed");
+    
+    let result = script.run(scope).expect("Script execution failed");
+    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    
+    // Debug: print the result
+    eprintln!("DEBUG AES-GCM roundtrip result: {}", result_str);
+    
+    assert_eq!(result_str, "true", "AES-GCM encrypt/decrypt roundtrip should work");
+}
+
+#[test]
+fn test_aes_gcm_different_key_lengths() {
+    init_platform();
+    
+    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+    
+    RuntimeAPIs::bind_all(scope, context);
+    
+    let code = r#"
+        try {
+            // Test 128-bit key
+            const key128 = crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 128 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+            const iv128 = crypto.getRandomValues(new Uint8Array(12));
+            const data128 = new Uint8Array([1, 2, 3, 4, 5]);
+            const ct128 = crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv128 },
+                key128,
+                data128
+            );
+            const pt128 = crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: iv128 },
+                key128,
+                ct128
+            );
+            const ok128 = pt128.length === data128.length;
+            
+            // Test 256-bit key
+            const key256 = crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+            const iv256 = crypto.getRandomValues(new Uint8Array(12));
+            const data256 = new Uint8Array([1, 2, 3, 4, 5]);
+            const ct256 = crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv256 },
+                key256,
+                data256
+            );
+            const pt256 = crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: iv256 },
+                key256,
+                ct256
+            );
+            const ok256 = pt256.length === data256.length;
+            
+            ok128 && ok256
+        } catch (e) {
+            "Error: " + e.message
+        }
+    "#;
+    
+    let code_string = v8::String::new(scope, code).unwrap();
+    let script = v8::Script::compile(scope, code_string, None)
+        .expect("Script compilation failed");
+    
+    let result = script.run(scope).expect("Script execution failed");
+    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    
+    assert_eq!(result_str, "true", "Both 128-bit and 256-bit AES-GCM should work");
+}
+
+#[test]
+fn test_aes_gcm_tampered_ciphertext_fails() {
+    init_platform();
+    
+    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+    
+    RuntimeAPIs::bind_all(scope, context);
+    
+    let code = r#"
+        try {
+            // Generate key and encrypt
+            const key = crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const plaintext = new TextEncoder().encode("Secret message");
+            const ciphertext = crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv },
+                key,
+                plaintext
+            );
+            
+            // Tamper with last byte (auth tag)
+            ciphertext[ciphertext.length - 1] ^= 0xFF;
+            
+            // Decrypt should fail
+            try {
+                crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv: iv },
+                    key,
+                    ciphertext
+                );
+                "Should have failed";
+            } catch (e) {
+                "Tampering detected"
+            }
+        } catch (e) {
+            "Error: " + e.message
+        }
+    "#;
+    
+    let code_string = v8::String::new(scope, code).unwrap();
+    let script = v8::Script::compile(scope, code_string, None)
+        .expect("Script compilation failed");
+    
+    let result = script.run(scope).expect("Script execution failed");
+    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    
+    assert!(result_str.contains("Tampering detected"), "Should detect tampered ciphertext");
+}
+
+#[test]
+fn test_aes_gcm_with_additional_data() {
+    init_platform();
+    
+    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+    
+    RuntimeAPIs::bind_all(scope, context);
+    
+    let code = r#"
+        try {
+            const key = crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const plaintext = new TextEncoder().encode("Data with AAD");
+            const aad = new TextEncoder().encode("authenticated metadata");
+            
+            // Encrypt with AAD
+            const ciphertext = crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv, additionalData: aad },
+                key,
+                plaintext
+            );
+            
+            // Decrypt with correct AAD should work
+            const decrypted = crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: iv, additionalData: aad },
+                key,
+                ciphertext
+            );
+            const decoder = new TextDecoder();
+            const ok = decoder.decode(decrypted) === "Data with AAD";
+            
+            ok
+        } catch (e) {
+            "Error: " + e.message
+        }
+    "#;
+    
+    let code_string = v8::String::new(scope, code).unwrap();
+    let script = v8::Script::compile(scope, code_string, None)
+        .expect("Script compilation failed");
+    
+    let result = script.run(scope).expect("Script execution failed");
+    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    
+    assert_eq!(result_str, "true", "AES-GCM with AAD should work");
+}
+
+#[test]
+fn test_aes_gcm_jwk_import_export() {
+    init_platform();
+    
+    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+    
+    RuntimeAPIs::bind_all(scope, context);
+    
+    let code = r#"
+        try {
+            // Generate a key
+            const key = crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+            
+            // Export to JWK
+            const jwk = crypto.subtle.exportKey("jwk", key);
+            
+            // Verify JWK properties
+            const ok1 = jwk.kty === "oct";
+            const ok2 = jwk.alg === "A256GCM";
+            const ok3 = jwk.ext === true;
+            const ok4 = Array.isArray(jwk.key_ops);
+            const ok5 = typeof jwk.k === "string";
+            
+            // Import the JWK back
+            const importedKey = crypto.subtle.importKey(
+                "jwk",
+                jwk,
+                { name: "AES-GCM" },
+                true,
+                ["encrypt", "decrypt"]
+            );
+            
+            // Test that imported key works
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const plaintext = new TextEncoder().encode("Test message");
+            const ciphertext = crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv },
+                importedKey,
+                plaintext
+            );
+            const decrypted = crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: iv },
+                importedKey,
+                ciphertext
+            );
+            const decoder = new TextDecoder();
+            const ok6 = decoder.decode(decrypted) === "Test message";
+            
+            ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        } catch (e) {
+            "Error: " + e.message
+        }
+    "#;
+    
+    let code_string = v8::String::new(scope, code).unwrap();
+    let script = v8::Script::compile(scope, code_string, None)
+        .expect("Script compilation failed");
+    
+    let result = script.run(scope).expect("Script execution failed");
+    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    
+    assert_eq!(result_str, "true", "AES-GCM JWK import/export should work");
+}
+
+#[test]
+fn test_non_extractable_key_cannot_export() {
+    init_platform();
+    
+    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+    
+    RuntimeAPIs::bind_all(scope, context);
+    
+    let code = r#"
+        try {
+            // Generate non-extractable key
+            const key = crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 256 },
+                false, // non-extractable
+                ["encrypt", "decrypt"]
+            );
+            
+            // Try to export
+            try {
+                crypto.subtle.exportKey("jwk", key);
+                "Should have failed";
+            } catch (e) {
+                "Export blocked: " + e.message
+            }
+        } catch (e) {
+            "Error: " + e.message
+        }
+    "#;
+    
+    let code_string = v8::String::new(scope, code).unwrap();
+    let script = v8::Script::compile(scope, code_string, None)
+        .expect("Script compilation failed");
+    
+    let result = script.run(scope).expect("Script execution failed");
+    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    
+    assert!(result_str.contains("Export blocked"), "Should block export of non-extractable key");
+}

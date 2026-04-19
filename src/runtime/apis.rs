@@ -1205,10 +1205,15 @@ fn subtle_generate_key(
             
             // Extract optional length (default based on hash)
             let length_key = v8::String::new(scope, "length").unwrap();
-            let length: Option<u32> = algorithm_obj
-                .get(scope, length_key.into())
-                .and_then(|v| v.to_number(scope))
-                .map(|n| n.value() as u32);
+            let length_val = algorithm_obj.get(scope, length_key.into());
+            let length: Option<u32> = if length_val.map(|v| v.is_undefined() || v.is_null()).unwrap_or(true) {
+                None
+            } else {
+                length_val
+                    .and_then(|v| v.to_number(scope))
+                    .map(|n| n.value() as u32)
+                    .filter(|&n| n > 0)
+            };
             
             crate::runtime::crypto::hmac::generate_key(hash, length, extractable, usages)
         }
@@ -1610,11 +1615,16 @@ fn subtle_encrypt(
             
             // Extract tag length (default 128)
             let tag_length_key = v8::String::new(scope, "tagLength").unwrap();
-            let tag_length = algorithm_obj
-                .get(scope, tag_length_key.into())
-                .and_then(|v| v.to_number(scope))
-                .map(|n| n.value() as u16)
-                .unwrap_or(128);
+            let tag_length_val = algorithm_obj.get(scope, tag_length_key.into());
+            let tag_length: u16 = if tag_length_val.map(|v| v.is_undefined() || v.is_null()).unwrap_or(true) {
+                128
+            } else {
+                tag_length_val
+                    .and_then(|v| v.to_number(scope))
+                    .map(|n| n.value() as u16)
+                    .filter(|&n| n > 0)
+                    .unwrap_or(128)
+            };
             
             let params = crate::runtime::crypto::aes_gcm::AesGcmParams {
                 iv,
@@ -1622,7 +1632,9 @@ fn subtle_encrypt(
                 tag_length,
             };
             
-            crate::runtime::crypto::aes_gcm::encrypt(&crypto_key, &params, &data)
+            let enc_result = crate::runtime::crypto::aes_gcm::encrypt(&crypto_key, &params, &data);
+            tracing::debug!("Encrypt result: {:?}", enc_result.is_ok());
+            enc_result
         }
         _ => {
             Err(crate::runtime::crypto::CryptoError::NotSupported)
@@ -1730,11 +1742,16 @@ fn subtle_decrypt(
             
             // Extract tag length (default 128)
             let tag_length_key = v8::String::new(scope, "tagLength").unwrap();
-            let tag_length = algorithm_obj
-                .get(scope, tag_length_key.into())
-                .and_then(|v| v.to_number(scope))
-                .map(|n| n.value() as u16)
-                .unwrap_or(128);
+            let tag_length_val = algorithm_obj.get(scope, tag_length_key.into());
+            let tag_length: u16 = if tag_length_val.map(|v| v.is_undefined() || v.is_null()).unwrap_or(true) {
+                128
+            } else {
+                tag_length_val
+                    .and_then(|v| v.to_number(scope))
+                    .map(|n| n.value() as u16)
+                    .filter(|&n| n > 0)
+                    .unwrap_or(128)
+            };
             
             let params = crate::runtime::crypto::aes_gcm::AesGcmParams {
                 iv,
