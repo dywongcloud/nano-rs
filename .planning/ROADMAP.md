@@ -53,7 +53,12 @@ Plans:
   3. Request/Response/URL/Headers objects match WinterCG specification structure
   4. URL/URLSearchParams parse and construct URLs correctly
   5. Headers API supports append, set, get, delete, has, forEach operations
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — HTTP server infrastructure with axum
+- [ ] 02-02-PLAN.md — Virtual host routing with Host header matching
+- [ ] 02-03-PLAN.md — WinterCG Request/Response/URL/Headers objects
 
 ### Phase 3: Runtime APIs
 **Goal:** JavaScript code can use core WinterCG APIs for basic computation and async operations
