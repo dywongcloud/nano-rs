@@ -202,16 +202,13 @@ impl PrometheusExporter {
                         )
                         .unwrap();
                     } else {
-                        writeln!(
-                            output,
-                            "{}_bucket{}le=\"{}\"{}} {}",
-                            name,
-                            &base_labels[..base_labels.len() - 1], // Remove trailing }
-                            bucket_label,
-                            if base_labels.len() > 2 { "," } else { "" },
-                            cumulative
-                        )
-                        .unwrap();
+                        // Build the bucket label string: insert le="X" before the closing brace
+                        let base_without_close = &base_labels[..base_labels.len() - 1]; // Remove trailing }
+                        let comma = if base_labels.len() > 2 { "," } else { "" };
+                        let bucket_labels =
+                            format!("{}{}le=\"{}\"}}", base_without_close, comma, bucket_label);
+                        writeln!(output, "{}_bucket{} {}", name, bucket_labels, cumulative)
+                            .unwrap();
                     }
                 }
 

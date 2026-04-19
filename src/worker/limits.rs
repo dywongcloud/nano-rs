@@ -146,6 +146,19 @@ pub struct MemoryLimiter {
     oom_threshold: f64,
 }
 
+impl std::fmt::Debug for MemoryLimiter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryLimiter")
+            .field("limit_bytes", &self.limit_bytes)
+            .field("limit_mb", &self.limit_mb())
+            .field("current_bytes", &self.current_bytes())
+            .field("oom_triggered", &self.is_oom())
+            .field("app_hostname", &self.app_hostname)
+            .field("oom_threshold", &self.oom_threshold)
+            .finish()
+    }
+}
+
 impl MemoryLimiter {
     /// Create a new memory limiter with the given MB limit
     ///
