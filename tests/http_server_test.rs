@@ -20,6 +20,7 @@ async fn test_server_starts_and_responds() {
     let config = ServerConfig {
         port: 0, // Let OS assign port
         host: "127.0.0.1".to_string(),
+        routes: vec![], // Empty routes for this test
     };
 
     // Spawn server in background
@@ -79,6 +80,7 @@ fn test_server_config() {
     let config = ServerConfig {
         port: 9999,
         host: "127.0.0.1".to_string(),
+        routes: vec![], // Empty routes for this test
     };
 
     let addr = config.socket_addr().expect("Should parse socket address");
