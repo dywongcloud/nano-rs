@@ -8,6 +8,7 @@ use crate::http::NanoResponse;
 use crate::runtime::HandlerContext;
 use crate::v8::{initialize_platform, NanoIsolate};
 use crate::worker::context::ContextManager;
+use crate::worker::oom::{OomMonitor, OomMonitorBuilder};
 use crate::worker::HandlerTask;
 
 use anyhow::{anyhow, Result};
@@ -282,6 +283,7 @@ impl WorkerPool {
     ///
     /// * `hostname` - Hostname this pool serves (for logging)
     /// * `worker_count` - Number of worker threads to spawn
+    /// * `memory_limit_mb` - Memory limit per isolate in MB (0 = no limit)
     ///
     /// # Returns
     ///
@@ -290,7 +292,7 @@ impl WorkerPool {
     /// # Panics
     ///
     /// Panics if the V8 platform is not initialized
-    pub fn new(hostname: String, worker_count: usize) -> Self {
+    pub fn new(hostname: String, worker_count: usize, memory_limit_mb: u32) -> Self {
         // Ensure platform is initialized
         if !crate::v8::is_initialized() {
             initialize_platform().expect("Failed to initialize V8 platform");
@@ -298,14 +300,30 @@ impl WorkerPool {
 
         assert!(worker_count > 0, "Worker count must be at least 1");
 
+        // Clone hostname for use in closures (original kept for final logging)
+        let hostname_for_workers = hostname.clone();
+
         let mut workers = Vec::with_capacity(worker_count);
 
         for id in 0..worker_count {
+            let worker_hostname = hostname_for_workers.clone();
             let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
 
             // Spawn worker thread with thread-local isolate
             let thread = thread::spawn(move || {
                 info!("Worker {} starting", id);
+
+                // Create OOM monitor for this worker if memory limit is configured
+                let mut oom_monitor = if memory_limit_mb > 0 {
+                    Some(
+                        OomMonitorBuilder::new(format!("worker_{}_{}", worker_hostname, id))
+                            .with_limit_mb(memory_limit_mb)
+                            .for_hostname(&worker_hostname)
+                            .build(),
+                    )
+                } else {
+                    None
+                };
 
                 // Create isolate in this thread - NEVER moves to another thread
                 // This is the critical POOL-05 constraint: isolate is !Send + !Sync
@@ -330,6 +348,55 @@ impl WorkerPool {
                     match task_rx.recv() {
                         Ok(task) => {
                             debug!("Worker {} received task for {}", id, task.entrypoint);
+
+                            // OOM-04: Pre-request OOM check
+                            if let Some(ref monitor) = oom_monitor {
+                                let isolate_ref = context_manager.isolate_mut().isolate();
+                                match monitor.check(isolate_ref) {
+                                    Ok(_) => {
+                                        // Memory OK, continue with request
+                                    }
+                                    Err(oom_error) => {
+                                        // OOM detected - log, return 503, dispose isolate
+                                        let request_id = format!("req_{}", uuid::Uuid::new_v4());
+                                        monitor.log_oom_event(&oom_error, &request_id);
+
+                                        let oom_response = monitor.create_oom_response(&oom_error);
+                                        let _ = task.response_tx.send(Ok(oom_response));
+
+                                        // Dispose isolate and create fresh one
+                                        warn!(
+                                            "Worker {} disposing isolate due to OOM (oom_count: {})",
+                                            id,
+                                            monitor.oom_count()
+                                        );
+
+                                        // Create new isolate to replace the OOM'd one
+                                        match NanoIsolate::new() {
+                                            Ok(new_isolate) => {
+                                                context_manager = ContextManager::new(new_isolate);
+                                                if let Err(e) =
+                                                    context_manager.create_initial_context()
+                                                {
+                                                    error!("Worker {} failed to create new context after OOM: {}", id, e);
+                                                    break; // Exit worker if can't recover
+                                                }
+                                                // Reset OOM monitor for fresh isolate
+                                                monitor.reset();
+                                                info!(
+                                                    "Worker {} created fresh isolate after OOM",
+                                                    id
+                                                );
+                                            }
+                                            Err(e) => {
+                                                error!("Worker {} failed to create replacement isolate: {}", id, e);
+                                                break; // Exit worker if can't recover
+                                            }
+                                        }
+                                        continue;
+                                    }
+                                }
+                            }
 
                             // POOL-04: Reset context before each request
                             match context_manager.reset_context() {
@@ -362,6 +429,40 @@ impl WorkerPool {
                             let result =
                                 execute_with_context_manager(&mut context_manager, &handler_ctx);
 
+                            // Post-request OOM check (optional - catches runaway memory during request)
+                            if let Some(ref monitor) = oom_monitor {
+                                let isolate_ref = context_manager.isolate_mut().isolate();
+                                if let Err(oom_error) = monitor.check(isolate_ref) {
+                                    let request_id = format!("req_{}", uuid::Uuid::new_v4());
+                                    monitor.log_oom_event(&oom_error, &request_id);
+                                    warn!(
+                                        "Worker {} OOM detected after request execution (oom_count: {})",
+                                        id,
+                                        monitor.oom_count()
+                                    );
+                                    // Don't return 503 here since we already returned the actual response
+                                    // Just dispose and recreate for next request
+
+                                    // Dispose isolate and create fresh one
+                                    match NanoIsolate::new() {
+                                        Ok(new_isolate) => {
+                                            context_manager = ContextManager::new(new_isolate);
+                                            if let Err(e) = context_manager.create_initial_context()
+                                            {
+                                                error!("Worker {} failed to create new context after post-request OOM: {}", id, e);
+                                                break;
+                                            }
+                                            monitor.reset();
+                                            info!("Worker {} created fresh isolate after post-request OOM", id);
+                                        }
+                                        Err(e) => {
+                                            error!("Worker {} failed to create replacement isolate: {}", id, e);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
                             // Send response back
                             let _ = task.response_tx.send(result);
                         }
@@ -375,9 +476,10 @@ impl WorkerPool {
 
                 // Isolate is dropped here when worker thread exits
                 info!(
-                    "Worker {} shutting down (avg context reset: {:.2}ms)",
+                    "Worker {} shutting down (avg context reset: {:.2}ms, OOM events: {})",
                     id,
-                    context_manager.average_reset_time_ms()
+                    context_manager.average_reset_time_ms(),
+                    oom_monitor.map(|m| m.oom_count()).unwrap_or(0)
                 );
             });
 
@@ -545,7 +647,7 @@ mod tests {
     #[test]
     fn test_worker_pool_creation() {
         init_platform();
-        let pool = WorkerPool::new("test.example.com".to_string(), 2);
+        let pool = WorkerPool::new("test.example.com".to_string(), 2, 0);
         assert_eq!(pool.worker_count, 2);
         assert_eq!(pool.workers.len(), 2);
         pool.shutdown().expect("Shutdown failed");
@@ -554,7 +656,7 @@ mod tests {
     #[test]
     fn test_single_worker_pool() {
         init_platform();
-        let pool = WorkerPool::new("test.example.com".to_string(), 1);
+        let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
         assert_eq!(pool.worker_count, 1);
         pool.shutdown().expect("Shutdown failed");
     }
@@ -575,7 +677,7 @@ function fetch(request) {
 "#,
         );
 
-        let pool = WorkerPool::new("test.example.com".to_string(), 1);
+        let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
 
         // Create task
         let url = NanoUrl::parse("http://test/").unwrap();
@@ -620,7 +722,7 @@ function fetch(request) {
 "#,
         );
 
-        let pool = WorkerPool::new("test.example.com".to_string(), 4);
+        let pool = WorkerPool::new("test.example.com".to_string(), 4, 0);
 
         // Dispatch 10 tasks concurrently
         let mut receivers = vec![];
@@ -656,7 +758,7 @@ function fetch(request) {
     #[test]
     fn test_round_robin_dispatch() {
         init_platform();
-        let pool = WorkerPool::new("test.example.com".to_string(), 3);
+        let pool = WorkerPool::new("test.example.com".to_string(), 3, 0);
 
         // Create tasks to verify round-robin works
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
@@ -693,7 +795,7 @@ function fetch(request) {
             r#"function fetch(request) { return { status: 200, headers: {}, body: "" }; }"#,
         );
 
-        let pool = WorkerPool::new("test.example.com".to_string(), 3);
+        let pool = WorkerPool::new("test.example.com".to_string(), 3, 0);
 
         // Dispatch to specific worker
         let url = NanoUrl::parse("http://test/").unwrap();
@@ -721,7 +823,7 @@ function fetch(request) {
             r#"function fetch(request) { return { status: 200, headers: {}, body: "" }; }"#,
         );
 
-        let pool = WorkerPool::new("test.example.com".to_string(), 2);
+        let pool = WorkerPool::new("test.example.com".to_string(), 2, 0);
 
         let url = NanoUrl::parse("http://test/").unwrap();
         let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
@@ -740,7 +842,7 @@ function fetch(request) {
     #[test]
     fn test_pool_shutdown() {
         init_platform();
-        let pool = WorkerPool::new("test.example.com".to_string(), 2);
+        let pool = WorkerPool::new("test.example.com".to_string(), 2, 0);
 
         // Shutdown should complete without hanging
         pool.shutdown().expect("Shutdown failed");
@@ -761,7 +863,7 @@ function fetch(request) {
         // assert_not_send::<NanoIsolate>();
 
         // Verify the pool creates workers correctly
-        let pool = WorkerPool::new("test.example.com".to_string(), 2);
+        let pool = WorkerPool::new("test.example.com".to_string(), 2, 0);
         assert_eq!(pool.workers.len(), 2);
         pool.shutdown().expect("Shutdown failed");
     }

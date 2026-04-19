@@ -107,14 +107,28 @@ pub async fn metrics_handler_with_registry(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::router::AppState;
+    use crate::http::server::AppStateWithShutdown;
     use crate::metrics::MetricsRegistry;
+    use crate::signal::ShutdownState;
+    use crate::worker::WorkQueue;
     use axum::body::Body;
     use tower::ServiceExt;
 
     #[tokio::test]
     async fn test_metrics_handler_returns_200() {
         // Create minimal state for testing
-        let state = Arc::new(AppStateWithShutdown::default());
+        use crate::http::router::{VirtualHostRouter, RouteTarget, HandlerType};
+        use crate::app::RequestDrain;
+
+        let default_target = RouteTarget {
+            hostname: "default".to_string(),
+            handler_type: HandlerType::StaticResponse("Not Found".to_string()),
+        };
+        let router = VirtualHostRouter::new(default_target);
+        let app_state = AppState::new(router, 2);
+        let shutdown_state = ShutdownState::new(RequestDrain::new());
+        let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
 
         let response = metrics_handler(State(state)).await;
 
