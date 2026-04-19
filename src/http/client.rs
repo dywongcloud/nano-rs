@@ -77,6 +77,79 @@ pub enum HttpClientError {
     Tls(String),
 }
 
+/// Types of request bodies supported
+#[derive(Debug, Clone)]
+pub enum RequestBody {
+    /// No body
+    None,
+    /// Fixed-size body with known content length
+    Fixed(Bytes),
+    /// Streaming body (content length unknown)
+    /// Uses chunked transfer encoding automatically
+    Streaming {
+        /// Content type for the stream
+        content_type: Option<String>,
+    },
+}
+
+impl RequestBody {
+    /// Check if this body type is a streaming body
+    pub fn is_streaming(&self) -> bool {
+        matches!(self, RequestBody::Streaming { .. })
+    }
+
+    /// Check if this body type has no content
+    pub fn is_none(&self) -> bool {
+        matches!(self, RequestBody::None)
+    }
+
+    /// Get the content length if known
+    pub fn content_length(&self) -> Option<usize> {
+        match self {
+            RequestBody::Fixed(bytes) => Some(bytes.len()),
+            _ => None,
+        }
+    }
+
+    /// Get the content type if specified
+    pub fn content_type(&self) -> Option<&str> {
+        match self {
+            RequestBody::Streaming { content_type } => content_type.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+impl Default for RequestBody {
+    fn default() -> Self {
+        RequestBody::None
+    }
+}
+
+/// Configuration for streaming uploads
+#[derive(Debug, Clone)]
+pub struct StreamingConfig {
+    /// Maximum upload size (default: 100MB)
+    pub max_size: usize,
+    /// Upload timeout (default: 30s)
+    pub timeout: Duration,
+    /// Maximum concurrent uploads per isolate
+    pub max_concurrent: usize,
+    /// Chunk buffer size for backpressure
+    pub chunk_buffer_size: usize,
+}
+
+impl Default for StreamingConfig {
+    fn default() -> Self {
+        Self {
+            max_size: 100 * 1024 * 1024, // 100MB
+            timeout: Duration::from_secs(30),
+            max_concurrent: 10,
+            chunk_buffer_size: 4,
+        }
+    }
+}
+
 impl HttpClient {
     /// Create a new HTTP client with default settings
     ///
@@ -496,5 +569,71 @@ mod tests {
         assert!(!is_dangerous_header("Content-Type"));
         assert!(!is_dangerous_header("Authorization"));
         assert!(!is_dangerous_header("X-Custom-Header"));
+    }
+
+    // ==================== RequestBody Tests ====================
+
+    /// Test 13: RequestBody::None variant
+    #[test]
+    fn test_request_body_none() {
+        let body = RequestBody::None;
+        assert!(body.is_none());
+        assert!(!body.is_streaming());
+        assert_eq!(body.content_length(), None);
+        assert_eq!(body.content_type(), None);
+    }
+
+    /// Test 14: RequestBody::Fixed variant
+    #[test]
+    fn test_request_body_fixed() {
+        let body = RequestBody::Fixed(Bytes::from("test data"));
+        assert!(!body.is_none());
+        assert!(!body.is_streaming());
+        assert_eq!(body.content_length(), Some(9));
+        assert_eq!(body.content_type(), None);
+    }
+
+    /// Test 15: RequestBody::Streaming variant
+    #[test]
+    fn test_request_body_streaming() {
+        let body = RequestBody::Streaming {
+            content_type: Some("application/json".to_string()),
+        };
+        assert!(!body.is_none());
+        assert!(body.is_streaming());
+        assert_eq!(body.content_length(), None);
+        assert_eq!(body.content_type(), Some("application/json"));
+    }
+
+    /// Test 16: RequestBody default
+    #[test]
+    fn test_request_body_default() {
+        let body: RequestBody = Default::default();
+        assert!(body.is_none());
+    }
+
+    /// Test 17: StreamingConfig default
+    #[test]
+    fn test_streaming_config_default() {
+        let config = StreamingConfig::default();
+        assert_eq!(config.max_size, 100 * 1024 * 1024); // 100MB
+        assert_eq!(config.timeout, Duration::from_secs(30));
+        assert_eq!(config.max_concurrent, 10);
+        assert_eq!(config.chunk_buffer_size, 4);
+    }
+
+    /// Test 18: StreamingConfig custom values
+    #[test]
+    fn test_streaming_config_custom() {
+        let config = StreamingConfig {
+            max_size: 50 * 1024 * 1024,
+            timeout: Duration::from_secs(60),
+            max_concurrent: 20,
+            chunk_buffer_size: 8,
+        };
+        assert_eq!(config.max_size, 50 * 1024 * 1024); // 50MB
+        assert_eq!(config.timeout, Duration::from_secs(60));
+        assert_eq!(config.max_concurrent, 20);
+        assert_eq!(config.chunk_buffer_size, 8);
     }
 }
