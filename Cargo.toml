@@ -41,6 +41,12 @@ percent-encoding = "2.3"
 bytes = "1.6"
 base64 = "0.22"
 
+# Cryptographic randomness
+getrandom = "0.2"
+
+# Static initialization
+lazy_static = "1.4"
+
 # Workaround for Rust version compatibility
 home = "=0.5.11"
 
