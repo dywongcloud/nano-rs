@@ -7,20 +7,20 @@
 
 ## Current Position
 
-**Phase:** Phase 7 (Production Features & Admin API) — ✅ **COMPLETE**  
-**Plan:** 6/6 plans executed (Structured Logging, Metrics, Graceful Shutdown, OOM Detection, Admin API, Unix Socket)  
-**Status:** Production-grade observability, metrics, operational stability, and remote management capabilities fully implemented. All PROD-01 through PROD-08 requirements satisfied.
+**Phase:** Phase 8 (Framework Compatibility) — 📋 **CONTEXT GATHERED**
+**Plan:** Context captured, ready for planning
+**Status:** Framework compatibility decisions locked. Standard WinterCG approach confirmed — no framework detection, VFS bundle approach for static assets.
 
 **Progress:**
 ```
-[██████████████████████░░░░░░░░░░░] 70% (7/9 phases, Phase 7 complete)
+[███████████████████████░░░░░░░░░░] 77% (7/9 phases, Phase 8 context ready)
 ```
 
 ## Project Reference
 
 **Core Value:** One OS process hosts many isolated JS apps with millisecond cold starts, zero container overhead, and strong per-app isolation.
 
-**Current Focus:** Phase 5 Multi-App Hosting — Config-driven app management, resource limits, hot-reload. MVP complete!
+**Current Focus:** Phase 8 Framework Compatibility — Hono.js, Next.js static export, Astro static build verification
 
 **Stack:** Rust + rusty_v8 + tokio + axum
 
@@ -187,9 +187,25 @@
 
 ## Session Continuity
 
-**Last action:** Executed Phase 7 — All 6 plans complete (31 commits, 46 tests passing)  
-**Next action:** Proceed to Phase 8 — Framework Compatibility (Hono.js, Next.js, Astro)  
-**Context valid through:** Phase 7 complete, all PROD-01 through PROD-08 requirements satisfied
+**Last action:** Gathered Phase 8 context — Framework compatibility decisions locked  
+**Next action:** Plan Phase 8 — Create PLAN.md with test app implementation tasks  
+**Context valid through:** Phase 8 context gathered, ready for planning
+
+## Phase 8 Context Summary
+
+### Decisions Locked
+- **D-01:** No framework detection — frameworks adapt to WinterCG runtime (like CF Workers/Deno)
+- **D-02:** VFS bundle approach — all static assets bundled into JS entrypoint
+- **D-03:** Cloudflare Workers style only — `export default { fetch(request) {...} }`
+- **D-04:** Minimal test apps — hand-written test apps mimicking framework patterns
+- **D-05:** Standard AppConfig — no special framework fields needed
+
+### Key Insight
+User insight drove the core decision: "how does other runtimes do that? they don't know the frameworks, we should be the same." This clarified that edge runtimes don't detect frameworks — frameworks export WinterCG-compatible handlers.
+
+### Artifacts Created
+- [08-CONTEXT.md](./phases/08-framework-compatibility/08-CONTEXT.md) — Implementation decisions
+- [08-DISCUSSION-LOG.md](./phases/08-framework-compatibility/08-DISCUSSION-LOG.md) — Q&A audit trail
 
 ## Phase 7 Completion Summary
 
