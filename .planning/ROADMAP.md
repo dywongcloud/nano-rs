@@ -18,7 +18,7 @@ This roadmap maps NANO's migration from Zig to Rust, delivering a multi-tenant e
 - [x] **Phase 1: V8 Foundation** — rusty_v8 integration with EPT fix, single isolate proof-of-concept ✅
 - [x] **Phase 2: HTTP Server Core** — axum server with virtual host routing and WinterCG request/response objects ✅
 - [x] **Phase 3: Runtime APIs** — Core JavaScript APIs (fetch handler, console, timers, encoding, crypto basics) ✅
-- [ ] **Phase 4: WorkerPool & Dispatch** — Multi-threaded worker pools with context reset and affine dispatch
+- [x] **Phase 4: WorkerPool & Dispatch** — Multi-threaded worker pools with context reset and affine dispatch ✅
 - [ ] **Phase 5: Multi-App Hosting** — JSON config, per-app isolation, hot-reload, graceful drain
 - [ ] **Phase 6: Outbound I/O** — Async fetch() from JavaScript with streaming request/response bodies
 - [ ] **Phase 7: Production Features** — Structured logging, metrics endpoint, graceful shutdown, OOM detection
@@ -96,9 +96,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — WorkerPool infrastructure with thread-local isolate ownership
-- [ ] 04-02-PLAN.md — WorkQueue with bounded MPSC channel and affine dispatch
-- [ ] 04-03-PLAN.md — Context lifecycle management with sub-10ms context reset
+- [x] 04-01-PLAN.md — WorkerPool infrastructure with thread-local isolate ownership ✅
+- [x] 04-02-PLAN.md — WorkQueue with bounded MPSC channel and affine dispatch ✅
+- [x] 04-03-PLAN.md — Context lifecycle management with sub-10ms context reset ✅
 
 ### Phase 5: Multi-App Hosting
 **Goal:** Multiple isolated apps run in parallel with per-app configuration and resource limits
@@ -111,7 +111,12 @@ Plans:
   4. Per-app environment variables inject into JS global scope
   5. Config file changes trigger hot-reload within 2 seconds
   6. In-flight requests complete before config swap (graceful drain)
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — JSON config loading and app registry with env vars
+- [ ] 05-02-PLAN.md — Per-app memory limits and timeout enforcement
+- [ ] 05-03-PLAN.md — Hot-reload with graceful drain and config watcher
 
 ### Phase 6: Outbound I/O
 **Goal:** JavaScript can make non-blocking outbound HTTP requests with streaming support
@@ -164,7 +169,7 @@ Plans:
 | 1. V8 Foundation | 3/3 | ✅ Complete | 2026-04-19 |
 | 2. HTTP Server Core | 3/3 | ✅ Complete | 2026-04-19 |
 | 3. Runtime APIs | 4/4 | ✅ Complete | 2026-04-19 |
-| 4. WorkerPool & Dispatch | 0/3 | 📋 Planned | 2026-04-19 |
+| 4. WorkerPool & Dispatch | 3/3 | ✅ Complete | 2026-04-19 |
 | 5. Multi-App Hosting | 0/3 | Not started | - |
 | 6. Outbound I/O | 0/2 | Not started | - |
 | 7. Production Features | 0/2 | Not started | - |
@@ -188,9 +193,9 @@ Plans:
 - [x] All 10 core APIs verified
 
 ### Phase 4
-- [ ] Multi-threaded dispatch working
-- [ ] Context reset <10ms
-- [ ] Thread safety enforced
+- [x] Multi-threaded dispatch working
+- [x] Context reset <10ms
+- [x] Thread safety enforced
 
 ### Phase 5
 - [ ] Multiple apps isolated
