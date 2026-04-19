@@ -65,6 +65,9 @@ webpki-roots = "0.26"
 # Workaround for Rust version compatibility
 home = "=0.5.11"
 
+# FFI support for V8 external data pointers
+libc = "0.2"
+
 [profile.release]
 opt-level = 3
 lto = true
