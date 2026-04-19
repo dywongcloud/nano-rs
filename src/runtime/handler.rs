@@ -249,6 +249,28 @@ fn execute_in_v8(
         None => return Err(anyhow!("Failed to parse request JSON")),
     };
 
+    // Convert plain headers object to Headers instance
+    // Get the Headers constructor
+    let headers_key = v8::String::new(scope, "Headers").unwrap();
+    if let Some(headers_ctor) = global.get(scope, headers_key.into()) {
+        if headers_ctor.is_function() {
+            let headers_ctor_fn = headers_ctor.cast::<v8::Function>();
+            
+            // Get the headers from the request
+            let req_headers_key = v8::String::new(scope, "headers").unwrap();
+            if let Some(req_headers) = req.to_object(scope).and_then(|o| o.get(scope, req_headers_key.into())) {
+                if !req_headers.is_null() && !req_headers.is_undefined() {
+                    // Create new Headers(headers)
+                    if let Some(new_headers) = headers_ctor_fn.call(scope, headers_ctor.into(), &[req_headers]) {
+                        if let Some(req_obj) = req.to_object(scope) {
+                            let _ = req_obj.set(scope, req_headers_key.into(), new_headers);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Call the fetch handler with the Request
     let result = fetch_fn.call(scope, global.into(), &[js_request]);
 
