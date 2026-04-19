@@ -40,6 +40,8 @@ async fn main() -> Result<()> {
 
     // Start Admin API server (optional - only if API key is configured)
     let admin_api_key = std::env::var("NANO_ADMIN_API_KEY").unwrap_or_default();
+    let unix_socket_path = std::env::var("NANO_ADMIN_UNIX_SOCKET").ok();
+    
     let admin_handle = if !admin_api_key.is_empty() {
         let admin_config = nano::admin::server::AdminConfig::new(admin_api_key);
         let admin_state = nano::admin::server::AdminState::new(registry);
@@ -59,6 +61,27 @@ async fn main() -> Result<()> {
         None
     };
 
+    // Start Unix socket admin server (optional - enabled via NANO_ADMIN_UNIX_SOCKET)
+    let unix_socket_handle = if let Some(socket_path) = unix_socket_path {
+        let unix_config = nano::admin::unix_socket::UnixSocketConfig::new(socket_path);
+        let unix_auth = std::sync::Arc::new(nano::admin::auth::AdminAuth::new("unix-socket-unused"));
+        let unix_state = nano::admin::server::AdminState::new(registry);
+
+        match nano::admin::unix_socket::start_unix_socket_server(unix_config, unix_state, unix_auth).await {
+            Ok(unix_server) => {
+                tracing::info!("Unix socket admin server started at {}", unix_server.socket_path().display());
+                Some(unix_server)
+            }
+            Err(e) => {
+                tracing::error!("Failed to start Unix socket admin server: {}", e);
+                None
+            }
+        }
+    } else {
+        tracing::info!("Unix socket admin server not started (NANO_ADMIN_UNIX_SOCKET not set)");
+        None
+    };
+
     // Wait for shutdown signal
     tracing::info!("Waiting for shutdown signal (SIGTERM or Ctrl+C)...");
     let _ = shutdown_rx.recv().await;
@@ -67,10 +90,15 @@ async fn main() -> Result<()> {
     // Perform graceful shutdown
     shutdown.shutdown().await;
 
-    // Shut down admin server if running
+    // Shut down admin servers if running
     if let Some(admin_server) = admin_handle {
         tracing::info!("Shutting down Admin API server...");
         admin_server.shutdown().await;
+    }
+
+    if let Some(unix_server) = unix_socket_handle {
+        tracing::info!("Shutting down Unix socket admin server...");
+        unix_server.shutdown().await;
     }
 
     // Wait for main server to complete
