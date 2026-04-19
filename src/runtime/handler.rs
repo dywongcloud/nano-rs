@@ -182,7 +182,8 @@ fn execute_in_v8(
     // Bind runtime APIs (Response, console, crypto, etc.)
     RuntimeAPIs::bind_all(scope, v8_context);
 
-    // Enter the context with ContextScope
+    // Create a new HandleScope and ContextScope for execution
+    let scope = &mut v8::HandleScope::new(isolate.isolate());
     let scope = &mut v8::ContextScope::new(scope, v8_context);
 
     // Get global object
