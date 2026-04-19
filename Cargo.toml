@@ -1,0 +1,38 @@
+[package]
+name = "nano-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gleicon Moraes <gleicon@gmail.com>"]
+description = "Multi-tenant JavaScript edge runtime (Rust + rusty_v8)"
+license = "MIT"
+
+[[bin]]
+name = "nano-rs"
+path = "src/main.rs"
+
+[dependencies]
+# Core V8 bindings (v135 for Rust 1.87 compatibility)
+v8 = "135"
+
+# Async runtime
+tokio = { version = "1.52", features = ["full"] }
+
+# Observability
+tracing = "0.1"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Workaround for Rust version compatibility
+home = "=0.5.11"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
