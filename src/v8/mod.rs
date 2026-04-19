@@ -10,7 +10,9 @@
 //!
 //! Reference: AP-02 from Zig version (prod.md)
 
+pub mod isolate;
 pub mod platform;
 
-// Re-export key functions for convenience
+// Re-export key functions and types for convenience
+pub use isolate::NanoIsolate;
 pub use platform::{initialize_platform, is_initialized, shutdown_platform};
