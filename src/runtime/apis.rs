@@ -41,6 +41,7 @@ impl RuntimeAPIs {
         Self::bind_dom_exception(scope, context);
         Self::bind_blob(scope, context);
         Self::bind_form_data(scope, context);
+        Self::bind_url(scope, context);
         Self::bind_response(scope, context);
         Self::bind_fetch(scope, context);
     }
@@ -220,6 +221,19 @@ impl RuntimeAPIs {
 
         // Attach to global
         let key = v8::String::new(scope, "Response").unwrap();
+        global.set(scope, key.into(), ctor.into());
+    }
+
+    /// Bind URL constructor for WinterCG compatibility
+    fn bind_url(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        let global = context.global(scope);
+
+        // Create URL constructor
+        let template = v8::FunctionTemplate::new(scope, url_constructor);
+        let ctor = template.get_function(scope).unwrap();
+
+        // Attach to global
+        let key = v8::String::new(scope, "URL").unwrap();
         global.set(scope, key.into(), ctor.into());
     }
 }
@@ -785,6 +799,90 @@ fn headers_set_callback(
         let val = v8::String::new(scope, &value).unwrap();
         this.set(scope, key.into(), val.into());
     }
+}
+
+/// URL constructor implementation (simplified v1)
+fn url_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    // Get the URL string argument
+    let url_string = if args.length() > 0 {
+        args.get(0).to_string(scope)
+            .map(|s| s.to_rust_string_lossy(scope))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    // Parse the URL to extract components
+    let parsed = url::Url::parse(&url_string).unwrap_or_else(|_| {
+        url::Url::parse("http://localhost/").unwrap()
+    });
+
+    // Set href property (full URL)
+    let href_key = v8::String::new(scope, "href").unwrap();
+    let href_val = v8::String::new(scope, parsed.as_str()).unwrap();
+    this.set(scope, href_key.into(), href_val.into());
+
+    // Set protocol property
+    let protocol_key = v8::String::new(scope, "protocol").unwrap();
+    let protocol = format!("{}:", parsed.scheme());
+    let protocol_val = v8::String::new(scope, &protocol).unwrap();
+    this.set(scope, protocol_key.into(), protocol_val.into());
+
+    // Set host property (hostname:port)
+    let host_key = v8::String::new(scope, "host").unwrap();
+    let host = if let Some(port) = parsed.port() {
+        format!("{}:{}", parsed.host_str().unwrap_or(""), port)
+    } else {
+        parsed.host_str().unwrap_or("").to_string()
+    };
+    let host_val = v8::String::new(scope, &host).unwrap();
+    this.set(scope, host_key.into(), host_val.into());
+
+    // Set hostname property
+    let hostname_key = v8::String::new(scope, "hostname").unwrap();
+    let hostname = parsed.host_str().unwrap_or("");
+    let hostname_val = v8::String::new(scope, hostname).unwrap();
+    this.set(scope, hostname_key.into(), hostname_val.into());
+
+    // Set port property
+    let port_key = v8::String::new(scope, "port").unwrap();
+    let port = parsed.port().map(|p| p.to_string()).unwrap_or_default();
+    let port_val = v8::String::new(scope, &port).unwrap();
+    this.set(scope, port_key.into(), port_val.into());
+
+    // Set pathname property
+    let pathname_key = v8::String::new(scope, "pathname").unwrap();
+    let pathname = parsed.path();
+    let pathname_val = v8::String::new(scope, pathname).unwrap();
+    this.set(scope, pathname_key.into(), pathname_val.into());
+
+    // Set search property (query string with ?)
+    let search_key = v8::String::new(scope, "search").unwrap();
+    let search = if parsed.query().is_some() {
+        format!("?{}", parsed.query().unwrap_or(""))
+    } else {
+        String::new()
+    };
+    let search_val = v8::String::new(scope, &search).unwrap();
+    this.set(scope, search_key.into(), search_val.into());
+
+    // Set hash property (fragment with #)
+    let hash_key = v8::String::new(scope, "hash").unwrap();
+    let hash = if let Some(fragment) = parsed.fragment() {
+        format!("#{}", fragment)
+    } else {
+        String::new()
+    };
+    let hash_val = v8::String::new(scope, &hash).unwrap();
+    this.set(scope, hash_key.into(), hash_val.into());
+
+    retval.set(this.into());
 }
 
 #[cfg(test)]
