@@ -47,6 +47,9 @@ getrandom = "0.2"
 # Static initialization
 lazy_static = "1.4"
 
+# Async blocking for timer callbacks
+pollster = "0.4"
+
 # Workaround for Rust version compatibility
 home = "=0.5.11"
 
