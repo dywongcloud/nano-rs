@@ -62,6 +62,10 @@
 - [ ] **PROD-02**: Metrics endpoint (/_admin/metrics): request counts, latency histograms, error rates
 - [ ] **PROD-03**: Graceful shutdown: SIGTERM/SIGINT handling with request drain
 - [ ] **PROD-04**: OOM detection and heap limit enforcement
+- [ ] **PROD-05**: HTTP Admin API on separate port (8889) with API key authentication
+- [ ] **PROD-06**: Unix domain socket for local admin access (/var/run/nano/control.sock)
+- [ ] **PROD-07**: Runtime app management: add/remove/disable/scale without restart
+- [ ] **PROD-08**: Admin diagnostics endpoint (/admin/isolates) with ps-style output
 
 ### Framework Compatibility
 
@@ -176,6 +180,10 @@
 | PROD-02 | Phase 7 | Pending |
 | PROD-03 | Phase 7 | Pending |
 | PROD-04 | Phase 7 | Pending |
+| PROD-05 | Phase 7 | Pending |
+| PROD-06 | Phase 7 | Pending |
+| PROD-07 | Phase 7 | Pending |
+| PROD-08 | Phase 7 | Pending |
 | FRAME-01 | Phase 8 | Pending |
 | FRAME-02 | Phase 8 | Pending |
 | FRAME-03 | Phase 8 | Pending |

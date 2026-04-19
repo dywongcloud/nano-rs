@@ -21,7 +21,7 @@ This roadmap maps NANO's migration from Zig to Rust, delivering a multi-tenant e
 - [x] **Phase 4: WorkerPool & Dispatch** — Multi-threaded worker pools with context reset and affine dispatch ✅
 - [ ] **Phase 5: Multi-App Hosting** — JSON config, per-app isolation, hot-reload, graceful drain
 - [ ] **Phase 6: Outbound I/O** — Async fetch() from JavaScript with streaming request/response bodies
-- [ ] **Phase 7: Production Features** — Structured logging, metrics endpoint, graceful shutdown, OOM detection
+- [ ] **Phase 7: Production Features & Admin API** — Structured logging, metrics endpoint, graceful shutdown, OOM detection, HTTP/Unix socket admin API for runtime management
 - [ ] **Phase 8: Framework Compatibility** — Hono.js, Next.js static export, Astro static build support
 - [ ] **Phase 9: Crypto Core** — Full crypto.subtle implementation using Rust crypto crates
 
@@ -128,16 +128,27 @@ Plans:
   3. Request body streams via WritableStream for large uploads
 **Plans:** TBD
 
-### Phase 7: Production Features
-**Goal:** Runtime has production-grade observability, metrics, and operational stability
+### Phase 7: Production Features & Admin API
+**Goal:** Runtime has production-grade observability, metrics, operational stability, and remote management capabilities
 **Depends on:** Phase 6
-**Requirements:** PROD-01, PROD-02, PROD-03, PROD-04
+**Requirements:** PROD-01, PROD-02, PROD-03, PROD-04, PROD-05, PROD-06, PROD-07, PROD-08
 **Success Criteria** (what must be TRUE):
   1. Structured JSON logs include timestamp, level, event, hostname, request_id
   2. GET /_admin/metrics returns Prometheus-compatible request/latency/error metrics
   3. SIGTERM/SIGINT triggers graceful shutdown with in-flight request drain
   4. Heap limit exceeded triggers OOM detection and isolate termination
-**Plans:** TBD
+  5. HTTP Admin API on port 8889 (configurable) with API key authentication
+  6. Unix domain socket at /var/run/nano/control.sock for local access
+  7. Admin endpoints: /admin/isolates, /admin/apps, /admin/logs, /admin/drain, /admin/reload
+  8. Runtime app CRUD: add, remove, disable, enable, scale workers without restart
+**Plans:** 5 plans
+
+Plans:
+- [ ] 07-01-PLAN.md — Structured logging and request tracing
+- [ ] 07-02-PLAN.md — Metrics endpoint with Prometheus export
+- [ ] 07-03-PLAN.md — Graceful shutdown and OOM detection
+- [ ] 07-04-PLAN.md — HTTP Admin API foundation with authentication
+- [ ] 07-05-PLAN.md — Unix socket, CLI tool, and runtime app management
 
 ### Phase 8: Framework Compatibility
 **Goal:** Popular JavaScript frameworks run without modification on NANO
@@ -210,6 +221,9 @@ Plans:
 - [ ] Logging and metrics visible
 - [ ] Graceful shutdown works
 - [ ] OOM detection functional
+- [ ] Admin API for runtime management
+- [ ] ps-style diagnostics remotely accessible
+- [ ] Hot-add/remove apps without restart
 
 ### Phase 8
 - [ ] Hono.js apps run
@@ -306,12 +320,51 @@ Nano.fs.mkdir(path)
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
 
+### Phase 999.3: Admin API Hybrid Design (HTTP + Unix Socket) — BACKLOG
+
+**Goal:** Operational control plane for running NANO instances with both remote HTTP and local Unix socket access
+**Description:** Building on the diagnostics foundation from multi-app testing, implement a hybrid admin interface:
+
+**HTTP Admin Port (8889 by default):**
+- `GET /admin/isolates` - ps-style diagnostics output
+- `GET /admin/apps` - list all apps with config
+- `POST /admin/apps` - add new app dynamically
+- `DELETE /admin/apps/:hostname` - disable/remove app
+- `POST /admin/apps/:hostname/reload` - reload specific app
+- `POST /admin/apps/:hostname/scale` - adjust worker count
+- `GET /admin/logs?app=X&follow=true` - streaming logs
+- `POST /admin/drain` - graceful drain for deployment
+- `GET /admin/metrics` - Prometheus-compatible metrics
+- `GET /admin/health` - health check endpoint
+
+**Unix Domain Socket (`/var/run/nano/control.sock`):**
+- Local-only emergency access
+- Bypasses network stack (faster)
+- Filesystem permission-based security
+- Used by CLI tool: `nano-cli isolates`, `nano-cli logs`, etc.
+
+**Authentication:**
+- HTTP: API key in `X-Admin-Key` header
+- Socket: Unix filesystem permissions (owner/group)
+
+**Use Cases:**
+- Remote monitoring and alerting (HTTP)
+- CI/CD deployment automation (HTTP)
+- Local debugging and troubleshooting (socket)
+- Emergency recovery when network down (socket)
+
+**Requirements:** Phase 7 (PROD-05 through PROD-08)
+**Plans:** Covered in Phase 7 plans
+**Priority:** Phase 7 (after Phase 6 Outbound I/O)
+
 ## Revision History
 
 | Date | Change |
 |------|--------|
 | 2026-04-19 | Initial roadmap created with 9 phases mapping 42 v1 requirements |
 | 2026-04-19 | Added backlog items 999.1 (Isolate Checkpoint/Restore) and 999.2 (VFS) |
+| 2026-04-19 | Updated Phase 7 with Admin API requirements (PROD-05 through PROD-08) |
+| 2026-04-19 | Added backlog item 999.3 documenting hybrid HTTP/Unix socket design |
 
 ---
 *Roadmap version: 1.0 | Last updated: 2026-04-19*
