@@ -28,7 +28,7 @@ const pages = {
     <div id="__next" data-reactroot="">
       <main>
         <h2>Static Site Generation (SSG)</h2>
-        <p>Content: ${new Date().toISOString()}</p>
+        <p>Content: Static content rendered at build time</p>
       </main>
     </div>
   </div>
@@ -87,7 +87,7 @@ const pages = {
 <body>
   <article>
     <h1>Hello World</h1>
-    <p class="meta">Published on ${new Date().toLocaleDateString()}</p>
+    <p class="meta">Published on 2024-01-15</p>
     <p>This is a sample blog post demonstrating dynamic route handling in a static export.</p>
     <p>The route <code>/blog/hello-world</code> was pre-rendered at build time.</p>
     <a href="/">← All posts</a>
