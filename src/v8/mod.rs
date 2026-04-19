@@ -10,22 +10,7 @@
 //!
 //! Reference: AP-02 from Zig version (prod.md)
 
-use anyhow::Result;
+pub mod platform;
 
-/// Initialize the V8 platform (once per process)
-pub fn initialize_platform() -> Result<()> {
-    // TODO: Phase 1.2 - Platform initialization
-    Ok(())
-}
-
-/// Create a new V8 isolate with EPT fix sentinel
-pub fn create_isolate() -> Result<()> {
-    // TODO: Phase 1.2 - Isolate creation with strong Global sentinel
-    Ok(())
-}
-
-/// Dispose a V8 isolate and release resources
-pub fn dispose_isolate() -> Result<()> {
-    // TODO: Phase 1.3 - Isolate disposal
-    Ok(())
-}
+// Re-export key functions for convenience
+pub use platform::{initialize_platform, is_initialized, shutdown_platform};
