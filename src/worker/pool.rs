@@ -867,4 +867,41 @@ function fetch(request) {
         assert_eq!(pool.workers.len(), 2);
         pool.shutdown().expect("Shutdown failed");
     }
+
+    #[test]
+    fn test_oom_monitor_integration() {
+        // Test that worker pool with memory limit creates OOM monitors
+        init_platform();
+
+        // Create pool with 16MB memory limit per isolate
+        let pool = WorkerPool::new("oom-test.example.com".to_string(), 1, 16);
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let entrypoint = create_test_handler(
+            &temp_dir,
+            "test.js",
+            r#"function fetch(request) { return { status: 200, headers: {}, body: "OK" }; }"#,
+        );
+
+        // Create and dispatch a task
+        let url = NanoUrl::parse("http://test/").unwrap();
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
+
+        let (tx, rx) = oneshot::channel();
+        let task = HandlerTask::new(entrypoint, request, tx);
+
+        pool.dispatch(task).expect("Failed to dispatch");
+
+        // Should complete successfully (fresh isolate under 16MB limit)
+        let response = rx.blocking_recv().expect("Failed to receive");
+        assert!(
+            response.is_ok(),
+            "Request should complete with OOM monitoring enabled"
+        );
+
+        let resp = response.unwrap();
+        assert_eq!(resp.status(), 200);
+
+        pool.shutdown().expect("Shutdown failed");
+    }
 }
