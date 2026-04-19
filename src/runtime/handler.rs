@@ -178,13 +178,12 @@ fn execute_in_v8(
 
     // Create context within the scope
     let v8_context = v8::Context::new(scope, Default::default());
+
+    // Enter the context with ContextScope
+    let scope = &mut v8::ContextScope::new(scope, v8_context);
     
     // Bind runtime APIs (Response, console, crypto, etc.)
     RuntimeAPIs::bind_all(scope, v8_context);
-
-    // Create a new HandleScope and ContextScope for execution
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let scope = &mut v8::ContextScope::new(scope, v8_context);
 
     // Get global object
     let global = v8_context.global(scope);
