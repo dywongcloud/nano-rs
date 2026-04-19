@@ -183,7 +183,7 @@ async fn test_javascript_entrypoint_routing() {
         "js.test.com".to_string(),
         RouteTarget {
             hostname: "js.test.com".to_string(),
-            handler_type: HandlerType::JavaScriptEntrypoint("/app/handler.js".to_string()),
+            handler_type: HandlerType::WinterCGHandler("/app/handler.js".to_string()),
         },
     );
 

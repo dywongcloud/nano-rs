@@ -9,6 +9,11 @@
 //! - **D-03:** Exact hostname match only (no wildcards or regex patterns for v1)
 //! - **D-04:** Fallback to default handler when no hostname matches
 //! - Hostname lookup is case-insensitive per HTTP spec
+//!
+//! # WinterCG Integration
+//!
+//! This module now integrates with WinterCG types (NanoRequest/NanoResponse)
+//! to enable JavaScript handler execution in Phase 3.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,17 +27,18 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::http::{NanoRequest, NanoResponse, NanoHeaders, NanoUrl};
+
 /// Handler type for routed requests
 ///
 /// Defines how a request should be processed based on the route configuration.
-/// Currently supports static responses for testing; JavaScript execution
-/// will be added in Phase 3.
+/// Supports static responses for testing and WinterCG handlers for JS execution.
 #[derive(Debug, Clone)]
 pub enum HandlerType {
     /// Returns a fixed response string (for testing)
     StaticResponse(String),
-    /// Path to JavaScript entrypoint file (for Phase 3)
-    JavaScriptEntrypoint(String),
+    /// WinterCG handler that uses NanoRequest/NanoResponse (Phase 3)
+    WinterCGHandler(String),
 }
 
 /// Target for a routed request
@@ -45,6 +51,40 @@ pub struct RouteTarget {
     pub hostname: String,
     /// The handler type for this route
     pub handler_type: HandlerType,
+}
+
+impl RouteTarget {
+    /// Handle a request and return a WinterCG-compatible response
+    ///
+    /// This method processes a NanoRequest through the configured handler
+    /// and returns a NanoResponse. It supports both static responses and
+    /// placeholder WinterCG handlers (full JS execution in Phase 3).
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The WinterCG Request to process
+    ///
+    /// # Returns
+    ///
+    /// A `NanoResponse` with the handler's output
+    pub async fn handle(&self, _request: NanoRequest) -> NanoResponse {
+        match &self.handler_type {
+            HandlerType::StaticResponse(response) => {
+                NanoResponse::ok()
+                    .with_header("Content-Type", "text/plain")
+                    .with_body(response.clone())
+            }
+            HandlerType::WinterCGHandler(_path) => {
+                // Phase 3: Execute JavaScript handler
+                // For now, return a placeholder response
+                // The request object will be passed to the JS handler in Phase 3
+                tracing::debug!("WinterCG handler for path: {} (Phase 3)", _path);
+                NanoResponse::ok()
+                    .with_header("Content-Type", "text/plain")
+                    .with_body(format!("JS handler (Phase 3): {}", _path))
+            }
+        }
+    }
 }
 
 /// Virtual host router
@@ -285,7 +325,7 @@ fn error_response(error: &str, message: &str, code: StatusCode) -> impl IntoResp
 /// 3. Router returns the RouteTarget for that hostname
 /// 4. Handler dispatches based on handler_type:
 ///    - `StaticResponse`: Returns the configured string
-///    - `JavaScriptEntrypoint`: Returns placeholder (Phase 3 will execute JS)
+///    - `WinterCGHandler`: Returns placeholder (Phase 3 will execute JS)
 pub async fn virtual_host_handler(
     State(state): State<Arc<AppState>>,
     request: Request<Body>,
@@ -300,28 +340,74 @@ pub async fn virtual_host_handler(
 
     tracing::debug!("Request received for host: {}", host);
 
+    // Convert axum request to NanoRequest (WinterCG compatible)
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let headers = request.headers().clone();
+    let body = request.into_body();
+
+    // Construct a full URL from the host and URI for NanoUrl
+    // The URI from axum may just be a path, so we prepend scheme and host
+    let full_url = if uri.scheme().is_some() {
+        // URI is already a full URL
+        uri.to_string()
+    } else {
+        // Construct full URL from host header and path
+        let path_and_query = uri.path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or("/");
+        format!("http://{}{}", host, path_and_query)
+    };
+
+    // Parse the full URL for NanoUrl
+    let nano_url = match NanoUrl::parse(&full_url) {
+        Ok(url) => url,
+        Err(e) => {
+            tracing::error!("Failed to parse URL '{}': {}", full_url, e);
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"error":"BadRequest","message":"Invalid URL","code":400}}"#
+                )))
+                .unwrap();
+        }
+    };
+
+    // Convert headers
+    let nano_headers = NanoHeaders::from_axum_headers(&headers);
+
+    // Read body (with 1MB limit per D-05)
+    let body_bytes = match axum::body::to_bytes(body, 1048576).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::error!("Failed to read body: {}", e);
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"error":"BadRequest","message":"Failed to read body","code":400}}"#
+                )))
+                .unwrap();
+        }
+    };
+    let nano_body = if body_bytes.is_empty() { None } else { Some(body_bytes) };
+
+    // Create the NanoRequest
+    let nano_request = NanoRequest::new(
+        method.to_string(),
+        nano_url,
+        nano_headers,
+        nano_body,
+    );
+
     let target = state.router.resolve(&host);
 
-    match &target.handler_type {
-        HandlerType::StaticResponse(response) => {
-            tracing::debug!("Routing to static response for host: {}", host);
-            Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "text/plain")
-                .body(Body::from(response.clone()))
-                .unwrap()
-        }
-        HandlerType::JavaScriptEntrypoint(path) => {
-            // Phase 3: Will execute JS handler
-            // For now, return placeholder with the path info
-            tracing::debug!("Routing to JS entrypoint: {} for host: {}", path, host);
-            Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "text/plain")
-                .body(Body::from(format!("JS handler (Phase 3): {}", path)))
-                .unwrap()
-        }
-    }
+    // Handle the request using the WinterCG-compatible handler
+    let nano_response = target.handle(nano_request).await;
+
+    // Convert NanoResponse to axum response
+    nano_response.to_axum_response()
 }
 
 #[cfg(test)]
@@ -459,13 +545,13 @@ mod tests {
             "js.example.com".to_string(),
             RouteTarget {
                 hostname: "js.example.com".to_string(),
-                handler_type: HandlerType::JavaScriptEntrypoint("/app/index.js".to_string()),
+                handler_type: HandlerType::WinterCGHandler("/app/index.js".to_string()),
             },
         );
 
         let resolved = router.resolve("js.example.com");
         assert!(
-            matches!(resolved.handler_type, HandlerType::JavaScriptEntrypoint(ref s) if s == "/app/index.js")
+            matches!(resolved.handler_type, HandlerType::WinterCGHandler(ref s) if s == "/app/index.js")
         );
     }
 }
