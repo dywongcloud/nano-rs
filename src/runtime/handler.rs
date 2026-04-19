@@ -1,23 +1,7 @@
 //! JavaScript handler execution for WinterCG requests
 //!
 //! This module provides the core interface for executing JavaScript handlers
-//! that receive WinterCG Request objects and return Response objects. It
-//! handles the full flow: Request → V8 JavaScript object → handler execution
-//! → Response extraction → NanoResponse.
-//!
-//! # Handler Context
-//!
-//! The `HandlerContext` struct holds all state needed for a single handler
-//! execution: the entrypoint path and the incoming request.
-//!
-//! # Execution Flow
-//!
-//! 1. Create `HandlerContext` with entrypoint and NanoRequest
-//! 2. Call `execute_handler()` with an isolate and context
-//! 3. Handler serializes Request to V8 JavaScript object
-//! 4. Handler invokes the JavaScript fetch() function
-//! 5. Handler extracts Response from V8 return value
-//! 6. Returns NanoResponse for HTTP response
+//! that receive WinterCG Request objects and return Response objects.
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
@@ -25,6 +9,7 @@ use std::fs;
 
 use crate::http::{NanoHeaders, NanoRequest, NanoResponse};
 use crate::http::v8_bridge::serialize_request_to_json;
+use crate::runtime::RuntimeAPIs;
 
 /// Context for executing a JavaScript handler
 #[derive(Debug, Clone)]
@@ -40,11 +25,11 @@ pub async fn execute_handler(
     isolate: &mut crate::v8::NanoIsolate,
     context: HandlerContext,
 ) -> Result<NanoResponse> {
-    // Read the entrypoint file before entering V8 scopes
+    // Read the entrypoint file
     let code = fs::read_to_string(&context.entrypoint)
         .map_err(|e| anyhow!("Failed to read entrypoint '{}': {}", context.entrypoint, e))?;
 
-    // Serialize the request to JSON before entering V8
+    // Serialize the request to JSON
     let request_json = serialize_request_to_json(&context.request);
 
     // Execute in V8 context
@@ -66,8 +51,8 @@ fn execute_in_v8(
     // Enter the context with ContextScope
     let scope = &mut v8::ContextScope::new(scope, v8_context);
 
-    // Bind console.log to the global object
-    bind_console_log(scope, v8_context);
+    // Bind all runtime APIs (console, TextEncoder, TextDecoder, etc.)
+    RuntimeAPIs::bind_all(scope, v8_context);
 
     // Get global object
     let global = v8_context.global(scope);
@@ -88,50 +73,33 @@ fn execute_in_v8(
 
     let fetch_fn = fetch_val.cast::<v8::Function>();
 
-    // Create the Request object from JSON
-    let js_request = create_js_request_from_json(scope, request_json)?;
+    // Get JSON.parse function to create the request object
+    let json_key = v8::String::new(scope, "JSON").unwrap();
+    let json_val = global.get(scope, json_key.into())
+        .ok_or_else(|| anyhow!("JSON not found"))?
+        .to_object(scope)
+        .ok_or_else(|| anyhow!("JSON is not an object"))?;
+
+    let parse_key = v8::String::new(scope, "parse").unwrap();
+    let parse_fn = json_val.get(scope, parse_key.into())
+        .ok_or_else(|| anyhow!("JSON.parse not found"))?
+        .cast::<v8::Function>();
+
+    // Create the JSON string and parse it
+    let json_str = v8::String::new(scope, request_json)
+        .ok_or_else(|| anyhow!("Failed to create JSON string"))?;
+
+    let js_request = parse_fn.call(scope, json_val.into(), &[json_str.into()])
+        .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
 
     // Call the fetch handler with the Request
-    let result = fetch_fn.call(scope, global.into(), &[js_request.into()]);
+    let result = fetch_fn.call(scope, global.into(), &[js_request]);
 
-    // Extract and return the response
+    // Extract the response
     match result {
         Some(response) => extract_js_response(scope, response),
         None => Err(anyhow!("Handler returned None")),
     }
-}
-
-/// Create a JavaScript Request object from JSON string
-fn create_js_request_from_json(
-    scope: &mut v8::ContextScope<v8::HandleScope>,
-    json_str: &str,
-) -> Result<v8::Local<v8::Object>> {
-    // Get the global object
-    let global = scope.get_current_context().global(scope);
-
-    // Get JSON object from global
-    let json_key = v8::String::new(scope, "JSON").unwrap();
-    let json_val = global.get(scope, json_key.into())
-        .ok_or_else(|| anyhow!("JSON not found in global"))?;
-    let json_obj = json_val.to_object(scope)
-        .ok_or_else(|| anyhow!("JSON is not an object"))?;
-
-    // Get JSON.parse function
-    let parse_key = v8::String::new(scope, "parse").unwrap();
-    let parse_fn = json_obj.get(scope, parse_key.into())
-        .ok_or_else(|| anyhow!("JSON.parse not found"))?
-        .cast::<v8::Function>();
-
-    // Create the JSON string argument
-    let json_arg = v8::String::new(scope, json_str)
-        .ok_or_else(|| anyhow!("Failed to create JSON string"))?;
-
-    // Call JSON.parse(json_str) to get the Request object
-    let result = parse_fn.call(scope, json_obj.into(), &[json_arg.into()]);
-
-    result.ok_or_else(|| anyhow!("Failed to parse request JSON"))?
-        .to_object(scope)
-        .ok_or_else(|| anyhow!("Parsed result is not an object"))
 }
 
 /// Extract a NanoResponse from a V8 JavaScript Response object
@@ -144,43 +112,29 @@ fn extract_js_response(
         .ok_or_else(|| anyhow!("Response is not an object"))?;
 
     // Extract status property (default to 200)
-    let status = {
-        let status_key = v8::String::new(scope, "status").unwrap();
-        let status_val = obj.get(scope, status_key.into());
-
-        match status_val {
-            Some(val) if !val.is_null() && !val.is_undefined() => {
-                val.to_integer(scope)
-                    .map(|i| i.value() as u16)
-                    .unwrap_or(200)
-            }
-            _ => 200,
-        }
-    };
+    let status_key = v8::String::new(scope, "status").unwrap();
+    let status = obj.get(scope, status_key.into())
+        .and_then(|val| val.to_integer(scope))
+        .map(|i| i.value() as u16)
+        .unwrap_or(200);
 
     // Extract headers property
     let mut nano_headers = NanoHeaders::new();
-    {
-        let headers_key = v8::String::new(scope, "headers").unwrap();
-        let headers_val = obj.get(scope, headers_key.into());
+    let headers_key = v8::String::new(scope, "headers").unwrap();
 
-        if let Some(headers_val) = headers_val {
-            if let Some(headers_obj) = headers_val.to_object(scope) {
-                // Get all property names
-                let prop_names = headers_obj.get_own_property_names(scope, Default::default());
-                if let Some(names) = prop_names {
-                    let len = names.length();
-                    for i in 0..len {
-                        let key_val = names.get_index(scope, i);
-                        if let Some(key) = key_val {
-                            if let Some(key_str) = key.to_string(scope) {
-                                let key_name = key_str.to_rust_string_lossy(scope);
-                                let value_val = headers_obj.get(scope, key.into());
-                                if let Some(value) = value_val {
-                                    if let Some(value_str) = value.to_string(scope) {
-                                        let value_string = value_str.to_rust_string_lossy(scope);
-                                        nano_headers.set(&key_name, &value_string);
-                                    }
+    if let Some(headers_val) = obj.get(scope, headers_key.into()) {
+        if let Some(headers_obj) = headers_val.to_object(scope) {
+            // Get all property names
+            if let Some(names) = headers_obj.get_own_property_names(scope, Default::default()) {
+                let len = names.length();
+                for i in 0..len {
+                    if let Some(key) = names.get_index(scope, i) {
+                        if let Some(key_str) = key.to_string(scope) {
+                            let key_name = key_str.to_rust_string_lossy(scope);
+                            if let Some(value) = headers_obj.get(scope, key.into()) {
+                                if let Some(value_str) = value.to_string(scope) {
+                                    let value_string = value_str.to_rust_string_lossy(scope);
+                                    nano_headers.set(&key_name, &value_string);
                                 }
                             }
                         }
@@ -191,56 +145,13 @@ fn extract_js_response(
     }
 
     // Extract body property
-    let body: Option<Bytes> = {
-        let body_key = v8::String::new(scope, "body").unwrap();
-        let body_val = obj.get(scope, body_key.into());
-
-        match body_val {
-            Some(val) if !val.is_null() && !val.is_undefined() => {
-                val.to_string(scope)
-                    .map(|s| Bytes::from(s.to_rust_string_lossy(scope)))
-            }
-            _ => None,
-        }
-    };
+    let body_key = v8::String::new(scope, "body").unwrap();
+    let body = obj.get(scope, body_key.into())
+        .filter(|val| !val.is_null() && !val.is_undefined())
+        .and_then(|val| val.to_string(scope))
+        .map(|s| Bytes::from(s.to_rust_string_lossy(scope)));
 
     Ok(NanoResponse::new(status, nano_headers, body))
-}
-
-/// Bind console.log to the global object
-fn bind_console_log(
-    scope: &mut v8::ContextScope<v8::HandleScope>,
-    context: v8::Local<v8::Context>,
-) {
-    let global = context.global(scope);
-    let console = v8::Object::new(scope);
-
-    if let Some(log_fn) = v8::Function::new(scope, console_log_callback) {
-        let log_key = v8::String::new(scope, "log").unwrap();
-        console.set(scope, log_key.into(), log_fn.into());
-    }
-
-    let console_key = v8::String::new(scope, "console").unwrap();
-    global.set(scope, console_key.into(), console.into());
-}
-
-/// V8 function callback for console.log
-fn console_log_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    _retval: v8::ReturnValue,
-) {
-    let mut output = Vec::new();
-    for i in 0..args.length() {
-        let arg = args.get(i);
-        if let Some(arg_str) = arg.to_string(scope) {
-            output.push(arg_str.to_rust_string_lossy(scope));
-        }
-    }
-
-    if !output.is_empty() {
-        println!("{}", output.join(" "));
-    }
 }
 
 #[cfg(test)]
@@ -270,35 +181,6 @@ mod tests {
 
         assert_eq!(context.entrypoint, "/app/index.js");
         assert_eq!(context.request.method(), "GET");
-    }
-
-    #[test]
-    fn test_create_js_request() {
-        init_platform();
-
-        let url = NanoUrl::parse("https://example.com/api").unwrap();
-        let mut headers = NanoHeaders::new();
-        headers.set("Content-Type", "application/json");
-        let request = NanoRequest::new(
-            "POST".to_string(),
-            url,
-            headers,
-            Some(Bytes::from("test body")),
-        );
-
-        let json_str = serialize_request_to_json(&request);
-
-        let mut isolate = crate::v8::NanoIsolate::new().expect("Failed to create isolate");
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
-
-        let result = create_js_request_from_json(scope, &json_str);
-        assert!(result.is_ok(), "Failed to create JS request: {:?}", result.err());
-
-        let js_obj = result.unwrap();
-        assert!(!js_obj.is_null());
-        assert!(!js_obj.is_undefined());
     }
 
     #[test]
