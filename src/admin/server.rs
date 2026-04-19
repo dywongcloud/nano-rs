@@ -31,6 +31,7 @@
 //! - `GET /admin/metrics` - Prometheus metrics
 
 use axum::{
+    extract::State,
     routing::{delete, get, patch, post},
     middleware,
     Router,
@@ -216,6 +217,18 @@ impl AdminServer {
     }
 }
 
+/// Simple admin state wrapper for axum
+#[derive(Debug, Clone)]
+pub struct AdminStateAxum {
+    inner: AdminState,
+}
+
+impl AdminStateAxum {
+    pub fn new(state: AdminState) -> Self {
+        Self { inner: state }
+    }
+}
+
 /// Create the admin router with all endpoints
 ///
 /// Builds the axum Router with:
@@ -247,73 +260,39 @@ impl AdminServer {
 /// let router = create_admin_router(auth, state);
 /// ```
 pub fn create_admin_router(auth: Arc<AdminAuth>, state: AdminState) -> Router {
+    let state_axum = Arc::new(AdminStateAxum::new(state));
+
     // Public routes - no authentication required
     let public_routes = Router::new()
         .route("/admin/health", get(health_handler))
-        .route("/admin/ready", get({
-            let state = state.clone();
-            move || ready_with_state(state.clone())
-        }));
+        .route("/admin/ready", get(ready_handler));
 
     // Protected routes - API key authentication required
     let protected_routes = Router::new()
         // Isolates
-        .route("/admin/isolates", get({
-            let state = state.clone();
-            move |req| list_isolates_with_state(state.clone(), req)
-        }))
-        // Apps
-        .route("/admin/apps", get({
-            let state = state.clone();
-            move |req| list_apps_with_state(state.clone(), req)
-        }).post({
-            let state = state.clone();
-            move |req, body| create_app_with_state(state.clone(), req, body)
-        }))
+        .route("/admin/isolates", get(list_isolates_handler))
+        // Apps - list and create
+        .route("/admin/apps", get(list_apps_handler).post(create_app_handler))
+        // Apps - get, update, delete
         .route(
-            "/admin/apps/:hostname",
-            get({
-                let state = state.clone();
-                move |path, req| get_app_with_state(state.clone(), path, req)
-            })
-            .patch({
-                let state = state.clone();
-                move |path, req, body| update_app_with_state(state.clone(), path, req, body)
-            })
-            .delete({
-                let state = state.clone();
-                move |path, req| delete_app_with_state(state.clone(), path, req)
-            }),
+            "/admin/apps/{hostname}",
+            get(get_app_handler)
+            .patch(update_app_handler)
+            .delete(delete_app_handler),
         )
         // App lifecycle actions
-        .route("/admin/apps/:hostname/activate", post({
-            let state = state.clone();
-            move |path, req| activate_app_with_state(state.clone(), path, req)
-        }))
-        .route("/admin/apps/:hostname/disable", post({
-            let state = state.clone();
-            move |path, req| disable_app_with_state(state.clone(), path, req)
-        }))
-        .route("/admin/apps/:hostname/enable", post({
-            let state = state.clone();
-            move |path, req| enable_app_with_state(state.clone(), path, req)
-        }))
-        .route("/admin/apps/:hostname/reload", post({
-            let state = state.clone();
-            move |path, req| reload_app_with_state(state.clone(), path, req)
-        }))
-        .route("/admin/apps/:hostname/scale", post({
-            let state = state.clone();
-            move |path, req, body| scale_app_with_state(state.clone(), path, req, body)
-        }))
-        .route("/admin/apps/:hostname/drain", post({
-            let state = state.clone();
-            move |path, req| drain_app_with_state(state.clone(), path, req)
-        }))
-        // Metrics
-        .route("/admin/metrics", get(metrics_handler))
+        .route("/admin/apps/{hostname}/activate", post(activate_app_handler))
+        .route("/admin/apps/{hostname}/disable", post(disable_app_handler))
+        .route("/admin/apps/{hostname}/enable", post(enable_app_handler))
+        .route("/admin/apps/{hostname}/reload", post(reload_app_handler))
+        .route("/admin/apps/{hostname}/scale", post(scale_app_handler))
+        .route("/admin/apps/{hostname}/drain", post(drain_app_handler))
+        // Metrics - simple handler without external state dependency
+        .route("/admin/metrics", get(admin_metrics_handler))
         // Apply auth middleware to protected routes
-        .layer(middleware::from_fn_with_state(auth, api_key_middleware));
+        .layer(middleware::from_fn_with_state(auth, api_key_middleware))
+        // Add state to protected routes
+        .with_state(state_axum);
 
     // Combine routes and add tracing
     Router::new()
@@ -322,107 +301,111 @@ pub fn create_admin_router(auth: Arc<AdminAuth>, state: AdminState) -> Router {
         .layer(TraceLayer::new_for_http())
 }
 
-// Wrapper functions to inject state
+// Handler functions that work with axum's State extraction
 
-async fn ready_with_state(state: AdminState) -> impl axum::response::IntoResponse {
-    use crate::admin::handlers::ready_handler_with_state;
-    ready_handler_with_state(state.is_shutting_down()).await
-}
-
-async fn list_isolates_with_state(
-    state: AdminState,
-    _req: axum::extract::Request,
+async fn list_isolates_handler(
+    State(state): State<Arc<AdminStateAxum>>,
 ) -> impl axum::response::IntoResponse {
-    list_isolates(axum::extract::State(state.registry)).await
+    list_isolates(axum::extract::State(state.inner.registry.clone())).await
 }
 
-async fn list_apps_with_state(
-    state: AdminState,
-    _req: axum::extract::Request,
+async fn list_apps_handler(
+    State(state): State<Arc<AdminStateAxum>>,
 ) -> impl axum::response::IntoResponse {
-    list_apps(axum::extract::State(state.registry)).await
+    list_apps(axum::extract::State(state.inner.registry.clone())).await
 }
 
-async fn create_app_with_state(
-    state: AdminState,
-    _req: axum::extract::Request,
+async fn create_app_handler(
+    State(state): State<Arc<AdminStateAxum>>,
     body: axum::extract::Json<crate::admin::handlers::CreateAppRequest>,
 ) -> impl axum::response::IntoResponse {
-    create_app(axum::extract::State(state.registry), body).await
+    create_app(axum::extract::State(state.inner.registry.clone()), body).await
 }
 
-async fn get_app_with_state(
-    state: AdminState,
+async fn get_app_handler(
+    State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
-    _req: axum::extract::Request,
 ) -> impl axum::response::IntoResponse {
-    get_app(axum::extract::Path(hostname), axum::extract::State(state.registry)).await
+    get_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
 }
 
-async fn update_app_with_state(
-    state: AdminState,
+async fn update_app_handler(
+    State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
-    _req: axum::extract::Request,
     body: axum::extract::Json<crate::admin::handlers::UpdateAppRequest>,
 ) -> impl axum::response::IntoResponse {
-    update_app(axum::extract::Path(hostname), axum::extract::State(state.registry), body).await
+    update_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone()), body).await
 }
 
-async fn delete_app_with_state(
-    state: AdminState,
+async fn delete_app_handler(
+    State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
-    _req: axum::extract::Request,
 ) -> impl axum::response::IntoResponse {
-    delete_app(axum::extract::Path(hostname), axum::extract::State(state.registry)).await
+    delete_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
 }
 
-async fn activate_app_with_state(
-    state: AdminState,
+async fn activate_app_handler(
+    State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
-    _req: axum::extract::Request,
 ) -> impl axum::response::IntoResponse {
-    activate_app(axum::extract::Path(hostname), axum::extract::State(state.registry)).await
+    activate_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
 }
 
-async fn disable_app_with_state(
-    state: AdminState,
+async fn disable_app_handler(
+    State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
-    _req: axum::extract::Request,
 ) -> impl axum::response::IntoResponse {
-    disable_app(axum::extract::Path(hostname), axum::extract::State(state.registry)).await
+    disable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
 }
 
-async fn enable_app_with_state(
-    state: AdminState,
+async fn enable_app_handler(
+    State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
-    _req: axum::extract::Request,
 ) -> impl axum::response::IntoResponse {
-    enable_app(axum::extract::Path(hostname), axum::extract::State(state.registry)).await
+    enable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
 }
 
-async fn reload_app_with_state(
-    state: AdminState,
+async fn reload_app_handler(
+    State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
-    _req: axum::extract::Request,
 ) -> impl axum::response::IntoResponse {
-    reload_app(axum::extract::Path(hostname), axum::extract::State(state.registry)).await
+    reload_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
 }
 
-async fn scale_app_with_state(
-    state: AdminState,
+async fn scale_app_handler(
+    State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
-    _req: axum::extract::Request,
     body: axum::extract::Json<crate::admin::handlers::ScaleRequest>,
 ) -> impl axum::response::IntoResponse {
-    scale_app(axum::extract::Path(hostname), axum::extract::State(state.registry), body).await
+    scale_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone()), body).await
 }
 
-async fn drain_app_with_state(
-    state: AdminState,
+async fn drain_app_handler(
+    State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
-    _req: axum::extract::Request,
 ) -> impl axum::response::IntoResponse {
-    drain_app(axum::extract::Path(hostname), axum::extract::State(state.registry)).await
+    drain_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+}
+
+/// Admin metrics handler that doesn't require external state
+async fn admin_metrics_handler() -> impl axum::response::IntoResponse {
+    use crate::metrics::{MetricsRegistry, PrometheusExporter, METRICS};
+    use axum::http::header;
+    use axum::response::Response;
+    
+    // Update uptime before export
+    METRICS.update_uptime();
+    
+    // Export metrics in Prometheus format
+    let exporter = PrometheusExporter::new();
+    let output = exporter.export(&METRICS);
+    
+    // Build response with correct content type
+    Response::builder()
+        .status(axum::http::StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")
+        .body(output)
+        .unwrap()
 }
 
 /// Start the admin server
