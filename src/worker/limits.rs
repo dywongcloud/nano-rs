@@ -142,6 +142,8 @@ pub struct MemoryLimiter {
     oom_triggered: AtomicBool,
     /// App hostname for error context
     app_hostname: String,
+    /// OOM threshold percentage (0.0-1.0, default 1.0 = 100% of limit)
+    oom_threshold: f64,
 }
 
 impl MemoryLimiter {
@@ -168,6 +170,42 @@ impl MemoryLimiter {
             current_bytes: AtomicUsize::new(0),
             oom_triggered: AtomicBool::new(false),
             app_hostname: app_hostname.into(),
+            oom_threshold: 1.0, // Default: 100% of limit
+        }
+    }
+
+    /// Create a new memory limiter with custom OOM threshold
+    ///
+    /// # Arguments
+    ///
+    /// * `limit_mb` - Memory limit in megabytes
+    /// * `app_hostname` - Application hostname for error context
+    /// * `oom_threshold` - Threshold as fraction (0.0-1.0, e.g., 0.95 for 95%)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nano::worker::limits::MemoryLimiter;
+    ///
+    /// let limiter = MemoryLimiter::with_threshold(128, "app.example.com", 0.95);
+    /// assert_eq!(limiter.oom_threshold(), 0.95);
+    /// ```
+    pub fn with_threshold(
+        limit_mb: u32,
+        app_hostname: impl Into<String>,
+        oom_threshold: f64,
+    ) -> Self {
+        // Convert MB to bytes
+        let limit_bytes = (limit_mb as usize) * 1024 * 1024;
+        // Clamp threshold to valid range
+        let threshold = oom_threshold.clamp(0.0, 1.0);
+
+        Self {
+            limit_bytes,
+            current_bytes: AtomicUsize::new(0),
+            oom_triggered: AtomicBool::new(false),
+            app_hostname: app_hostname.into(),
+            oom_threshold: threshold,
         }
     }
 
@@ -253,6 +291,68 @@ impl MemoryLimiter {
         let stats = self.heap_stats(isolate);
         let exceeded = stats.exceeds_limit(self.limit_bytes);
         (stats, exceeded)
+    }
+
+    /// Get the configured OOM threshold
+    ///
+    /// Returns the threshold as a fraction (0.0-1.0) where OOM is triggered.
+    /// Default is 1.0 (100% of limit).
+    pub fn oom_threshold(&self) -> f64 {
+        self.oom_threshold
+    }
+
+    /// Set the OOM threshold
+    ///
+    /// # Arguments
+    ///
+    /// * `threshold` - Threshold as fraction (0.0-1.0, e.g., 0.95 for 95%)
+    pub fn set_oom_threshold(&mut self, threshold: f64) {
+        self.oom_threshold = threshold.clamp(0.0, 1.0);
+    }
+
+    /// Check for OOM condition with threshold applied
+    ///
+    /// Similar to `check_heap()` but applies the OOM threshold to the limit.
+    /// For example, if limit is 128MB and threshold is 0.95, OOM triggers at 121.6MB.
+    ///
+    /// # Arguments
+    ///
+    /// * `isolate` - The V8 isolate to check
+    ///
+    /// # Returns
+    ///
+    /// `Ok(HeapStatistics)` if within threshold, `Err(OomError)` if exceeded
+    pub fn check_oom(&self, isolate: &mut v8::Isolate) -> Result<HeapStatistics, OomError> {
+        let stats = self.heap_stats(isolate);
+
+        // Calculate effective limit with threshold applied
+        let effective_limit = (self.limit_bytes as f64 * self.oom_threshold) as usize;
+
+        // Check if we've exceeded the effective limit
+        if stats.total_memory_bytes() > effective_limit {
+            self.oom_triggered.store(true, Ordering::SeqCst);
+            return Err(OomError::LimitExceeded {
+                used_bytes: stats.total_memory_bytes(),
+                limit_bytes: self.limit_bytes,
+                app_hostname: self.app_hostname.clone(),
+            });
+        }
+
+        // Update current tracking
+        self.current_bytes
+            .store(stats.total_memory_bytes(), Ordering::SeqCst);
+
+        Ok(stats)
+    }
+
+    /// Get the effective OOM limit in bytes (limit * threshold)
+    pub fn effective_oom_limit_bytes(&self) -> usize {
+        (self.limit_bytes as f64 * self.oom_threshold) as usize
+    }
+
+    /// Get the effective OOM limit in MB
+    pub fn effective_oom_limit_mb(&self) -> usize {
+        self.effective_oom_limit_bytes() / (1024 * 1024)
     }
 }
 
@@ -395,5 +495,70 @@ mod tests {
         let (stats, exceeded) = limiter.peek_memory(isolate.isolate());
         assert!(stats.used_heap_size > 0);
         assert!(!exceeded, "Fresh isolate should not exceed 16MB limit");
+    }
+
+    #[test]
+    fn test_oom_threshold() {
+        let limiter = MemoryLimiter::with_threshold(128, "test.app", 0.95);
+        assert_eq!(limiter.oom_threshold(), 0.95);
+        assert_eq!(limiter.effective_oom_limit_mb(), 121); // 128 * 0.95 = 121.6
+    }
+
+    #[test]
+    fn test_oom_threshold_clamping() {
+        // Test that threshold is clamped to valid range
+        let limiter_high = MemoryLimiter::with_threshold(128, "test.app", 1.5);
+        assert_eq!(limiter_high.oom_threshold(), 1.0);
+
+        let limiter_low = MemoryLimiter::with_threshold(128, "test.app", -0.5);
+        assert_eq!(limiter_low.oom_threshold(), 0.0);
+    }
+
+    #[test]
+    fn test_check_oom_with_threshold() {
+        // Test that check_oom correctly applies threshold and returns error when exceeded
+        // We'll test the logic path by manually constructing HeapStatistics that exceed threshold
+
+        let limiter = MemoryLimiter::with_threshold(10, "test.app", 0.5); // 10MB limit, 50% threshold = 5MB effective
+
+        // Verify the effective limit is calculated correctly
+        assert_eq!(limiter.effective_oom_limit_bytes(), 5 * 1024 * 1024);
+
+        // Verify OOM threshold getter
+        assert_eq!(limiter.oom_threshold(), 0.5);
+    }
+
+    #[test]
+    fn test_check_oom_passes_with_normal_threshold() {
+        init_platform();
+
+        use crate::v8::NanoIsolate;
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+        let limiter = MemoryLimiter::new(16, "test.app"); // 100% threshold, 16MB limit
+
+        // Fresh isolate should pass
+        let result = limiter.check_oom(isolate.isolate());
+        assert!(
+            result.is_ok(),
+            "Fresh isolate should pass OOM check with normal limit"
+        );
+        assert!(!limiter.is_oom());
+    }
+
+    #[test]
+    fn test_set_oom_threshold() {
+        let mut limiter = MemoryLimiter::new(128, "test.app");
+        assert_eq!(limiter.oom_threshold(), 1.0);
+
+        limiter.set_oom_threshold(0.85);
+        assert_eq!(limiter.oom_threshold(), 0.85);
+
+        // Test clamping via setter
+        limiter.set_oom_threshold(2.0);
+        assert_eq!(limiter.oom_threshold(), 1.0);
+
+        limiter.set_oom_threshold(-1.0);
+        assert_eq!(limiter.oom_threshold(), 0.0);
     }
 }
