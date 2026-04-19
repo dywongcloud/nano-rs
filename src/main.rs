@@ -1,6 +1,7 @@
 use anyhow::Result;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Initialize tracing subscriber for structured logging
     tracing_subscriber::fmt::init();
 
@@ -8,13 +9,13 @@ fn main() -> Result<()> {
 
     // Initialize V8 platform (once per process)
     nano::v8::platform::initialize_platform()?;
+    tracing::info!("V8 platform initialized");
 
-    // Create isolate with EPT fix sentinel
-    let mut isolate = nano::v8::NanoIsolate::new()?;
+    // Start HTTP server with virtual host routing
+    let config = nano::http::ServerConfig::default();
+    tracing::info!("Starting HTTP server on {}", config.socket_addr()?);
 
-    // Execute hello.js example
-    let code = include_str!("../examples/hello.js");
-    nano::v8::execute_script(&mut isolate, code)?;
+    nano::http::start_server(config).await?;
 
     Ok(())
 }
