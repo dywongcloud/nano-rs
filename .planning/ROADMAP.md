@@ -16,8 +16,8 @@ This roadmap maps NANO's migration from Zig to Rust, delivering a multi-tenant e
 ## Phases
 
 - [x] **Phase 1: V8 Foundation** — rusty_v8 integration with EPT fix, single isolate proof-of-concept ✅
-- [ ] **Phase 2: HTTP Server Core** — axum server with virtual host routing and WinterCG request/response objects
-- [ ] **Phase 3: Runtime APIs** — Core JavaScript APIs (fetch handler, console, timers, encoding, crypto basics)
+- [x] **Phase 2: HTTP Server Core** — axum server with virtual host routing and WinterCG request/response objects ✅
+- [ ] **Phase 3: Runtime APIs** — Core JavaScript APIs (fetch handler, console, timers, encoding, crypto basics) — 2/4 complete
 - [ ] **Phase 4: WorkerPool & Dispatch** — Multi-threaded worker pools with context reset and affine dispatch
 - [ ] **Phase 5: Multi-App Hosting** — JSON config, per-app isolation, hot-reload, graceful drain
 - [ ] **Phase 6: Outbound I/O** — Async fetch() from JavaScript with streaming request/response bodies
@@ -56,9 +56,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — HTTP server infrastructure with axum
-- [ ] 02-02-PLAN.md — Virtual host routing with Host header matching
-- [ ] 02-03-PLAN.md — WinterCG Request/Response/URL/Headers objects
+- [x] 02-01-PLAN.md — HTTP server infrastructure with axum ✅
+- [x] 02-02-PLAN.md — Virtual host routing with Host header matching ✅
+- [x] 02-03-PLAN.md — WinterCG Request/Response/URL/Headers objects ✅
 
 ### Phase 3: Runtime APIs
 **Goal:** JavaScript code can use core WinterCG APIs for basic computation and async operations
@@ -79,8 +79,8 @@ Plans:
 
 Plans:
 - [ ] 03-01-PLAN.md — JavaScript handler interface with Request/Response flow
-- [ ] 03-02-PLAN.md — Console API and TextEncoder/TextDecoder
-- [ ] 03-03-PLAN.md — setTimeout/setInterval and AbortController/AbortSignal
+- [x] 03-02-PLAN.md — Console API and TextEncoder/TextDecoder ✅
+- [x] 03-03-PLAN.md — setTimeout/setInterval and AbortController/AbortSignal ✅
 - [ ] 03-04-PLAN.md — crypto, performance, structuredClone, Blob, FormData, DOMException
 
 ### Phase 4: WorkerPool & Dispatch
