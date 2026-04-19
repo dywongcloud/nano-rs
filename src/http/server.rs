@@ -164,8 +164,9 @@ mod tests {
 
     #[test]
     fn test_state_creation() {
-        let state = State::new();
-        assert!(Arc::new(state).is_empty() == false || true); // Just verify it compiles
+        let _state = State::new();
+        let _arc_state = Arc::new(State::new());
+        // Just verify State can be created and wrapped in Arc
     }
 
     #[tokio::test]

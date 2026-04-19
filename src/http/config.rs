@@ -74,7 +74,14 @@ impl ServerConfig {
     /// assert_eq!(addr.port(), 8080);
     /// ```
     pub fn socket_addr(&self) -> Result<SocketAddr> {
-        let addr_str = format!("{}:{}", self.host, self.port);
+        // Handle IPv6 addresses which need bracket notation
+        let addr_str = if self.host.contains(':') {
+            // IPv6 address - wrap in brackets
+            format!("[{}]:{}", self.host, self.port)
+        } else {
+            // IPv4 address or hostname
+            format!("{}:{}", self.host, self.port)
+        };
         addr_str
             .parse::<SocketAddr>()
             .with_context(|| format!("Failed to parse socket address: {}", addr_str))
