@@ -19,6 +19,7 @@ tokio = { version = "1.52", features = ["full"] }
 
 # Observability
 tracing = "0.1"
+tracing-subscriber = "0.3"
 
 # Error handling
 anyhow = "1.0"
