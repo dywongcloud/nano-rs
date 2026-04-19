@@ -27,11 +27,13 @@
 //! All worker threads are joined to ensure clean isolate cleanup.
 
 pub mod context;
+pub mod limits;
 pub mod pool;
 pub mod queue;
 
 // Re-export types
 pub use context::ContextManager;
+pub use limits::{HeapStatistics, MemoryLimiter, OomError};
 pub use pool::{WorkerHandle, WorkerPool};
 pub use queue::{hash_hostname, QueueError, QueueStats, StatsSnapshot, WorkQueue};
 

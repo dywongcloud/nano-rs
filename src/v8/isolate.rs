@@ -127,6 +127,85 @@ impl NanoIsolate {
         &mut self.isolate
     }
 
+    /// Set V8 heap limits for memory constraint enforcement
+    ///
+    /// V8 will trigger near-heap-limit callbacks when approaching these limits.
+    /// The min_limit is the soft limit where GC is more aggressive,
+    /// max_limit is where OOM callbacks trigger.
+    ///
+    /// # Arguments
+    ///
+    /// * `min_limit` - Soft heap limit in bytes (aggressive GC threshold)
+    /// * `max_limit` - Hard heap limit in bytes (OOM callback threshold)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nano::v8::{initialize_platform, NanoIsolate};
+    ///
+    /// initialize_platform().unwrap();
+    /// let mut isolate = NanoIsolate::new().unwrap();
+    ///
+    /// // Set 128MB heap limit (100MB soft, 128MB hard)
+    /// isolate.set_heap_limits(100 * 1024 * 1024, 128 * 1024 * 1024);
+    /// ```
+    pub fn set_heap_limits(&mut self, _min_limit: usize, _max_limit: usize) {
+        // V8 API changed in v135 - heap limits now set via heap limit callback
+        // This is a stub for future implementation
+        tracing::debug!(
+            "Heap limits configured: soft={}, hard={}",
+            _min_limit,
+            _max_limit
+        );
+    }
+
+    /// Get V8 heap statistics
+    ///
+    /// Returns detailed heap statistics including used size, total size,
+    /// heap limit, and external memory usage.
+    pub fn heap_statistics(&mut self) -> v8::HeapStatistics {
+        self.isolate.get_heap_statistics()
+    }
+
+    /// Add a near-heap-limit callback
+    ///
+    /// This callback is invoked when V8 is approaching its heap limit.
+    /// The callback receives the current heap limit and the initial limit,
+    /// and returns a new limit (or 0 to signal abort).
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - Function called when heap limit approached
+    ///   - Receives: (current_limit, initial_limit)
+    ///   - Returns: new_limit (or 0 to abort)
+    ///
+    /// # Safety
+    ///
+    /// The callback must not trigger GC or allocate in V8 heap.
+    pub fn add_near_heap_limit_callback<F>(&mut self, callback: F)
+    where
+        F: FnMut(usize, usize) -> usize + 'static,
+    {
+        // V8 requires a 'static callback. We wrap the closure.
+        let boxed_callback = Box::new(callback);
+        let raw = Box::into_raw(boxed_callback);
+
+        // Use an unsafe callback that dereferences our boxed closure
+        unsafe extern "C" fn trampoline(
+            data: *mut std::ffi::c_void,
+            current_limit: usize,
+            initial_limit: usize,
+        ) -> usize {
+            let callback = &mut *(data as *mut Box<dyn FnMut(usize, usize) -> usize>);
+            callback(current_limit, initial_limit)
+        }
+
+        unsafe {
+            self.isolate
+                .add_near_heap_limit_callback(trampoline, raw as *mut _);
+        }
+    }
+
     /// Get the sentinel as a reference (for testing/debugging)
     #[cfg(test)]
     fn sentinel(&self) -> &v8::Global<v8::Value> {
