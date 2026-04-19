@@ -41,6 +41,12 @@ impl RuntimeAPIs {
         Self::bind_dom_exception(scope, context);
         Self::bind_blob(scope, context);
         Self::bind_form_data(scope, context);
+        Self::bind_fetch(scope, context);
+    }
+
+    /// Bind fetch() API to global scope
+    fn bind_fetch(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        crate::runtime::fetch::bind_fetch(scope, context);
     }
 
     /// Bind console API (log/warn/error) to global scope
