@@ -8,6 +8,7 @@
 //!
 //! Future phases add WinterCG object handling.
 
+pub mod client;
 pub mod config;
 pub mod headers;
 pub mod router;
@@ -16,6 +17,7 @@ pub mod types;
 pub mod url;
 pub mod v8_bridge;
 
+pub use client::{HttpClient, HttpClientResponse, HttpClientError};
 pub use config::ServerConfig;
 pub use headers::NanoHeaders;
 pub use router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};

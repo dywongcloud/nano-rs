@@ -54,6 +54,14 @@ lazy_static = "1.4"
 # Async blocking for timer callbacks
 pollster = "0.4"
 
+# HTTP client for outbound fetch()
+hyper = { version = "1.4", features = ["client", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["client", "tokio"] }
+http-body-util = "0.1"
+rustls = { version = "0.23", features = ["ring"] }
+tokio-rustls = "0.26"
+webpki-roots = "0.26"
+
 # Workaround for Rust version compatibility
 home = "=0.5.11"
 
