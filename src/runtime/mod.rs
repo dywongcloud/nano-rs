@@ -16,16 +16,10 @@
 //! runtime, providing the standard WinterCG environment for edge functions.
 
 pub mod handler;
-pub mod types;
-pub mod event_loop;
 pub mod apis;
 
 // Re-export handler types for convenience
 pub use handler::{HandlerContext, execute_handler};
 
-// Re-export timer and abort types
-pub use types::{TimerId, TimerHandle, AbortSignalState, register_abort_state, get_abort_state, remove_abort_state};
-pub use event_loop::TimerQueue;
-
-// Re-export API bindings
-pub use apis::{RuntimeAPIs, init_thread_timer_queue};
+// Re-export APIs for handler
+pub use apis::RuntimeAPIs;

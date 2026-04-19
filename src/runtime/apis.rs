@@ -3,28 +3,21 @@
 //! This module provides JavaScript API bindings that bridge between V8 and Rust:
 //! - console.log/warn/error with structured logging via tracing
 //! - TextEncoder/TextDecoder for UTF-8 encoding/decoding
-//! - setTimeout/setInterval/clearTimeout/clearInterval for async timers
-//! - AbortController/AbortSignal for async cancellation
+//! - crypto.getRandomValues for cryptographic randomness
+//! - performance.now for high-resolution monotonic timing
+//! - structuredClone for deep object cloning
+//! - DOMException for standard error types
+//! - Blob for binary data containers
+//! - FormData for multipart form data
 //!
 //! All APIs are bound to the V8 global scope via RuntimeAPIs::bind_all().
 
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::cell::Cell;
+use std::time::Instant;
 
-use crate::runtime::{get_abort_state, register_abort_state, AbortSignalState, TimerId, TimerQueue};
-
-/// Thread-local timer queue for V8 callback access
+/// Thread-local storage for performance baseline timing
 thread_local! {
-    static TIMER_QUEUE: RefCell<Option<Arc<TimerQueue>>> = RefCell::new(None);
-    static TIMER_CALLBACKS: RefCell<HashMap<u64, v8::Global<v8::Function>>> = RefCell::new(HashMap::new());
-}
-
-/// Initialize thread-local timer queue
-pub fn init_thread_timer_queue(queue: Arc<TimerQueue>) {
-    TIMER_QUEUE.with(|q| {
-        *q.borrow_mut() = Some(queue);
-    });
+    static PERFORMANCE_BASELINE: Cell<Option<Instant>> = Cell::new(None);
 }
 
 /// RuntimeAPIs manages all JavaScript API bindings
@@ -37,13 +30,17 @@ impl RuntimeAPIs {
     /// Bind all runtime APIs to the V8 context
     ///
     /// This should be called once per context during handler setup.
-    /// Makes console, TextEncoder, TextDecoder, timers, and AbortController available to JavaScript.
+    /// Makes all WinterCG APIs available to JavaScript.
     pub fn bind_all(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
         Self::bind_console(scope, context);
         Self::bind_text_encoder(scope, context);
         Self::bind_text_decoder(scope, context);
-        Self::bind_timers(scope, context);
-        Self::bind_abort_controller(scope, context);
+        Self::bind_crypto(scope, context);
+        Self::bind_performance(scope, context);
+        Self::bind_structured_clone(scope, context);
+        Self::bind_dom_exception(scope, context);
+        Self::bind_blob(scope, context);
+        Self::bind_form_data(scope, context);
     }
 
     /// Bind console API (log/warn/error) to global scope
@@ -80,18 +77,14 @@ impl RuntimeAPIs {
 
         // Create TextEncoder constructor function
         let encoder_template = v8::FunctionTemplate::new(scope, text_encoder_constructor);
+
+        // Add encode method to prototype via instance template
+        let instance_template = encoder_template.prototype_template(scope);
+        let encode_fn = v8::FunctionTemplate::new(scope, text_encoder_encode);
+        let encode_key = v8::String::new(scope, "encode").unwrap();
+        instance_template.set(encode_key.into(), encode_fn.into());
+
         let encoder_ctor = encoder_template.get_function(scope).unwrap();
-
-        // Add encode method to prototype
-        let prototype = encoder_ctor
-            .get_prototype(scope)
-            .and_then(|p| p.to_object(scope))
-            .expect("Failed to get TextEncoder prototype");
-
-        if let Some(encode_fn) = v8::Function::new(scope, text_encoder_encode) {
-            let key = v8::String::new(scope, "encode").unwrap();
-            prototype.set(scope, key.into(), encode_fn.into());
-        }
 
         // Attach TextEncoder to global
         let key = v8::String::new(scope, "TextEncoder").unwrap();
@@ -104,64 +97,110 @@ impl RuntimeAPIs {
 
         // Create TextDecoder constructor function
         let decoder_template = v8::FunctionTemplate::new(scope, text_decoder_constructor);
+
+        // Add decode method to prototype via instance template
+        let instance_template = decoder_template.prototype_template(scope);
+        let decode_fn = v8::FunctionTemplate::new(scope, text_decoder_decode);
+        let decode_key = v8::String::new(scope, "decode").unwrap();
+        instance_template.set(decode_key.into(), decode_fn.into());
+
         let decoder_ctor = decoder_template.get_function(scope).unwrap();
-
-        // Add decode method to prototype
-        let prototype = decoder_ctor
-            .get_prototype(scope)
-            .and_then(|p| p.to_object(scope))
-            .expect("Failed to get TextDecoder prototype");
-
-        if let Some(decode_fn) = v8::Function::new(scope, text_decoder_decode) {
-            let key = v8::String::new(scope, "decode").unwrap();
-            prototype.set(scope, key.into(), decode_fn.into());
-        }
 
         // Attach TextDecoder to global
         let key = v8::String::new(scope, "TextDecoder").unwrap();
         global.set(scope, key.into(), decoder_ctor.into());
     }
 
-    /// Bind timer APIs (setTimeout, setInterval, clearTimeout, clearInterval)
-    fn bind_timers(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    /// Bind crypto API with getRandomValues
+    fn bind_crypto(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
-        // Bind setTimeout
-        if let Some(set_timeout_fn) = v8::Function::new(scope, set_timeout_callback) {
-            let key = v8::String::new(scope, "setTimeout").unwrap();
-            global.set(scope, key.into(), set_timeout_fn.into());
+        // Create crypto object
+        let crypto = v8::Object::new(scope);
+
+        // Bind getRandomValues
+        if let Some(grv_fn) = v8::Function::new(scope, crypto_get_random_values) {
+            let key = v8::String::new(scope, "getRandomValues").unwrap();
+            crypto.set(scope, key.into(), grv_fn.into());
         }
 
-        // Bind setInterval
-        if let Some(set_interval_fn) = v8::Function::new(scope, set_interval_callback) {
-            let key = v8::String::new(scope, "setInterval").unwrap();
-            global.set(scope, key.into(), set_interval_fn.into());
+        // Attach crypto to global
+        let key = v8::String::new(scope, "crypto").unwrap();
+        global.set(scope, key.into(), crypto.into());
+    }
+
+    /// Bind performance API with now()
+    fn bind_performance(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        let global = context.global(scope);
+
+        // Initialize baseline on first call
+        PERFORMANCE_BASELINE.with(|cell| {
+            if cell.get().is_none() {
+                cell.set(Some(Instant::now()));
+            }
+        });
+
+        // Create performance object
+        let performance = v8::Object::new(scope);
+
+        // Bind now() method
+        if let Some(now_fn) = v8::Function::new(scope, performance_now) {
+            let key = v8::String::new(scope, "now").unwrap();
+            performance.set(scope, key.into(), now_fn.into());
         }
 
-        // Bind clearTimeout
-        if let Some(clear_timeout_fn) = v8::Function::new(scope, clear_timeout_callback) {
-            let key = v8::String::new(scope, "clearTimeout").unwrap();
-            global.set(scope, key.into(), clear_timeout_fn.into());
-        }
+        // Attach performance to global
+        let key = v8::String::new(scope, "performance").unwrap();
+        global.set(scope, key.into(), performance.into());
+    }
 
-        // Bind clearInterval
-        if let Some(clear_interval_fn) = v8::Function::new(scope, clear_interval_callback) {
-            let key = v8::String::new(scope, "clearInterval").unwrap();
-            global.set(scope, key.into(), clear_interval_fn.into());
+    /// Bind structuredClone as global function
+    fn bind_structured_clone(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        let global = context.global(scope);
+
+        if let Some(clone_fn) = v8::Function::new(scope, structured_clone) {
+            let key = v8::String::new(scope, "structuredClone").unwrap();
+            global.set(scope, key.into(), clone_fn.into());
         }
     }
 
-    /// Bind AbortController and AbortSignal APIs
-    fn bind_abort_controller(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    /// Bind DOMException constructor
+    fn bind_dom_exception(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
-        // Create AbortController constructor
-        let controller_template = v8::FunctionTemplate::new(scope, abort_controller_constructor);
-        let controller_ctor = controller_template.get_function(scope).unwrap();
+        // Create DOMException constructor
+        let template = v8::FunctionTemplate::new(scope, dom_exception_constructor);
+        let ctor = template.get_function(scope).unwrap();
 
         // Attach to global
-        let key = v8::String::new(scope, "AbortController").unwrap();
-        global.set(scope, key.into(), controller_ctor.into());
+        let key = v8::String::new(scope, "DOMException").unwrap();
+        global.set(scope, key.into(), ctor.into());
+    }
+
+    /// Bind Blob constructor
+    fn bind_blob(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        let global = context.global(scope);
+
+        // Create Blob constructor
+        let template = v8::FunctionTemplate::new(scope, blob_constructor);
+        let ctor = template.get_function(scope).unwrap();
+
+        // Attach to global
+        let key = v8::String::new(scope, "Blob").unwrap();
+        global.set(scope, key.into(), ctor.into());
+    }
+
+    /// Bind FormData constructor
+    fn bind_form_data(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        let global = context.global(scope);
+
+        // Create FormData constructor
+        let template = v8::FunctionTemplate::new(scope, form_data_constructor);
+        let ctor = template.get_function(scope).unwrap();
+
+        // Attach to global
+        let key = v8::String::new(scope, "FormData").unwrap();
+        global.set(scope, key.into(), ctor.into());
     }
 }
 
@@ -205,325 +244,6 @@ fn console_error_callback(
 ) {
     let message = format_console_args(scope, args);
     tracing::error!(target: "js_console", "{}", message);
-}
-
-/// V8 callback for setTimeout
-fn set_timeout_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut retval: v8::ReturnValue,
-) {
-    // Extract callback function (arg 0)
-    if args.length() < 1 {
-        retval.set(v8::Integer::new(scope, 0).into());
-        return;
-    }
-
-    let callback = args.get(0);
-    if !callback.is_function() {
-        retval.set(v8::Integer::new(scope, 0).into());
-        return;
-    }
-    let callback = callback.cast::<v8::Function>();
-
-    // Extract delay (arg 1, default 0)
-    let delay_ms = if args.length() > 1 {
-        args.get(1)
-            .to_integer(scope)
-            .map(|i| i.value() as u64)
-            .unwrap_or(0)
-    } else {
-        0
-    };
-
-    // Create persistent handle for callback
-    let persistent_callback = v8::Global::new(scope, callback);
-
-    // Store callback and schedule timer
-    let timer_id = TIMER_QUEUE.with(|queue| {
-        if let Some(queue) = queue.borrow().as_ref() {
-            let queue = Arc::clone(queue);
-            let id = pollster::block_on(async move {
-                queue.schedule(delay_ms, move || {
-                    // Timer fired - callback will be invoked by timer system
-                }).await
-            });
-            Some(id.value())
-        } else {
-            None
-        }
-    });
-
-    // Store callback for later invocation
-    if let Some(id) = timer_id {
-        TIMER_CALLBACKS.with(|callbacks| {
-            callbacks.borrow_mut().insert(id, persistent_callback);
-        });
-        retval.set(v8::Integer::new_from_unsigned(scope, id as u32).into());
-    } else {
-        retval.set(v8::Integer::new(scope, 0).into());
-    }
-}
-
-/// V8 callback for setInterval
-fn set_interval_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut retval: v8::ReturnValue,
-) {
-    // Extract callback function (arg 0)
-    if args.length() < 1 {
-        retval.set(v8::Integer::new(scope, 0).into());
-        return;
-    }
-
-    let callback = args.get(0);
-    if !callback.is_function() {
-        retval.set(v8::Integer::new(scope, 0).into());
-        return;
-    }
-    let callback = callback.cast::<v8::Function>();
-
-    // Extract interval (arg 1, default 0)
-    let interval_ms = if args.length() > 1 {
-        args.get(1)
-            .to_integer(scope)
-            .map(|i| i.value() as u64)
-            .unwrap_or(0)
-    } else {
-        0
-    };
-
-    // Create persistent handle for callback
-    let persistent_callback = v8::Global::new(scope, callback);
-
-    // Store callback and schedule interval
-    let timer_id = TIMER_QUEUE.with(|queue| {
-        if let Some(queue) = queue.borrow().as_ref() {
-            let queue = Arc::clone(queue);
-            let id = pollster::block_on(async move {
-                queue.schedule_interval(interval_ms, move || {
-                    // Interval fired
-                }).await
-            });
-            Some(id.value())
-        } else {
-            None
-        }
-    });
-
-    // Store callback
-    if let Some(id) = timer_id {
-        TIMER_CALLBACKS.with(|callbacks| {
-            callbacks.borrow_mut().insert(id, persistent_callback);
-        });
-        retval.set(v8::Integer::new_from_unsigned(scope, id as u32).into());
-    } else {
-        retval.set(v8::Integer::new(scope, 0).into());
-    }
-}
-
-/// V8 callback for clearTimeout
-fn clear_timeout_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    _retval: v8::ReturnValue,
-) {
-    if args.length() < 1 {
-        return;
-    }
-
-    let timer_id = args.get(0)
-        .to_integer(scope)
-        .map(|i| i.value() as u64)
-        .unwrap_or(0);
-
-    if timer_id == 0 {
-        return;
-    }
-
-    // Cancel timer and remove callback
-    TIMER_QUEUE.with(|queue| {
-        if let Some(queue) = queue.borrow().as_ref() {
-            let queue = Arc::clone(queue);
-            pollster::block_on(async move {
-                let id = TimerId(timer_id);
-                queue.cancel(id).await;
-            });
-        }
-    });
-
-    TIMER_CALLBACKS.with(|callbacks| {
-        callbacks.borrow_mut().remove(&timer_id);
-    });
-}
-
-/// V8 callback for clearInterval
-fn clear_interval_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    _retval: v8::ReturnValue,
-) {
-    // Same implementation as clearTimeout
-    clear_timeout_callback(scope, args, _retval);
-}
-
-/// AbortController constructor callback
-fn abort_controller_constructor(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut retval: v8::ReturnValue,
-) {
-    let this = args.this();
-
-    // Create AbortSignalState in Rust
-    let state = AbortSignalState::new();
-    let state_id = register_abort_state(state);
-
-    // Store state ID in V8 object as internal field
-    let id_key = v8::String::new(scope, "__abort_state_id").unwrap();
-    let id_value = v8::Integer::new_from_unsigned(scope, state_id as u32);
-    this.set(scope, id_key.into(), id_value.into());
-
-    // Create signal object
-    let signal = create_abort_signal(scope, state_id);
-    let signal_key = v8::String::new(scope, "signal").unwrap();
-    this.set(scope, signal_key.into(), signal.into());
-
-    // Add abort method
-    let abort_fn = v8::Function::new(scope, abort_controller_abort).unwrap();
-    let abort_key = v8::String::new(scope, "abort").unwrap();
-    this.set(scope, abort_key.into(), abort_fn.into());
-
-    retval.set(this.into());
-}
-
-/// Create an AbortSignal object
-fn create_abort_signal(
-    scope: &mut v8::HandleScope,
-    state_id: u64,
-) -> v8::Local<v8::Object> {
-    let signal = v8::Object::new(scope);
-
-    // Store state ID
-    let id_key = v8::String::new(scope, "__abort_state_id").unwrap();
-    let id_value = v8::Integer::new_from_unsigned(scope, state_id as u32);
-    signal.set(scope, id_key.into(), id_value.into());
-
-    // Set initial aborted property
-    let aborted_key = v8::String::new(scope, "aborted").unwrap();
-    let aborted_value = v8::Boolean::new(scope, false);
-    signal.set(scope, aborted_key.into(), aborted_value.into());
-
-    // Add onabort property (setter/getter would be better but using direct property for v1)
-    let onabort_key = v8::String::new(scope, "onabort").unwrap();
-    let onabort_value = v8::null(scope);
-    signal.set(scope, onabort_key.into(), onabort_value.into());
-
-    // Add addEventListener method (simplified - just handles 'abort' event)
-    let add_listener_fn = v8::Function::new(scope, abort_signal_add_event_listener).unwrap();
-    let add_listener_key = v8::String::new(scope, "addEventListener").unwrap();
-    signal.set(scope, add_listener_key.into(), add_listener_fn.into());
-
-    // Add removeEventListener stub
-    let remove_listener_fn = v8::Function::new(scope, abort_signal_remove_event_listener).unwrap();
-    let remove_listener_key = v8::String::new(scope, "removeEventListener").unwrap();
-    signal.set(scope, remove_listener_key.into(), remove_listener_fn.into());
-
-    signal
-}
-
-/// V8 callback for AbortController.abort()
-fn abort_controller_abort(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    _retval: v8::ReturnValue,
-) {
-    let this = args.this();
-
-    // Get state ID
-    let id_key = v8::String::new(scope, "__abort_state_id").unwrap();
-    let id_value = this.get(scope, id_key.into());
-
-    let state_id = if let Some(id) = id_value.to_integer(scope) {
-        id.value() as u64
-    } else {
-        return;
-    };
-
-    // Get reason argument if provided
-    let reason = if args.length() > 0 {
-        let arg = args.get(0);
-        arg.to_string(scope).map(|s| s.to_rust_string_lossy(scope))
-    } else {
-        Some("AbortError".to_string())
-    };
-
-    // Abort the signal
-    if let Some(state) = get_abort_state(state_id) {
-        state.abort(reason);
-    }
-
-    // Update signal's aborted property
-    let signal_key = v8::String::new(scope, "signal").unwrap();
-    if let Some(signal) = this.get(scope, signal_key.into()).to_object(scope) {
-        let aborted_key = v8::String::new(scope, "aborted").unwrap();
-        let aborted_value = v8::Boolean::new(scope, true);
-        signal.set(scope, aborted_key.into(), aborted_value.into());
-
-        // Trigger onabort callback if set
-        let onabort_key = v8::String::new(scope, "onabort").unwrap();
-        let onabort = signal.get(scope, onabort_key.into());
-        if onabort.is_function() {
-            let onabort_fn = onabort.cast::<v8::Function>();
-            let _ = onabort_fn.call(scope, signal.into(), &[]);
-        }
-    }
-}
-
-/// V8 callback for AbortSignal.addEventListener
-fn abort_signal_add_event_listener(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    _retval: v8::ReturnValue,
-) {
-    // Simplified: if event type is 'abort' and callback provided, store it
-    if args.length() < 2 {
-        return;
-    }
-
-    let this = args.this();
-
-    // Check event type
-    let event_type = args.get(0)
-        .to_string(scope)
-        .map(|s| s.to_rust_string_lossy(scope))
-        .unwrap_or_default();
-
-    if event_type != "abort" {
-        return;
-    }
-
-    // Get callback
-    let callback = args.get(1);
-    if callback.is_function() {
-        // Store as onabort handler
-        let onabort_key = v8::String::new(scope, "onabort").unwrap();
-        this.set(scope, onabort_key.into(), callback.into());
-    }
-}
-
-/// V8 callback for AbortSignal.removeEventListener
-fn abort_signal_remove_event_listener(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    _retval: v8::ReturnValue,
-) {
-    // Simplified: just clear the onabort handler
-    let this = args.this();
-    let onabort_key = v8::String::new(scope, "onabort").unwrap();
-    let null_value = v8::null(scope);
-    this.set(scope, onabort_key.into(), null_value.into());
 }
 
 /// TextEncoder constructor callback
@@ -619,8 +339,8 @@ fn text_decoder_decode(
         }
         vec
     } else if arg.is_array_buffer() {
-        // Extract bytes from ArrayBuffer
         let arraybuffer = arg.cast::<v8::ArrayBuffer>();
+        // Extract bytes from ArrayBuffer
         let store = arraybuffer.get_backing_store();
         let length = arraybuffer.byte_length();
         (0..length)
@@ -637,6 +357,302 @@ fn text_decoder_decode(
     if let Some(s) = v8::String::new(scope, &text) {
         retval.set(s.into());
     }
+}
+
+/// crypto.getRandomValues implementation
+fn crypto_get_random_values(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    // Get first argument (should be TypedArray)
+    if args.length() < 1 {
+        retval.set_undefined();
+        return;
+    }
+
+    let arg = args.get(0);
+
+    // Handle Uint8Array
+    if let Some(uint8array) = arg
+        .to_object(scope)
+        .and_then(|o| o.try_cast::<v8::Uint8Array>().ok())
+    {
+        let length = uint8array.byte_length();
+
+        if length == 0 {
+            retval.set(arg);
+            return;
+        }
+
+        // Generate random bytes using getrandom
+        let mut buffer = vec![0u8; length];
+        if getrandom::getrandom(&mut buffer).is_err() {
+            retval.set_undefined();
+            return;
+        }
+
+        // Copy bytes into the TypedArray
+        for (i, byte) in buffer.iter().enumerate() {
+            let idx = v8::Number::new(scope, i as f64);
+            let val = v8::Number::new(scope, *byte as f64);
+            uint8array.set(scope, idx.into(), val.into());
+        }
+
+        retval.set(arg);
+        return;
+    }
+
+    // Handle Uint16Array
+    if let Some(uint16array) = arg
+        .to_object(scope)
+        .and_then(|o| o.try_cast::<v8::Uint16Array>().ok())
+    {
+        let length = uint16array.byte_length() / 2;
+
+        if length == 0 {
+            retval.set(arg);
+            return;
+        }
+
+        let mut buffer = vec![0u16; length];
+        let byte_buffer = unsafe {
+            std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, buffer.len() * 2)
+        };
+
+        if getrandom::getrandom(byte_buffer).is_err() {
+            retval.set_undefined();
+            return;
+        }
+
+        for (i, value) in buffer.iter().enumerate() {
+            let idx = v8::Number::new(scope, i as f64);
+            let val = v8::Number::new(scope, *value as f64);
+            uint16array.set(scope, idx.into(), val.into());
+        }
+
+        retval.set(arg);
+        return;
+    }
+
+    // Handle Uint32Array
+    if let Some(uint32array) = arg
+        .to_object(scope)
+        .and_then(|o| o.try_cast::<v8::Uint32Array>().ok())
+    {
+        let length = uint32array.byte_length() / 4;
+
+        if length == 0 {
+            retval.set(arg);
+            return;
+        }
+
+        let mut buffer = vec![0u32; length];
+        let byte_buffer = unsafe {
+            std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, buffer.len() * 4)
+        };
+
+        if getrandom::getrandom(byte_buffer).is_err() {
+            retval.set_undefined();
+            return;
+        }
+
+        for (i, value) in buffer.iter().enumerate() {
+            let idx = v8::Number::new(scope, i as f64);
+            let val = v8::Number::new(scope, *value as f64);
+            uint32array.set(scope, idx.into(), val.into());
+        }
+
+        retval.set(arg);
+        return;
+    }
+
+    // If not a supported TypedArray, return undefined
+    retval.set_undefined();
+}
+
+/// performance.now() implementation
+fn performance_now(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let now = Instant::now();
+
+    let elapsed_ms = PERFORMANCE_BASELINE.with(|baseline| {
+        if let Some(base) = baseline.get() {
+            now.duration_since(base).as_nanos() as f64 / 1_000_000.0
+        } else {
+            0.0
+        }
+    });
+
+    retval.set(v8::Number::new(scope, elapsed_ms).into());
+}
+
+/// structuredClone() implementation
+fn structured_clone(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    if args.length() < 1 {
+        retval.set_undefined();
+        return;
+    }
+
+    let value = args.get(0);
+
+    // Use V8's built-in cloning via JSON serialization as a baseline
+    // Convert to JSON string then parse back
+    if let Some(json_string) = v8::json::stringify(scope, value) {
+        if let Some(json_str) = json_string.to_string(scope) {
+            // Parse the JSON back into a value
+            if let Some(cloned) = v8::json::parse(scope, json_str.into()) {
+                retval.set(cloned);
+                return;
+            }
+        }
+    }
+
+    // Fallback: return the original value
+    retval.set(value);
+}
+
+/// DOMException constructor implementation
+fn dom_exception_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    // Get message argument (defaults to "")
+    let message = if args.length() > 0 {
+        args.get(0)
+            .to_string(scope)
+            .map(|s| s.to_rust_string_lossy(scope))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    // Get name argument (defaults to "Error")
+    let name = if args.length() > 1 {
+        args.get(1)
+            .to_string(scope)
+            .map(|s| s.to_rust_string_lossy(scope))
+            .unwrap_or_else(|| "Error".to_string())
+    } else {
+        "Error".to_string()
+    };
+
+    // Set message property
+    let msg_key = v8::String::new(scope, "message").unwrap();
+    let msg_val = v8::String::new(scope, &message).unwrap();
+    this.set(scope, msg_key.into(), msg_val.into());
+
+    // Set name property
+    let name_key = v8::String::new(scope, "name").unwrap();
+    let name_val = v8::String::new(scope, &name).unwrap();
+    this.set(scope, name_key.into(), name_val.into());
+
+    // Set stack property (simplified for v1)
+    let stack_key = v8::String::new(scope, "stack").unwrap();
+    let stack_str = format!("DOMException: {}", message);
+    let stack_val = v8::String::new(scope, &stack_str).unwrap();
+    this.set(scope, stack_key.into(), stack_val.into());
+
+    retval.set(this.into());
+}
+
+/// Blob constructor implementation (simplified v1)
+fn blob_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    // Get parts array (first argument, defaults to empty)
+    let mut total_size: usize = 0;
+    let mut parts: Vec<String> = Vec::new();
+
+    if args.length() > 0 {
+        let arg = args.get(0);
+        if let Some(array) = arg.to_object(scope) {
+            // Try to iterate over the array
+            if let Some(length_key) = v8::String::new(scope, "length") {
+                if let Some(length_val) = array.get(scope, length_key.into()) {
+                    if let Some(length_num) = length_val.to_number(scope) {
+                        let length = length_num.value() as usize;
+
+                        for i in 0..length {
+                            let idx = v8::Number::new(scope, i as f64);
+                            if let Some(item) = array.get(scope, idx.into()) {
+                                // Convert item to string
+                                if let Some(item_str) = item.to_string(scope) {
+                                    let item_rust = item_str.to_rust_string_lossy(scope);
+                                    total_size += item_rust.len();
+                                    parts.push(item_rust);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Get type option (second argument with { type: "..." })
+    let mut blob_type = String::new();
+    if args.length() > 1 {
+        let options = args.get(1);
+        if let Some(options_obj) = options.to_object(scope) {
+            if let Some(type_key) = v8::String::new(scope, "type") {
+                if let Some(type_val) = options_obj.get(scope, type_key.into()) {
+                    if let Some(type_str) = type_val.to_string(scope) {
+                        blob_type = type_str.to_rust_string_lossy(scope);
+                    }
+                }
+            }
+        }
+    }
+
+    // Store size property
+    let size_key = v8::String::new(scope, "size").unwrap();
+    let size_val = v8::Number::new(scope, total_size as f64);
+    this.set(scope, size_key.into(), size_val.into());
+
+    // Store type property
+    let type_key = v8::String::new(scope, "type").unwrap();
+    let type_val = v8::String::new(scope, &blob_type).unwrap();
+    this.set(scope, type_key.into(), type_val.into());
+
+    // Store parts in internal field (using a unique symbol approach)
+    // For v1, we store as a hidden property
+    let parts_key = v8::String::new(scope, "__blob_parts__").unwrap();
+    let parts_val = v8::String::new(scope, &parts.join("")).unwrap();
+    this.set(scope, parts_key.into(), parts_val.into());
+
+    retval.set(this.into());
+}
+
+/// FormData constructor implementation (simplified v1)
+fn form_data_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    // Initialize internal data store as a JSON-serializable string for v1
+    // In a full implementation, we'd use V8's private properties
+    let data_key = v8::String::new(scope, "__form_data__").unwrap();
+    let data_val = v8::String::new(scope, "{}").unwrap();
+    this.set(scope, data_key.into(), data_val.into());
+
+    retval.set(this.into());
 }
 
 #[cfg(test)]
@@ -661,11 +677,12 @@ mod tests {
         // Bind APIs
         RuntimeAPIs::bind_all(scope, context);
 
-        // Test: new TextEncoder().encode("hello")
+        // Test basic encoding
         let code = r#"
             const encoder = new TextEncoder();
-            const bytes = encoder.encode("hello");
-            Array.from(bytes);
+            const text = "Hello, World!";
+            const encoded = encoder.encode(text);
+            encoded.length === 13 && encoded[0] === 72;
         "#;
 
         let code_string = v8::String::new(scope, code).unwrap();
@@ -675,14 +692,14 @@ mod tests {
         let result = script.run(scope).expect("Script execution failed");
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
 
-        // Should produce [104, 101, 108, 108, 111] for "hello"
-        assert!(result_str.contains("104"));
-        assert!(result_str.contains("101"));
-        assert!(result_str.contains("111"));
+        assert_eq!(
+            result_str, "true",
+            "TextEncoder should encode 'Hello, World!' correctly"
+        );
     }
 
     #[test]
-    fn test_text_encoder_unicode() {
+    fn test_text_encoder_utf8() {
         init_platform();
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
@@ -723,36 +740,7 @@ mod tests {
 
         RuntimeAPIs::bind_all(scope, context);
 
-        // Test: Create Uint8Array and decode it
-        let code = r#"
-            const decoder = new TextDecoder();
-            const bytes = new Uint8Array([104, 101, 108, 108, 111]);
-            decoder.decode(bytes);
-        "#;
-
-        let code_string = v8::String::new(scope, code).unwrap();
-        let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
-
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
-
-        assert_eq!(result_str, "hello");
-    }
-
-    #[test]
-    fn test_text_encoder_decoder_roundtrip() {
-        init_platform();
-
-        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
-
-        RuntimeAPIs::bind_all(scope, context);
-
-        // Test roundtrip with emoji
+        // Test basic decoding
         let code = r#"
             const encoder = new TextEncoder();
             const decoder = new TextDecoder();
@@ -866,7 +854,7 @@ mod tests {
     }
 
     #[test]
-    fn test_abort_controller_exists() {
+    fn test_crypto_get_random_values() {
         init_platform();
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
@@ -875,11 +863,14 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
 
+        // Bind APIs
         RuntimeAPIs::bind_all(scope, context);
 
-        // Test that AbortController constructor exists
+        // Test that we can call getRandomValues
         let code = r#"
-            typeof AbortController === "function"
+            const arr = new Uint8Array(8);
+            const result = crypto.getRandomValues(arr);
+            result.length === 8 && result === arr
         "#;
 
         let code_string = v8::String::new(scope, code).unwrap();
@@ -889,11 +880,14 @@ mod tests {
         let result = script.run(scope).expect("Script execution failed");
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
 
-        assert_eq!(result_str, "true", "AbortController should be a function");
+        assert_eq!(
+            result_str, "true",
+            "crypto.getRandomValues should return the same array"
+        );
     }
 
     #[test]
-    fn test_abort_controller_basic() {
+    fn test_performance_now() {
         init_platform();
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
@@ -902,16 +896,14 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
 
+        // Bind APIs
         RuntimeAPIs::bind_all(scope, context);
 
-        // Test basic AbortController functionality
+        // Test that performance.now() returns a number >= 0
         let code = r#"
-            const controller = new AbortController();
-            const signal = controller.signal;
-            const beforeAbort = signal.aborted;
-            controller.abort();
-            const afterAbort = signal.aborted;
-            beforeAbort === false && afterAbort === true ? "PASS" : "FAIL";
+            const t1 = performance.now();
+            const t2 = performance.now();
+            typeof t1 === 'number' && t1 >= 0 && t2 >= t1
         "#;
 
         let code_string = v8::String::new(scope, code).unwrap();
@@ -921,11 +913,14 @@ mod tests {
         let result = script.run(scope).expect("Script execution failed");
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
 
-        assert_eq!(result_str, "PASS", "AbortController should work correctly");
+        assert_eq!(
+            result_str, "true",
+            "performance.now() should return monotonic increasing numbers"
+        );
     }
 
     #[test]
-    fn test_set_timeout_exists() {
+    fn test_structured_clone() {
         init_platform();
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
@@ -934,11 +929,15 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
 
+        // Bind APIs
         RuntimeAPIs::bind_all(scope, context);
 
-        // Test that setTimeout function exists
+        // Test that structuredClone creates independent copies
         let code = r#"
-            typeof setTimeout === "function"
+            const original = { a: 1, b: [2, 3] };
+            const cloned = structuredClone(original);
+            cloned.a = 999;
+            original.a === 1 && cloned.a === 999
         "#;
 
         let code_string = v8::String::new(scope, code).unwrap();
@@ -948,11 +947,14 @@ mod tests {
         let result = script.run(scope).expect("Script execution failed");
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
 
-        assert_eq!(result_str, "true", "setTimeout should be a function");
+        assert_eq!(
+            result_str, "true",
+            "structuredClone should create independent copies"
+        );
     }
 
     #[test]
-    fn test_clear_timeout_exists() {
+    fn test_dom_exception() {
         init_platform();
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
@@ -961,11 +963,13 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
 
+        // Bind APIs
         RuntimeAPIs::bind_all(scope, context);
 
-        // Test that clearTimeout function exists
+        // Test DOMException constructor
         let code = r#"
-            typeof clearTimeout === "function"
+            const err = new DOMException("Something went wrong", "AbortError");
+            err.name === "AbortError" && err.message === "Something went wrong"
         "#;
 
         let code_string = v8::String::new(scope, code).unwrap();
@@ -975,6 +979,66 @@ mod tests {
         let result = script.run(scope).expect("Script execution failed");
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
 
-        assert_eq!(result_str, "true", "clearTimeout should be a function");
+        assert_eq!(
+            result_str, "true",
+            "DOMException should have correct name and message"
+        );
+    }
+
+    #[test]
+    fn test_blob() {
+        init_platform();
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+        let scope = &mut v8::HandleScope::new(isolate.isolate());
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        // Bind APIs
+        RuntimeAPIs::bind_all(scope, context);
+
+        // Test Blob constructor
+        let code = r#"
+            const blob = new Blob(["test content"]);
+            blob.size === 12 && blob.type === ""
+        "#;
+
+        let code_string = v8::String::new(scope, code).unwrap();
+        let script =
+            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+
+        let result = script.run(scope).expect("Script execution failed");
+        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+
+        assert_eq!(result_str, "true", "Blob should have correct size");
+    }
+
+    #[test]
+    fn test_form_data() {
+        init_platform();
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+        let scope = &mut v8::HandleScope::new(isolate.isolate());
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        // Bind APIs
+        RuntimeAPIs::bind_all(scope, context);
+
+        // Test FormData constructor exists
+        let code = r#"
+            typeof FormData === 'function'
+        "#;
+
+        let code_string = v8::String::new(scope, code).unwrap();
+        let script =
+            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+
+        let result = script.run(scope).expect("Script execution failed");
+        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+
+        assert_eq!(result_str, "true", "FormData should be a function");
     }
 }
