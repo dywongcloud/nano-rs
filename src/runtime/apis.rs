@@ -41,6 +41,7 @@ impl RuntimeAPIs {
         Self::bind_dom_exception(scope, context);
         Self::bind_blob(scope, context);
         Self::bind_form_data(scope, context);
+        Self::bind_headers(scope, context);
         Self::bind_url(scope, context);
         Self::bind_response(scope, context);
         Self::bind_fetch(scope, context);
@@ -234,6 +235,19 @@ impl RuntimeAPIs {
 
         // Attach to global
         let key = v8::String::new(scope, "URL").unwrap();
+        global.set(scope, key.into(), ctor.into());
+    }
+
+    /// Bind Headers constructor for WinterCG compatibility
+    fn bind_headers(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        let global = context.global(scope);
+
+        // Create Headers constructor
+        let template = v8::FunctionTemplate::new(scope, headers_constructor);
+        let ctor = template.get_function(scope).unwrap();
+
+        // Attach to global
+        let key = v8::String::new(scope, "Headers").unwrap();
         global.set(scope, key.into(), ctor.into());
     }
 }
@@ -883,6 +897,171 @@ fn url_constructor(
     this.set(scope, hash_key.into(), hash_val.into());
 
     retval.set(this.into());
+}
+
+/// Headers constructor implementation (simplified v1)
+fn headers_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    // Initialize internal headers store
+    let headers_key = v8::String::new(scope, "__headers__").unwrap();
+    let headers_val = v8::Object::new(scope);
+    this.set(scope, headers_key.into(), headers_val.into());
+
+    // If an initial headers object is provided, copy its values
+    if args.length() > 0 {
+        let init = args.get(0);
+        if let Some(init_obj) = init.to_object(scope) {
+            // Try to iterate over the object
+            if let Some(names) = init_obj.get_own_property_names(scope, Default::default()) {
+                let len = names.length();
+                for i in 0..len {
+                    if let Some(key) = names.get_index(scope, i) {
+                        if let Some(key_str) = key.to_string(scope) {
+                            let key_name = key_str.to_rust_string_lossy(scope);
+                            if let Some(value) = init_obj.get(scope, key.into()) {
+                                if let Some(value_str) = value.to_string(scope) {
+                                    let value_string = value_str.to_rust_string_lossy(scope);
+                                    let hkey = v8::String::new(scope, &key_name).unwrap();
+                                    let hval = v8::String::new(scope, &value_string).unwrap();
+                                    headers_val.set(scope, hkey.into(), hval.into());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Add get method
+    let get_key = v8::String::new(scope, "get").unwrap();
+    if let Some(get_fn) = v8::Function::new(scope, headers_get_callback) {
+        this.set(scope, get_key.into(), get_fn.into());
+    }
+
+    // Add set method
+    let set_key = v8::String::new(scope, "set").unwrap();
+    if let Some(set_fn) = v8::Function::new(scope, headers_set_callback_v2) {
+        this.set(scope, set_key.into(), set_fn.into());
+    }
+
+    // Add forEach method
+    let foreach_key = v8::String::new(scope, "forEach").unwrap();
+    if let Some(foreach_fn) = v8::Function::new(scope, headers_foreach_callback) {
+        this.set(scope, foreach_key.into(), foreach_fn.into());
+    }
+
+    retval.set(this.into());
+}
+
+/// Callback for Headers.get() method
+fn headers_get_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    // Get the header name
+    let name = if args.length() > 0 {
+        args.get(0).to_string(scope)
+            .map(|s| s.to_rust_string_lossy(scope))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    // Get the internal headers store
+    let headers_key = v8::String::new(scope, "__headers__").unwrap();
+    if let Some(headers_val) = this.get(scope, headers_key.into()) {
+        if let Some(headers_obj) = headers_val.to_object(scope) {
+            let name_key = v8::String::new(scope, &name).unwrap();
+            if let Some(value) = headers_obj.get(scope, name_key.into()) {
+                if !value.is_null() && !value.is_undefined() {
+                    retval.set(value);
+                    return;
+                }
+            }
+        }
+    }
+
+    // Return null if not found
+    retval.set_null();
+}
+
+/// Callback for Headers.set() method (version for Headers object)
+fn headers_set_callback_v2(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    if args.length() >= 2 {
+        let name = args.get(0).to_string(scope)
+            .map(|s| s.to_rust_string_lossy(scope))
+            .unwrap_or_default();
+        let value = args.get(1).to_string(scope)
+            .map(|s| s.to_rust_string_lossy(scope))
+            .unwrap_or_default();
+
+        // Get the internal headers store
+        let headers_key = v8::String::new(scope, "__headers__").unwrap();
+        if let Some(headers_val) = this.get(scope, headers_key.into()) {
+            if let Some(headers_obj) = headers_val.to_object(scope) {
+                let name_key = v8::String::new(scope, &name).unwrap();
+                let val_str = v8::String::new(scope, &value).unwrap();
+                headers_obj.set(scope, name_key.into(), val_str.into());
+            }
+        }
+    }
+}
+
+/// Callback for Headers.forEach() method
+fn headers_foreach_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    if args.length() < 1 {
+        return;
+    }
+
+    let callback = args.get(0);
+    if !callback.is_function() {
+        return;
+    }
+    let callback_fn = callback.cast::<v8::Function>();
+
+    // Get the internal headers store
+    let headers_key = v8::String::new(scope, "__headers__").unwrap();
+    if let Some(headers_val) = this.get(scope, headers_key.into()) {
+        if let Some(headers_obj) = headers_val.to_object(scope) {
+            // Iterate over all properties
+            if let Some(names) = headers_obj.get_own_property_names(scope, Default::default()) {
+                let len = names.length();
+                for i in 0..len {
+                    if let Some(key) = names.get_index(scope, i) {
+                        if let Some(key_str) = key.to_string(scope) {
+                            let key_name = key_str.to_rust_string_lossy(scope);
+                            if let Some(value) = headers_obj.get(scope, key.into()) {
+                                // Call the callback with (value, key, headers)
+                                let key_js = v8::String::new(scope, &key_name).unwrap();
+                                let _ = callback_fn.call(scope, this.into(), &[value, key_js.into(), this.into()]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
