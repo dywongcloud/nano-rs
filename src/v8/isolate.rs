@@ -37,6 +37,7 @@ use std::marker::PhantomData;
 pub struct NanoIsolate {
     /// The strong Global sentinel - keeps EPT segment mapped
     /// This MUST be dropped before the isolate
+    #[allow(dead_code)] // Sentinel only needs to exist, not be accessed
     sentinel: v8::Global<v8::Value>,
 
     /// The V8 isolate - dropped after the sentinel
