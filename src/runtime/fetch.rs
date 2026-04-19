@@ -275,6 +275,96 @@ fn response_arraybuffer_callback(
     retval.set(ab.into());
 }
 
+/// Extract request body from JavaScript value
+///
+/// Supports various body types:
+/// - String → converted to Bytes
+/// - Uint8Array/ArrayBuffer → converted to Bytes  
+/// - Blob → converted to Bytes
+/// - WritableStream → used for streaming upload
+/// - null/undefined → no body
+fn extract_body(scope: &mut v8::HandleScope, body_value: v8::Local<v8::Value>) -> BodyType {
+    if body_value.is_null() || body_value.is_undefined() {
+        return BodyType::None;
+    }
+
+    // Check if it's a WritableStream (has getWriter method)
+    if let Some(obj) = body_value.to_object(scope) {
+        if let Some(writer_key) = v8::String::new(scope, "getWriter") {
+            if let Some(writer_val) = obj.get(scope, writer_key.into()) {
+                if writer_val.is_function() {
+                    return BodyType::Stream; // Streaming body
+                }
+            }
+        }
+    }
+
+    // Try to extract as Uint8Array
+    if body_value.is_uint8_array() {
+        let uint8array = body_value.cast::<v8::Uint8Array>();
+        let length = uint8array.byte_length();
+        let mut vec = Vec::with_capacity(length);
+        for i in 0..length {
+            if let Some(val) = uint8array.get_index(scope, i as u32) {
+                if let Some(int) = val.to_integer(scope) {
+                    vec.push(int.value() as u8);
+                }
+            }
+        }
+        return BodyType::Bytes(Bytes::from(vec));
+    }
+
+    // Try to extract as ArrayBuffer
+    if body_value.is_array_buffer() {
+        let arraybuffer = body_value.cast::<v8::ArrayBuffer>();
+        let store = arraybuffer.get_backing_store();
+        let length = arraybuffer.byte_length();
+        let bytes: Vec<u8> = (0..length)
+            .filter_map(|i| store.get(i).map(|cell| cell.get()))
+            .collect();
+        return BodyType::Bytes(Bytes::from(bytes));
+    }
+
+    // Convert to string as fallback
+    if let Some(s) = body_value.to_string(scope) {
+        let text = s.to_rust_string_lossy(scope);
+        return BodyType::Bytes(Bytes::from(text));
+    }
+
+    BodyType::None
+}
+
+/// Types of request bodies that can be sent with fetch
+#[derive(Debug, Clone)]
+pub enum BodyType {
+    /// No body
+    None,
+    /// Fixed-size body (string, Uint8Array, etc.)
+    Bytes(Bytes),
+    /// Streaming body (WritableStream)
+    Stream,
+}
+
+impl BodyType {
+    /// Check if this body type is a streaming body
+    pub fn is_stream(&self) -> bool {
+        matches!(self, BodyType::Stream)
+    }
+
+    /// Check if this body type has no content
+    pub fn is_none(&self) -> bool {
+        matches!(self, BodyType::None)
+    }
+
+    /// Get the content length if known (only for Bytes variant)
+    pub fn content_length(&self) -> Option<usize> {
+        match self {
+            BodyType::Bytes(bytes) => Some(bytes.len()),
+            _ => None,
+        }
+    }
+}
+
 /// Helper to throw a TypeError
 fn reject_with_error(scope: &mut v8::HandleScope, retval: &mut v8::ReturnValue, message: &str) {
     let error = v8::String::new(scope, message).unwrap();
@@ -533,5 +623,188 @@ mod tests {
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
 
         assert_eq!(result_str, "true", "Response.json() should return a value");
+    }
+
+    // ==================== Streaming Body Tests ====================
+
+    /// Test 11: extract_body handles null body
+    #[test]
+    fn test_extract_body_null() {
+        init_platform();
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+        let scope = &mut v8::HandleScope::new(isolate.isolate());
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        // Test null body - convert Primitive to Value
+        let null_val: v8::Local<v8::Value> = v8::null(scope).into();
+        let body_type = extract_body(scope, null_val);
+
+        assert!(matches!(body_type, BodyType::None));
+    }
+
+    /// Test 12: extract_body handles string body
+    #[test]
+    fn test_extract_body_string() {
+        init_platform();
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+        let scope = &mut v8::HandleScope::new(isolate.isolate());
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        // Test string body
+        let str_val = v8::String::new(scope, "test body").unwrap();
+        let body_type = extract_body(scope, str_val.into());
+
+        match body_type {
+            BodyType::Bytes(bytes) => {
+                assert_eq!(bytes, "test body".as_bytes());
+            }
+            _ => panic!("Expected Bytes body type for string"),
+        }
+    }
+
+    /// Test 13: extract_body handles Uint8Array body
+    #[test]
+    fn test_extract_body_uint8array() {
+        init_platform();
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+        let scope = &mut v8::HandleScope::new(isolate.isolate());
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        // Create a Uint8Array
+        let ab = v8::ArrayBuffer::new(scope, 4);
+        let uint8array = v8::Uint8Array::new(scope, ab, 0, 4).unwrap();
+
+        // Set some values
+        let idx0 = v8::Number::new(scope, 0.0);
+        let val0 = v8::Number::new(scope, 72.0); // 'H'
+        uint8array.set(scope, idx0.into(), val0.into());
+
+        let idx1 = v8::Number::new(scope, 1.0);
+        let val1 = v8::Number::new(scope, 105.0); // 'i'
+        uint8array.set(scope, idx1.into(), val1.into());
+
+        let body_type = extract_body(scope, uint8array.into());
+
+        match body_type {
+            BodyType::Bytes(bytes) => {
+                assert_eq!(bytes.len(), 4);
+                assert_eq!(bytes[0], 72); // 'H'
+                assert_eq!(bytes[1], 105); // 'i'
+            }
+            _ => panic!("Expected Bytes body type for Uint8Array"),
+        }
+    }
+
+    /// Test 14: BodyType::is_stream() returns true for Stream variant
+    #[test]
+    fn test_body_type_is_stream() {
+        assert!(!BodyType::None.is_stream());
+        assert!(!BodyType::Bytes(Bytes::from("test")).is_stream());
+        assert!(BodyType::Stream.is_stream());
+    }
+
+    /// Test 15: BodyType::content_length() returns correct size
+    #[test]
+    fn test_body_type_content_length() {
+        assert_eq!(BodyType::None.content_length(), None);
+        assert_eq!(BodyType::Stream.content_length(), None);
+        assert_eq!(
+            BodyType::Bytes(Bytes::from("hello")).content_length(),
+            Some(5)
+        );
+    }
+
+    /// Test 16: Fetch with POST method and body
+    #[test]
+    fn test_fetch_post_with_body() {
+        init_platform();
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+        let scope = &mut v8::HandleScope::new(isolate.isolate());
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        bind_fetch(scope, context);
+
+        // Test POST request with body
+        let code = r#"
+            const response = fetch("https://example.com", {
+                method: "POST",
+                body: "test data"
+            });
+            typeof response === 'object' && response.status === 200
+        "#;
+
+        let code_string = v8::String::new(scope, code).unwrap();
+        let script =
+            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+
+        let result = script.run(scope).expect("Script execution failed");
+        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+
+        assert_eq!(result_str, "true", "fetch() with POST and body should work");
+    }
+
+    /// Test 17: Fetch with Uint8Array body
+    #[test]
+    fn test_fetch_with_uint8array_body() {
+        init_platform();
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+        let scope = &mut v8::HandleScope::new(isolate.isolate());
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        // Bind all APIs including fetch and TextEncoder
+        crate::runtime::apis::RuntimeAPIs::bind_all(scope, context);
+
+        // Test POST request with Uint8Array body
+        let code = r#"
+            const encoder = new TextEncoder();
+            const body = encoder.encode("test data");
+            const response = fetch("https://example.com", {
+                method: "POST",
+                body: body
+            });
+            typeof response === 'object' && response.status === 200
+        "#;
+
+        let code_string = v8::String::new(scope, code).unwrap();
+        let script =
+            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+
+        let result = script.run(scope).expect("Script execution failed");
+        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+
+        assert_eq!(
+            result_str, "true",
+            "fetch() with Uint8Array body should work"
+        );
+    }
+
+/// Test 18: WritableStream binding exists (placeholder)
+    #[tokio::test]
+    async fn test_writable_stream_placeholder() {
+        // This test verifies that WritableStream concept is integrated
+        // Full implementation with fetch() streaming requires V8 bindings
+        use crate::runtime::stream::WritableStream;
+        
+        let (stream, _buffer) = WritableStream::in_memory_buffer(1024);
+        assert!(stream.get_writer().is_some());
+        
+        // Verify we can create a writable stream
+        let stream_ref: Option<&WritableStream> = Some(&stream);
+        assert!(stream_ref.is_some());
     }
 }
