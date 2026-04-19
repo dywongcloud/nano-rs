@@ -31,6 +31,7 @@ use tokio::sync::Mutex;
 use crate::http::{NanoRequest, NanoResponse, NanoHeaders, NanoUrl};
 use crate::worker::{HandlerTask, QueueError, WorkQueue};
 use crate::logging::{create_request_span, NanoSpanExt};
+use crate::metrics::{MetricsRegistry, METRICS};
 use uuid::Uuid;
 
 /// Handler type for routed requests
@@ -302,6 +303,8 @@ fn error_response(error: &str, message: &str, code: StatusCode) -> impl IntoResp
 /// Routes incoming HTTP requests based on the Host header. Extracts the hostname,
 /// looks up the route target, and dispatches to the appropriate handler.
 ///
+/// Records metrics for each request: count by hostname/status and latency histogram.
+///
 /// # Arguments
 ///
 /// * `state` - Application state containing the virtual host router
@@ -319,10 +322,13 @@ fn error_response(error: &str, message: &str, code: StatusCode) -> impl IntoResp
 /// 4. Handler dispatches based on handler_type:
 ///    - `StaticResponse`: Returns the configured string
 ///    - `WinterCGHandler`: Returns placeholder (Phase 3 will execute JS)
+/// 5. Metrics are recorded: request count and duration
 pub async fn virtual_host_handler(
     State(state): State<Arc<AppState>>,
     request: Request<Body>,
 ) -> impl IntoResponse {
+    // Start timing the request
+    let start = std::time::Instant::now();
     // Extract Host header from the request
     let host = request
         .headers()
@@ -404,10 +410,21 @@ pub async fn virtual_host_handler(
     // Handle the request using the WinterCG-compatible handler
     let nano_response = target.handle(nano_request).await;
 
+    // Calculate request duration
+    let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    // Get status code from response
+    let status = nano_response.status();
+    let status_str = status.to_string();
+
+    // Record metrics
+    METRICS.record_request(&host, &status_str, duration_ms);
+
     // Log request completion with status
     tracing::info!(
         event = "request_complete",
-        status = 200,
+        status = status,
+        duration_ms = duration_ms,
         "Request completed successfully"
     );
 
@@ -419,6 +436,7 @@ pub async fn virtual_host_handler(
 ///
 /// This handler integrates the virtual host router with the WorkQueue,
 /// enabling affine dispatch: same hostname always routes to same worker.
+/// Records metrics for each request: count by hostname/status and latency.
 /// Returns HTTP 503 with Retry-After header when channel is full.
 ///
 /// # Arguments
@@ -433,6 +451,8 @@ pub async fn dispatch_to_worker_pool(
     State(state): State<Arc<AppState>>,
     request: Request<Body>,
 ) -> impl IntoResponse {
+    // Start timing the request
+    let start = std::time::Instant::now();
     // Extract Host header from the request
     let host = request
         .headers()
@@ -530,13 +550,21 @@ pub async fn dispatch_to_worker_pool(
 
     // Dispatch to WorkQueue (async Mutex lock)
     let mut queue = state.work_queue.lock().await;
-    match queue.dispatch(&host, task) {
+    let response = match queue.dispatch(&host, task) {
         Ok(()) => {
             // Wait for response from worker
             match rx.await {
-                Ok(Ok(response)) => response.to_axum_response(),
+                Ok(Ok(nano_response)) => {
+                    // Calculate duration and record metrics
+                    let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+                    let status = nano_response.status();
+                    METRICS.record_request(&host, &status.to_string(), duration_ms);
+                    nano_response.to_axum_response()
+                }
                 Ok(Err(e)) => {
                     tracing::error!("Handler error: {}", e);
+                    let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+                    METRICS.record_request(&host, "500", duration_ms);
                     Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
                         .header("content-type", "text/plain")
@@ -545,6 +573,8 @@ pub async fn dispatch_to_worker_pool(
                 }
                 Err(_) => {
                     tracing::error!("Response channel closed");
+                    let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+                    METRICS.record_request(&host, "500", duration_ms);
                     Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
                         .header("content-type", "text/plain")
@@ -555,6 +585,8 @@ pub async fn dispatch_to_worker_pool(
         }
         Err(QueueError::ChannelFull) => {
             tracing::warn!("WorkQueue full for hostname: {}", host);
+            let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+            METRICS.record_request(&host, "503", duration_ms);
             Response::builder()
                 .status(StatusCode::SERVICE_UNAVAILABLE)
                 .header("Retry-After", "1")
@@ -564,13 +596,17 @@ pub async fn dispatch_to_worker_pool(
         }
         Err(e) => {
             tracing::error!("Dispatch error: {}", e);
+            let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+            METRICS.record_request(&host, "500", duration_ms);
             Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .header("content-type", "text/plain")
                 .body(Body::from("Internal Server Error"))
                 .unwrap()
         }
-    }
+    };
+    
+    response
 }
 
 #[cfg(test)]
