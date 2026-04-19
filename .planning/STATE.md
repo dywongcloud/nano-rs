@@ -7,8 +7,8 @@
 
 ## Current Position
 
-**Phase:** Phase 8 (Framework Compatibility) — 📋 **CONTEXT GATHERED**
-**Plan:** Context captured, ready for planning
+**Phase:** Phase 8 (Framework Compatibility) — 📋 **PLANNED**
+**Plan:** 2 executable plans created, ready for execution
 **Status:** Framework compatibility decisions locked. Standard WinterCG approach confirmed — no framework detection, VFS bundle approach for static assets.
 
 **Progress:**
@@ -187,25 +187,39 @@
 
 ## Session Continuity
 
-**Last action:** Gathered Phase 8 context — Framework compatibility decisions locked  
-**Next action:** Plan Phase 8 — Create PLAN.md with test app implementation tasks  
-**Context valid through:** Phase 8 context gathered, ready for planning
+**Last action:** Planned Phase 8 — Created 2 executable plans for framework compatibility testing  
+**Next action:** Execute Phase 8 — Run tests to verify Hono.js, Next.js, Astro, and generic WinterCG compatibility  
+**Context valid through:** Phase 8 planned with 2 executable plans ready
 
-## Phase 8 Context Summary
+## Phase 8 Status — 📋 PLANNED
 
-### Decisions Locked
-- **D-01:** No framework detection — frameworks adapt to WinterCG runtime (like CF Workers/Deno)
-- **D-02:** VFS bundle approach — all static assets bundled into JS entrypoint
-- **D-03:** Cloudflare Workers style only — `export default { fetch(request) {...} }`
-- **D-04:** Minimal test apps — hand-written test apps mimicking framework patterns
-- **D-05:** Standard AppConfig — no special framework fields needed
+### Plans Created
 
-### Key Insight
-User insight drove the core decision: "how does other runtimes do that? they don't know the frameworks, we should be the same." This clarified that edge runtimes don't detect frameworks — frameworks export WinterCG-compatible handlers.
+| Plan | Name | Requirements | Files Modified |
+|------|------|--------------|----------------|
+| 08-01 | Hono.js & Generic WinterCG Test Apps | FRAME-01, FRAME-04 | 4 test files |
+| 08-02 | Next.js Static & Astro Islands Test Apps | FRAME-02, FRAME-03 | 4 test files |
+
+**Total:** 2 plans, 8 new test files, 0 production code changes (verification phase)
+
+### Requirements Coverage
+- [ ] **FRAME-01**: Hono.js apps run without modification — Covered in Plan 01
+- [ ] **FRAME-02**: Next.js static export serves correctly — Covered in Plan 02
+- [ ] **FRAME-03**: Astro islands architecture works — Covered in Plan 02
+- [ ] **FRAME-04**: Generic WinterCG-compatible apps run — Covered in Plan 01
 
 ### Artifacts Created
 - [08-CONTEXT.md](./phases/08-framework-compatibility/08-CONTEXT.md) — Implementation decisions
 - [08-DISCUSSION-LOG.md](./phases/08-framework-compatibility/08-DISCUSSION-LOG.md) — Q&A audit trail
+- [08-01-PLAN.md](./phases/08-framework-compatibility/08-01-PLAN.md) — Hono.js and Generic WinterCG test plan
+- [08-02-PLAN.md](./phases/08-framework-compatibility/08-02-PLAN.md) — Next.js and Astro test plan
+
+### Decisions Locked (from CONTEXT.md)
+- **D-01:** No framework detection — frameworks adapt to WinterCG runtime
+- **D-02:** VFS bundle approach — static assets bundled into JS entrypoint
+- **D-03:** Cloudflare Workers style only — `export default { fetch }`
+- **D-04:** Minimal test apps — hand-written to mimic framework patterns
+- **D-05:** Standard AppConfig — no special framework config fields
 
 ## Phase 7 Completion Summary
 
