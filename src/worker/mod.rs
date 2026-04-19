@@ -26,14 +26,15 @@
 //! Dropping the `WorkerPool` signals workers to exit via MPSC channel closure.
 //! All worker threads are joined to ensure clean isolate cleanup.
 
-use crate::http::{NanoRequest, NanoResponse};
-use std::sync::Arc;
-use tokio::sync::oneshot;
-
+pub mod context;
 pub mod pool;
 
-// Re-export pool types
-pub use pool::{WorkerPool, WorkerHandle};
+// Re-export types
+pub use context::ContextManager;
+pub use pool::{WorkerHandle, WorkerPool};
+
+use crate::http::{NanoRequest, NanoResponse};
+use tokio::sync::oneshot;
 
 /// Task sent to worker threads for JavaScript handler execution
 ///
@@ -82,19 +83,10 @@ mod tests {
     #[test]
     fn test_handler_task_creation() {
         let url = NanoUrl::parse("https://example.com/api").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let (tx, _rx) = oneshot::channel();
-        let task = HandlerTask::new(
-            "/app/index.js".to_string(),
-            request,
-            tx,
-        );
+        let task = HandlerTask::new("/app/index.js".to_string(), request, tx);
 
         assert_eq!(task.entrypoint, "/app/index.js");
         assert_eq!(task.request.method(), "GET");

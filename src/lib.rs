@@ -9,6 +9,7 @@ use anyhow::Result;
 pub mod v8;
 pub mod runtime;
 pub mod http;
+pub mod worker;
 
 /// Library entry point for running the NANO runtime
 ///
