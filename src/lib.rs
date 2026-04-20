@@ -25,10 +25,6 @@ pub mod sliver;
 /// for integration testing.
 pub fn run() -> Result<()> {
     tracing::info!("NANO runtime initialized");
-
-    // TODO: Phase 1 - Initialize V8 platform and isolate
-    // TODO: Phase 2 - Start HTTP server
-    // TODO: Phase 3 - Implement runtime APIs
-
+    // Runtime initialization is handled by the CLI
     Ok(())
 }

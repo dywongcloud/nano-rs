@@ -148,6 +148,7 @@ Unix socket (default `/var/run/nano/control.sock`) for local access.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Internal design and decisions
 - [VFS.md](VFS.md) — Virtual File System API and configuration
 - [SLIVER.md](SLIVER.md) — Edge snapshots and container-like deployments
+- [EXAMPLES.md](EXAMPLES.md) — Comprehensive usage examples
 - [examples/hello.js](examples/hello.js) — Minimal example app
 
 ## Requirements
