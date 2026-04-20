@@ -46,7 +46,19 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     
     match cli.command {
-        Some(Commands::Run { config: _, sliver: _, workers: _ }) | None => {
+        Some(Commands::Run { config, sliver, workers }) => {
+            if let Some(sliver_path) = sliver {
+                // Run from sliver file
+                run_from_sliver(sliver_path, workers).await
+            } else if let Some(config_path) = config {
+                // Run with config file
+                run_server_with_config(config_path).await
+            } else {
+                // Default behavior: run the server
+                run_server().await
+            }
+        }
+        None => {
             // Default behavior: run the server
             run_server().await
         }
@@ -163,6 +175,123 @@ async fn run_server() -> Result<()> {
 
     tracing::info!("NANO Edge Runtime shutdown complete");
     Ok(())
+}
+
+/// Run server from a sliver file
+///
+/// Loads the sliver, extracts the hostname and snapshot, creates a
+/// SliverWorkerPool, and starts the HTTP server.
+async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
+    tracing::info!("Starting NANO from sliver: {}", sliver_path.display());
+
+    // Validate sliver file exists
+    if !sliver_path.exists() {
+        anyhow::bail!("Sliver file not found: {}", sliver_path.display());
+    }
+
+    // Initialize V8 platform
+    nano::v8::platform::initialize_platform()
+        .context("Failed to initialize V8 platform")?;
+    tracing::info!("V8 platform initialized");
+
+    // Read and unpack sliver
+    let sliver_data = std::fs::read(&sliver_path)
+        .with_context(|| format!("Failed to read sliver file: {}", sliver_path.display()))?;
+    
+    let unpacked = nano::sliver::unpack_sliver(&sliver_data)
+        .with_context(|| format!("Failed to unpack sliver: {}", sliver_path.display()))?;
+    
+    tracing::info!(
+        "Unpacked sliver for {}: {} bytes heap, {} VFS entries",
+        unpacked.metadata.hostname,
+        unpacked.heap_data.len(),
+        unpacked.vfs_entries.len()
+    );
+
+    // Create app registry with sliver data
+    let mut registry = nano::app::registry::AppRegistry::default();
+    let hostname = registry.register_from_sliver(&sliver_path, None)
+        .with_context(|| format!("Failed to register sliver: {}", sliver_path.display()))?;
+    
+    let _registry = Arc::new(RwLock::new(registry));
+    tracing::info!("Registered sliver-based app: {}", hostname);
+
+    // Create SliverWorkerPool
+    let worker_pool = nano::worker::pool::SliverWorkerPool::new(
+        hostname.clone(),
+        workers,
+        0, // No memory limit for now
+        unpacked,
+    );
+    
+    tracing::info!("Created SliverWorkerPool with {} workers for {}", workers, hostname);
+
+    // Set up graceful shutdown
+    let drain = nano::app::drain::RequestDrain::new();
+    let (shutdown, mut shutdown_rx) = nano::signal::setup_shutdown(
+        nano::signal::ShutdownConfig::default(),
+        drain,
+    );
+    tracing::info!("Graceful shutdown initialized");
+
+    // Start HTTP server with the sliver app
+    // Note: This is a simplified version - in full implementation,
+    // the server would be integrated with the SliverWorkerPool for request dispatch
+    let config = nano::http::ServerConfig::default();
+    tracing::info!("Starting HTTP server on {} for sliver app {}", config.socket_addr()?, hostname);
+
+    let shutdown_state = shutdown.state().clone();
+    let server_handle = tokio::spawn(async move {
+        nano::http::start_server_with_state(config, shutdown_state).await
+    });
+
+    // Wait for shutdown signal
+    tracing::info!("Waiting for shutdown signal (Ctrl+C or SIGTERM)...");
+    let _ = shutdown_rx.recv().await;
+    tracing::info!("Shutdown signal received, initiating graceful shutdown...");
+
+    // Perform graceful shutdown
+    shutdown.shutdown().await;
+
+    // Shut down worker pool
+    tracing::info!("Shutting down SliverWorkerPool...");
+    worker_pool.shutdown().expect("Failed to shutdown worker pool");
+
+    // Wait for server
+    match server_handle.await {
+        Ok(result) => {
+            if let Err(e) = result {
+                tracing::error!("Server error during shutdown: {}", e);
+            }
+        }
+        Err(e) => {
+            tracing::error!("Server task panicked: {}", e);
+        }
+    }
+
+    tracing::info!("NANO Edge Runtime (sliver mode) shutdown complete");
+    Ok(())
+}
+
+/// Run server with configuration file
+async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
+    tracing::info!("Starting NANO with config: {}", config_path.display());
+    
+    // Load and validate config
+    let config = nano::config::load_config(&config_path)
+        .with_context(|| format!("Failed to load config: {}", config_path.display()))?;
+    
+    tracing::info!("Loaded configuration with {} app(s)", config.apps.len());
+    
+    // Check for sliver-based apps in config
+    let has_sliver_apps = config.apps.iter().any(|app| app.sliver.is_some());
+    if has_sliver_apps {
+        tracing::info!("Configuration contains sliver-based apps");
+    }
+    
+    // For now, fall back to regular server startup
+    // Full integration would create appropriate worker pools per app type
+    run_server().await
 }
 
 /// Handle sliver management commands
