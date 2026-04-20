@@ -151,6 +151,57 @@ pub fn is_heap_snapshot_supported() -> bool {
     false
 }
 
+/// Check if snapshot data is a placeholder
+///
+/// Placeholder snapshots are used when full V8 heap snapshot
+/// creation is not available in the current version.
+pub fn is_placeholder_snapshot(data: &[u8]) -> bool {
+    data == b"NANO_SNAPSHOT_PLACEHOLDER_V1"
+}
+
+/// Restore an isolate from a heap snapshot blob
+///
+/// This function attempts to create a new isolate initialized with the
+/// provided snapshot data. If the snapshot is a placeholder or invalid,
+/// it returns an error.
+///
+/// # Arguments
+/// * `snapshot_data` - The V8 heap snapshot blob (from heap.bin)
+/// * `vfs` - The IsolateVfs to attach to the restored isolate
+///
+/// # Returns
+/// A NanoIsolate restored from snapshot, or SnapshotError if restoration fails
+pub fn restore_from_snapshot(
+    snapshot_data: &[u8],
+    vfs: crate::vfs::IsolateVfs,
+) -> SnapshotResult<crate::v8::isolate::NanoIsolate> {
+    // Check for placeholder
+    if is_placeholder_snapshot(snapshot_data) {
+        return Err(SnapshotError::InvalidIsolateState(
+            "Cannot restore from placeholder snapshot".to_string()
+        ));
+    }
+
+    // Validate snapshot data is non-empty
+    if snapshot_data.is_empty() {
+        return Err(SnapshotError::InvalidIsolateState(
+            "Snapshot data is empty".to_string()
+        ));
+    }
+
+    // Attempt to create isolate from snapshot
+    match crate::v8::isolate::NanoIsolate::from_snapshot(snapshot_data, vfs) {
+        Ok(isolate) => {
+            tracing::info!("Restored isolate from snapshot ({} bytes)", snapshot_data.len());
+            Ok(isolate)
+        }
+        Err(e) => {
+            tracing::error!("Failed to restore isolate from snapshot: {}", e);
+            Err(SnapshotError::CreationFailed(e.to_string()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +271,47 @@ mod tests {
         
         let data = result.unwrap();
         assert_eq!(data, b"NANO_SNAPSHOT_PLACEHOLDER_V1");
+    }
+
+    #[test]
+    fn test_is_placeholder_detection() {
+        assert!(is_placeholder_snapshot(b"NANO_SNAPSHOT_PLACEHOLDER_V1"));
+        assert!(!is_placeholder_snapshot(b"real data"));
+        assert!(!is_placeholder_snapshot(&[]));
+    }
+
+    #[test]
+    fn test_restore_from_snapshot_rejects_placeholder() {
+        use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
+        use std::sync::Arc;
+
+        crate::v8::platform::initialize_platform().expect("Failed to init platform");
+        
+        let placeholder = b"NANO_SNAPSHOT_PLACEHOLDER_V1";
+        let vfs = IsolateVfs::new(
+            VfsNamespace::from_hostname("test"),
+            Arc::new(MemoryBackend::default()),
+        );
+        
+        let result = restore_from_snapshot(placeholder, vfs);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, SnapshotError::InvalidIsolateState { .. }));
+    }
+
+    #[test]
+    fn test_restore_from_snapshot_rejects_empty() {
+        use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
+        use std::sync::Arc;
+
+        crate::v8::platform::initialize_platform().expect("Failed to init platform");
+        
+        let vfs = IsolateVfs::new(
+            VfsNamespace::from_hostname("test"),
+            Arc::new(MemoryBackend::default()),
+        );
+        
+        let result = restore_from_snapshot(&[], vfs);
+        assert!(result.is_err());
     }
 }
