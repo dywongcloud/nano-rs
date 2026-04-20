@@ -29,6 +29,15 @@
 - [ ] **VFS-07:** Optional S3-compatible object storage backend
 - [ ] **VFS-08:** VFS state included in snapshot serialization
 
+### Node.js Compatibility Layer
+
+- [ ] **NODE-01:** `require('fs')` resolves to VFS polyfill
+- [ ] **NODE-02:** `fs.readFileSync()` routes to `Nano.fs.readFile()`
+- [ ] **NODE-03:** `fs.writeFileSync()` routes to `Nano.fs.writeFile()`
+- [ ] **NODE-04:** `fs.existsSync()` routes to `Nano.fs.exists()`
+- [ ] **NODE-05:** ES module `import fs from 'fs'` resolves to VFS polyfill
+- [ ] **NODE-06:** Common error codes (ENOENT, EACCES) match Node.js semantics
+
 ### Performance & Migration
 
 - [ ] **PERF-01:** Cold start from snapshot achieves ~1-2ms latency

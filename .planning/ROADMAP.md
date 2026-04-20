@@ -74,7 +74,10 @@
   2. In-memory file storage works per-isolate
   3. Files are isolated between apps (no cross-access)
   4. Basic file operations (read, write, exists) work in Rust
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 10-01-PLAN.md — VFS Core Module (types, traits, MemoryBackend)
+- [ ] 10-02-PLAN.md — Per-Isolate VFS Integration (namespace isolation)
+- [ ] 10-03-PLAN.md — Security & Testing (path validation, limits, tests)
 **UI hint**: no
 
 ### Phase 11: VFS Storage Backends
@@ -90,15 +93,21 @@
 **UI hint**: no
 
 ### Phase 12: VFS JavaScript Bindings
-**Goal:** `Nano.fs.*` API exposed to JavaScript  
+**Goal:** `Nano.fs.*` API + Node.js `fs` polyfill exposed to JavaScript  
 **Depends on:** Phase 10  
-**Requirements:** VFS-03, VFS-04, VFS-05
+**Requirements:** VFS-03, VFS-04, VFS-05, NODE-01, NODE-02, NODE-03, NODE-04, NODE-05, NODE-06
 **Success Criteria** (what must be TRUE):
   1. JS can call `Nano.fs.readFile('/path')` and get contents
   2. JS can call `Nano.fs.writeFile('/path', data)` to store data
   3. JS can call `Nano.fs.exists('/path')` to check files
-  4. Paths are resolved within isolate's namespace
-  5. Errors are properly thrown as JS exceptions
+  4. `require('fs')` resolves to VFS polyfill (tricks Node.js apps)
+  5. `fs.readFileSync()` routes to VFS backend
+  6. `fs.writeFileSync()` routes to VFS backend
+  7. `fs.existsSync()` routes to VFS backend
+  8. ES module `import fs from 'fs'` resolves to VFS polyfill
+  9. Error codes (ENOENT, EACCES) match Node.js semantics
+  10. Paths are resolved within isolate's namespace
+  11. Errors are properly thrown as JS exceptions
 **Plans**: TBD
 **UI hint**: no
 
@@ -169,7 +178,7 @@
 | 7. Production | v1.0 | 6/6 | Complete | 2026-04-19 |
 | 8. Frameworks | v1.0 | 2/2 | Complete | 2026-04-19 |
 | 9. Crypto Core | v1.0 | 3/3 | Complete | 2026-04-19 |
-| 10. VFS Foundation | v1.1 | 0/TBD | Not started | - |
+| 10. VFS Foundation | v1.1 | 0/3 | Planned | - |
 | 11. VFS Backends | v1.1 | 0/TBD | Not started | - |
 | 12. VFS JS Bindings | v1.1 | 0/TBD | Not started | - |
 | 13. Snapshot Format | v1.1 | 0/TBD | Not started | - |
