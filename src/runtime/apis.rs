@@ -46,6 +46,12 @@ impl RuntimeAPIs {
         Self::bind_url(scope, context);
         Self::bind_response(scope, context);
         Self::bind_fetch(scope, context);
+        Self::bind_nano_fs(scope, context);
+    }
+
+    /// Bind Nano.fs API for VFS operations
+    fn bind_nano_fs(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        crate::runtime::vfs_bindings::bind_nano_fs(scope, context);
     }
 
     /// Bind fetch() API to global scope

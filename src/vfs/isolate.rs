@@ -49,6 +49,7 @@ use std::fmt;
 ///
 /// Combines a namespace with a backend to provide isolated filesystem
 /// access for a single isolate. This is owned by NanoIsolate.
+#[derive(Clone)]
 pub struct IsolateVfs {
     namespace: VfsNamespace,
     backend: Arc<dyn VfsBackend>,

@@ -54,6 +54,8 @@ pub fn execute_handler_with_context(
     v8_context: v8::Local<v8::Context>,
     context: HandlerContext,
 ) -> Result<NanoResponse> {
+    use crate::runtime::vfs_bindings;
+    
     // Read the entrypoint file
     let code = fs::read_to_string(&context.entrypoint)
         .map_err(|e| anyhow!("Failed to read entrypoint '{}': {}", context.entrypoint, e))?;
@@ -61,6 +63,10 @@ pub fn execute_handler_with_context(
     // Transform ES6 module syntax
     let transformed_code = transform_module_code(&code);
 
+    // Set up VFS context for Nano.fs API (must be before HandleScope borrows isolate)
+    let vfs_ref = std::sync::Arc::new(isolate.vfs().clone());
+    vfs_bindings::set_current_vfs(Some(vfs_ref));
+    
     // Create HandleScope for the isolate
     let scope = &mut v8::HandleScope::new(isolate.isolate());
 
@@ -169,11 +175,16 @@ fn execute_in_v8(
     request_json: &str,
 ) -> Result<NanoResponse> {
     use crate::runtime::apis::RuntimeAPIs;
+    use crate::runtime::vfs_bindings;
     
     // Transform ES6 module syntax to V8-compatible code
     let transformed_code = transform_module_code(code);
 
     // Create HandleScope for the isolate
+    // Set up VFS context for Nano.fs API (must be before HandleScope borrows isolate)
+    let vfs_ref = std::sync::Arc::new(isolate.vfs().clone());
+    vfs_bindings::set_current_vfs(Some(vfs_ref));
+    
     let scope = &mut v8::HandleScope::new(isolate.isolate());
 
     // Create context within the scope
