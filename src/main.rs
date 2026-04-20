@@ -159,6 +159,8 @@ async fn run_server() -> Result<()> {
 
 /// Handle sliver management commands
 async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
+    use nano::sliver::{pack_sliver, SliverMetadata, UnpackedSliver, unpack_sliver, validate_sliver};
+    
     match cmd {
         cli::SliverCommand::Create(args) => {
             tracing::info!("Creating sliver for hostname: {}", args.hostname);
@@ -170,29 +172,95 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
                 PathBuf::from(format!("{}{}.sliver", name, tag))
             });
             
-            let name = args.name.unwrap_or_else(|| args.hostname.clone());
+            let sliver_name = args.name.clone();
+            let sliver_tag = args.tag.clone();
             
-            // TODO: Implement actual sliver creation
-            // For now, print what would happen
-            println!("Creating sliver:");
+            // Create metadata
+            let mut metadata = SliverMetadata::new(&args.hostname, env!("CARGO_PKG_VERSION"));
+            metadata.name = sliver_name.clone();
+            if let Some(tag) = sliver_tag {
+                metadata.description = Some(format!("Tag: {}", tag));
+            }
+            
+            // Create V8 snapshot (currently returns placeholder)
+            // In the future, this would capture the actual isolate heap
+            let heap_data = nano::v8::create_snapshot(&mut nano::v8::NanoIsolate::new()?)?;
+            tracing::info!("Created heap snapshot: {} bytes", heap_data.len());
+            
+            // Capture VFS state (currently returns empty)
+            // In the future, this would capture all files from the isolate's VFS
+            let vfs_entries: Option<&[(nano::vfs::VfsPath, nano::vfs::VfsFile)]> = None;
+            
+            // Pack the sliver
+            let archive_data = pack_sliver(&metadata, &heap_data, vfs_entries)?;
+            
+            // Write to output file
+            std::fs::write(&output, &archive_data)
+                .with_context(|| format!("Failed to write sliver to {}", output.display()))?;
+            
+            println!("Created sliver: {}", output.display());
             println!("  Hostname: {}", args.hostname);
-            println!("  Name: {}", name);
+            println!("  Name: {}", sliver_name.as_deref().unwrap_or(&args.hostname));
             println!("  Tag: {}", args.tag.as_deref().unwrap_or("none"));
-            println!("  Output: {}", output.display());
-            println!("");
-            println!("Note: Full implementation pending V8 SnapshotCreator integration");
+            println!("  Size: {} bytes", archive_data.len());
+            println!("  Heap: {} bytes", heap_data.len());
+            
+            // Validate the created sliver
+            validate_sliver(&archive_data)
+                .context("Created sliver failed validation")?;
+            
+            tracing::info!("Sliver created successfully: {}", output.display());
             
             Ok(())
         }
         cli::SliverCommand::List(args) => {
             tracing::info!("Listing slivers");
             
-            // TODO: Implement actual sliver listing
-            println!("Slivers:");
-            println!("  (none found)");
+            // Find all .sliver files in current directory
+            let mut found = false;
+            let entries = std::fs::read_dir(".")
+                .context("Failed to read current directory")?;
             
-            if args.verbose {
-                println!("\nUse 'nano-rs sliver list --verbose' for detailed info.");
+            println!("Slivers:");
+            for entry in entries {
+                let entry = entry?;
+                let path = entry.path();
+                
+                if path.extension().and_then(|e| e.to_str()) == Some("sliver") {
+                    found = true;
+                    let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+                    
+                    if args.verbose {
+                        // Try to read metadata from the sliver
+                        match std::fs::read(&path) {
+                            Ok(data) => {
+                                match unpack_sliver(&data) {
+                                    Ok(unpacked) => {
+                                        println!("  {} ({} bytes)", name, data.len());
+                                        for line in unpacked.metadata.summary().lines() {
+                                            println!("    {}", line);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("  {} ({} bytes) [invalid: {}]", name, data.len(), e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                println!("  {} [error reading: {}]", name, e);
+                            }
+                        }
+                    } else {
+                        let size = std::fs::metadata(&path)
+                            .map(|m| m.len())
+                            .unwrap_or(0);
+                        println!("  {} ({} bytes)", name, size);
+                    }
+                }
+            }
+            
+            if !found {
+                println!("  (none found in current directory)");
             }
             
             Ok(())
@@ -200,15 +268,32 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
         cli::SliverCommand::Delete(args) => {
             tracing::info!("Deleting sliver: {}", args.name);
             
-            if !args.force {
-                // TODO: Implement confirmation prompt
-                println!("Delete sliver '{}' ? (use --force to skip confirmation)", args.name);
-                return Ok(());
+            // Look for sliver file with the given name
+            let sliver_path = PathBuf::from(format!("{}.sliver", args.name));
+            
+            if !sliver_path.exists() {
+                anyhow::bail!("Sliver not found: {}", args.name);
             }
             
-            // TODO: Implement actual deletion
-            println!("Deleting sliver: {}", args.name);
-            println!("Note: Full implementation pending");
+            if !args.force {
+                print!("Delete sliver '{}'? [y/N] ", args.name);
+                use std::io::Write;
+                std::io::stdout().flush()?;
+                
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                
+                if !input.trim().eq_ignore_ascii_case("y") {
+                    println!("Deletion cancelled.");
+                    return Ok(());
+                }
+            }
+            
+            std::fs::remove_file(&sliver_path)
+                .with_context(|| format!("Failed to delete sliver: {}", args.name))?;
+            
+            println!("Deleted sliver: {}", args.name);
+            tracing::info!("Sliver deleted: {}", sliver_path.display());
             
             Ok(())
         }

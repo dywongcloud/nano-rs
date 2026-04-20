@@ -16,6 +16,14 @@ use crate::sliver::format::FORMAT_VERSION;
 /// context about the snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SliverMetadata {
+    /// Name of the sliver for management purposes
+    ///
+    /// This is a human-readable identifier used for listing,
+    /// deleting, and referencing the sliver. Defaults to hostname
+    /// if not specified.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    
     /// Hostname of the app this snapshot represents
     ///
     /// This corresponds to the virtual host configured in NANO
@@ -61,6 +69,7 @@ impl SliverMetadata {
     /// * `nano_version` - The NANO runtime version string
     pub fn new(hostname: impl Into<String>, nano_version: impl Into<String>) -> Self {
         Self {
+            name: None,
             hostname: hostname.into(),
             created_at: Utc::now(),
             format_version: FORMAT_VERSION.to_string(),
@@ -68,6 +77,17 @@ impl SliverMetadata {
             description: None,
             custom: HashMap::new(),
         }
+    }
+    
+    /// Create metadata with a name
+    pub fn with_name(
+        name: impl Into<String>,
+        hostname: impl Into<String>,
+        nano_version: impl Into<String>,
+    ) -> Self {
+        let mut meta = Self::new(hostname, nano_version);
+        meta.name = Some(name.into());
+        meta
     }
 
     /// Create metadata with a description
@@ -99,12 +119,16 @@ impl SliverMetadata {
 
     /// Generate a human-readable summary
     pub fn summary(&self) -> String {
-        let mut lines = vec![
-            format!("Hostname: {}", self.hostname),
-            format!("Created: {}", self.created_at.to_rfc3339()),
-            format!("Format Version: {}", self.format_version),
-            format!("NANO Version: {}", self.nano_version),
-        ];
+        let mut lines = vec![];
+        
+        if let Some(name) = &self.name {
+            lines.push(format!("Name: {}", name));
+        }
+        
+        lines.push(format!("Hostname: {}", self.hostname));
+        lines.push(format!("Created: {}", self.created_at.to_rfc3339()));
+        lines.push(format!("Format Version: {}", self.format_version));
+        lines.push(format!("NANO Version: {}", self.nano_version));
 
         if let Some(desc) = &self.description {
             lines.push(format!("Description: {}", desc));
@@ -128,10 +152,18 @@ mod tests {
     #[test]
     fn test_metadata_creation() {
         let meta = SliverMetadata::new("app.example.com", "1.1.0");
+        assert!(meta.name.is_none());
         assert_eq!(meta.hostname, "app.example.com");
         assert_eq!(meta.format_version, "1.0");
         assert_eq!(meta.nano_version, "1.1.0");
         assert!(meta.description.is_none());
+    }
+    
+    #[test]
+    fn test_metadata_with_name() {
+        let meta = SliverMetadata::with_name("api-prod", "api.example.com", "1.1.0");
+        assert_eq!(meta.name, Some("api-prod".to_string()));
+        assert_eq!(meta.hostname, "api.example.com");
     }
 
     #[test]
