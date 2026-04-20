@@ -79,6 +79,9 @@ pub struct AppConfig {
     pub hostname: String,
     /// Path to the JavaScript entrypoint
     pub entrypoint: String,
+    /// Path to sliver file for snapshot-based loading (alternative to entrypoint)
+    #[serde(default)]
+    pub sliver: Option<String>,
     /// Environment variables for this app
     #[serde(default)]
     pub env_vars: HashMap<String, String>,
@@ -101,6 +104,7 @@ impl Default for AppConfig {
         Self {
             hostname: String::new(),
             entrypoint: String::new(),
+            sliver: None,
             env_vars: HashMap::new(),
             limits: AppLimits::default(),
             vfs_backend: VfsBackendType::default(),
@@ -534,6 +538,7 @@ mod tests {
                 AppConfig {
                     hostname: "example.com".to_string(),
                     entrypoint: "/app1.js".to_string(),
+                    sliver: None,
                     env_vars: HashMap::new(),
                     limits: AppLimits::default(),
                     vfs_backend: VfsBackendType::default(),
@@ -543,6 +548,7 @@ mod tests {
                 AppConfig {
                     hostname: "example.com".to_string(),
                     entrypoint: "/app2.js".to_string(),
+                    sliver: None,
                     env_vars: HashMap::new(),
                     limits: AppLimits::default(),
                     vfs_backend: VfsBackendType::default(),
@@ -564,6 +570,7 @@ mod tests {
             apps: vec![AppConfig {
                 hostname: "example.com".to_string(),
                 entrypoint: "".to_string(),
+                sliver: None,
                 env_vars: HashMap::new(),
                 limits: AppLimits::default(),
                 vfs_backend: VfsBackendType::default(),

@@ -160,6 +160,7 @@ mod tests {
                 let app = AppConfig {
                     hostname: h.to_string(),
                     entrypoint: format!("./{}.js", h),
+                    sliver: None,
                     env_vars: HashMap::new(),
                     limits: AppLimits::default(),
                     vfs_backend: Default::default(),
