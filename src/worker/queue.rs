@@ -387,7 +387,7 @@ pub fn hash_hostname(hostname: &str) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http::{NanoHeaders, NanoUrl};
+    use crate::http::{NanoHeaders, NanoRequest, NanoUrl};
     use tokio::sync::oneshot;
 
     fn create_dummy_request() -> NanoRequest {

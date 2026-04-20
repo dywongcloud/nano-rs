@@ -4,6 +4,7 @@
 //! version compatibility checking, and integrity verification.
 
 use crate::sliver::error::{SliverError, SliverResult};
+use crate::sliver::format::METADATA_FILENAME;
 use crate::sliver::metadata::SliverMetadata;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -34,13 +35,13 @@ impl std::fmt::Display for CorruptionType {
                 write!(f, "Invalid tar archive: {}", reason)
             }
             CorruptionType::MissingMetadata => {
-                write!(f, "Missing metadata.json (required)")
+                write!(f, "Missing {} (required)", METADATA_FILENAME)
             }
             CorruptionType::MissingHeap => {
                 write!(f, "Missing heap.bin (required)")
             }
             CorruptionType::InvalidMetadata { error } => {
-                write!(f, "Corrupted metadata.json: {}", error)
+                write!(f, "Corrupted {}: {}", METADATA_FILENAME, error)
             }
             CorruptionType::TruncatedFile { expected, found, entry } => {
                 write!(f, "Truncated file {}: expected {} bytes, found {}", entry, expected, found)
@@ -95,11 +96,11 @@ pub fn validate_sliver_integrity(path: &Path) -> SliverResult<()> {
                                 let path_str = path.to_string_lossy();
                                 
                                 match path_str.as_ref() {
-                                    "metadata.json" => {
+                                    METADATA_FILENAME => {
                                         found_metadata = true;
                                         if size == 0 {
                                             errors.push(CorruptionType::EmptyFile { 
-                                                entry: "metadata.json".to_string() 
+                                                entry: METADATA_FILENAME.to_string() 
                                             });
                                         } else {
                                             // Try to parse as JSON
@@ -317,10 +318,11 @@ mod tests {
         
         if valid {
             // Add metadata
-            let metadata = r#"{"format_version":"1.0","hostname":"test.example.com","name":"test","created_at":"2026-04-20T00:00:00Z"}"#;
+            let metadata = r#"{"format_version":"1.0","hostname":"test.example.com","name":"test","created_at":"2026-04-20T00:00:00Z","nano_version":"1.1.0"}"#;
             let mut header = Header::new_gnu();
-            header.set_path("metadata.json").unwrap();
+            header.set_path(METADATA_FILENAME).unwrap();
             header.set_size(metadata.len() as u64);
+            header.set_cksum();
             builder.append(&header, metadata.as_bytes()).unwrap();
             
             // Add heap
@@ -328,13 +330,15 @@ mod tests {
             let mut header = Header::new_gnu();
             header.set_path("heap.bin").unwrap();
             header.set_size(heap.len() as u64);
+            header.set_cksum();
             builder.append(&header, heap.as_slice()).unwrap();
         } else {
             // Invalid - missing heap
             let metadata = r#"{"format_version":"1.0"}"#;
             let mut header = Header::new_gnu();
-            header.set_path("metadata.json").unwrap();
+            header.set_path(METADATA_FILENAME).unwrap();
             header.set_size(metadata.len() as u64);
+            header.set_cksum();
             builder.append(&header, metadata.as_bytes()).unwrap();
         }
         
@@ -348,7 +352,11 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let path = create_test_sliver(temp_dir.path(), "valid", true);
         
-        assert!(validate_sliver_integrity(&path).is_ok());
+        let result = validate_sliver_integrity(&path);
+        if let Err(ref e) = result {
+            eprintln!("Validation error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Validation failed: {:?}", result);
     }
 
     #[test]
@@ -363,6 +371,7 @@ mod tests {
         let mut header = Header::new_gnu();
         header.set_path("heap.bin").unwrap();
         header.set_size(heap.len() as u64);
+        header.set_cksum();
         builder.append(&header, heap.as_slice()).unwrap();
         
         let data = builder.into_inner().unwrap();
@@ -371,7 +380,7 @@ mod tests {
         let result = validate_sliver_integrity(&path);
         assert!(result.is_err());
         let err_str = format!("{}", result.unwrap_err());
-        assert!(err_str.contains("metadata"));
+        assert!(err_str.contains("meta.json"), "Error should mention meta.json, got: {}", err_str);
     }
 
     #[test]

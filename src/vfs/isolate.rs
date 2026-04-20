@@ -131,7 +131,7 @@ impl fmt::Debug for IsolateVfs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vfs::MemoryBackend;
+    use crate::vfs::{MemoryBackend, VfsError};
 
     #[test]
     fn test_vfs_namespace_from_hostname() {

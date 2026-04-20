@@ -376,6 +376,7 @@ fn reject_with_error(scope: &mut v8::HandleScope, retval: &mut v8::ReturnValue, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::HttpClientError;
     use crate::v8::{initialize_platform, NanoIsolate};
 
     fn init_platform() {
