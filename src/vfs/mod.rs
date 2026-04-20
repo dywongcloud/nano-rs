@@ -11,17 +11,20 @@
 //!
 //! # Backends
 //!
-//! - `MemoryBackend`: In-memory storage using DashMap (default)
-//! - Future: DiskBackend, S3Backend (Phase 11)
+//! - `MemoryBackend`: In-memory storage using DashMap (default, ephemeral)
+//! - `DiskBackend`: Filesystem-backed persistent storage
+//! - Future: S3Backend (Phase 11)
 
 use async_trait::async_trait;
 use std::sync::Arc;
 
 // Re-export all types
+pub mod disk;
 pub mod isolate;
 pub mod memory;
 pub mod types;
 
+pub use disk::DiskBackend;
 pub use isolate::{IsolateVfs, VfsNamespace};
 pub use memory::MemoryBackend;
 pub use security::{PathValidator, ResourceLimiter};
