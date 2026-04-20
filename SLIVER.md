@@ -24,39 +24,137 @@ A **sliver** is a snapshot of a running isolate:
 
 ---
 
-## CLI Semantics
+## CLI Reference
+
+### Creating Slivers
+
+#### `nano-rs sliver create <hostname>`
+
+Creates a sliver from a configured app.
+
+**Arguments:**
+- `hostname` — Domain hostname of the app (must exist in config)
+
+**Options:**
+- `-o, --output <path>` — Output file path (default: `<hostname>.sliver`)
+- `-n, --name <name>` — Management name for the sliver
+- `-t, --tag <tag>` — Version tag (e.g., v1.0, prod, staging)
+- `-f, --force` — Overwrite existing file
+
+**Examples:**
+```bash
+# Basic creation
+nano-rs sliver create api.example.com
+
+# Named sliver with tag
+nano-rs sliver create api.example.com --name api-prod --tag v1.0
+
+# Custom output path
+nano-rs sliver create api.example.com -o ./backups/api-$(date +%Y%m%d).sliver
+```
+
+### Managing Slivers
+
+#### `nano-rs sliver list`
+
+List all available slivers.
+
+**Options:**
+- `-v, --verbose` — Show detailed information (size, created, tag)
+
+**Output:**
+```
+NAME        HOSTNAME         TAG    SIZE    CREATED
+api-prod    api.example.com  v1.0   2.3MB   2026-04-20
+default     example.com      -      1.1MB   2026-04-19
+```
+
+#### `nano-rs sliver delete <name>`
+
+Delete a sliver by name.
+
+**Arguments:**
+- `name` — Sliver management name
+
+**Options:**
+- `-f, --force` — Skip confirmation prompt
+
+**Example:**
+```bash
+nano-rs sliver delete api-prod --force
+```
+
+#### `nano-rs sliver inspect <path>`
+
+Inspect a sliver file's contents.
+
+**Arguments:**
+- `path` — Path to .sliver file
+
+**Output:**
+```json
+{
+  "format_version": "1.0",
+  "hostname": "api.example.com",
+  "name": "api-prod",
+  "tag": "v1.0",
+  "created_at": "2026-04-20T10:30:00Z",
+  "heap_size": 1048576,
+  "vfs_entries": 42,
+  "total_size": "2.3MB"
+}
+```
+
+### Running from Sliver
+
+#### `nano-rs run --sliver <path>`
+
+Run a server using a sliver file.
+
+**Options:**
+- `-s, --sliver <path>` — Path to sliver file
+- `-w, --workers <n>` — Number of worker threads (default: 4)
+- `--admin-port <port>` — Admin API port (default: 8081)
+
+**Examples:**
+```bash
+# Run from sliver
+nano-rs run --sliver ./api.sliver
+
+# With custom workers
+nano-rs run --sliver ./api.sliver --workers 8
+
+# With monitoring
+nano-rs run --sliver ./api.sliver --admin-port 9090
+```
+
+### Configuration-Based Sliver Apps
+
+You can also reference slivers in your configuration file:
+
+```json
+{
+  "apps": [
+    {
+      "hostname": "api.example.com",
+      "sliver": "./api-prod.sliver",
+      "entrypoint": "./api.js"
+    }
+  ]
+}
+```
+
+When both `sliver` and `entrypoint` are specified, the sliver takes precedence.
+
+### Quick Reference
 
 ```bash
-# Create from running app
-nano-rs sliver create api.example.com --output api-v1.sliver
-
-# Create from directory (pre-bundled app)
-nano-rs sliver pack ./my-app --output my-app-v1.sliver
-
-# Inspect sliver contents
-nano-rs sliver inspect api-v1.sliver
-
-# Unpack sliver to directory
-nano-rs sliver unpack api-v1.sliver --output ./unpacked
-
-# List local slivers
-nano-rs sliver list
-
-# Remove sliver
-nano-rs sliver remove api-v1.sliver
-
-# Run directly from sliver (bypass config)
-nano-rs run --sliver api-v1.sliver
-
-# Or via config
-nano-rs run --config apps.json
-# apps.json:
-# {
-#   "apps": [{
-#     "hostname": "api.example.com",
-#     "sliver": "./api-v1.sliver"
-#   }]
-# }
+# Complete workflow
+nano-rs sliver create api.example.com --name api-prod --tag v1.0
+nano-rs sliver list --verbose
+nano-rs sliver inspect api-prod.sliver
+nano-rs run --sliver api-prod.sliver --workers 4
+nano-rs sliver delete api-prod --force
 ```
 
 ---
@@ -221,12 +319,14 @@ nano-rs run --config prod.json
 |-----------|-------|--------|
 | VFS Foundation | 10 | ✅ Complete |
 | Storage Backends | 11 | ✅ Complete |
-| JS Bindings (`Nano.fs`) | 12 | 🚧 In Progress |
-| Node.js fs polyfill | 12 | 🚧 In Progress |
-| Snapshot Format | 13 | 📋 Planned |
-| Snapshot Creation | 14 | 📋 Planned |
-| Snapshot Restoration | 15 | 📋 Planned |
-| CLI Integration | 16 | 📋 Planned |
+| JS Bindings (`Nano.fs`) | 12 | ✅ Complete |
+| Node.js fs polyfill | 12 | ✅ Complete |
+| Snapshot Format | 13 | ✅ Complete |
+| Snapshot Creation | 14 | ✅ Complete |
+| Snapshot Restoration | 15 | ✅ Complete |
+| CLI Integration | 16 | ✅ Complete |
+
+**v1.1 SLIVER milestone: COMPLETE** — All features implemented and tested.
 
 ---
 
