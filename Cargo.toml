@@ -54,6 +54,9 @@ zeroize = { version = "1.8", features = ["derive"] }
 # Checksum for file watching
 sha2 = "0.10"
 
+# Concurrent hash map for VFS backend
+dashmap = "6.1"
+
 # Static initialization
 lazy_static = "1.4"
 
@@ -73,6 +76,9 @@ home = "=0.5.11"
 
 # FFI support for V8 external data pointers
 libc = "0.2"
+
+# Async trait for VFS backends
+async-trait = "0.1"
 
 [profile.release]
 opt-level = 3

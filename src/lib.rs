@@ -16,6 +16,7 @@ pub mod admin;
 pub mod logging;
 pub mod signal;
 pub mod metrics;
+pub mod vfs;
 
 /// Library entry point for running the NANO runtime
 ///
