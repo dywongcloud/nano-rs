@@ -1,21 +1,64 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+mod cli;
+
+/// NANO Edge Runtime - Multi-tenant JavaScript edge runtime
+#[derive(Debug, Parser)]
+#[command(name = "nano-rs")]
+#[command(about = "Multi-tenant JavaScript edge runtime (Rust + rusty_v8)")]
+#[command(version)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Debug, Subcommand)]
+enum Commands {
+    /// Run the NANO HTTP server (default behavior)
+    Run {
+        /// Configuration file path
+        #[arg(short, long, value_name = "FILE")]
+        config: Option<PathBuf>,
+    },
+    
+    /// Sliver management commands (snapshot creation and management)
+    #[command(subcommand)]
+    Sliver(cli::SliverCommand),
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize structured JSON logging with env-filter support
     nano::logging::init_logging();
 
+    let cli = Cli::parse();
+    
+    match cli.command {
+        Some(Commands::Run { config: _ }) | None => {
+            // Default behavior: run the server
+            run_server().await
+        }
+        Some(Commands::Sliver(sliver_cmd)) => {
+            // Execute sliver command
+            handle_sliver_command(sliver_cmd).await
+        }
+    }
+}
+
+/// Run the NANO HTTP server with graceful shutdown
+async fn run_server() -> Result<()> {
     tracing::info!("NANO Edge Runtime starting...");
 
     // Initialize V8 platform (once per process)
-    nano::v8::platform::initialize_platform()?;
+    nano::v8::platform::initialize_platform()
+        .context("Failed to initialize V8 platform")?;
     tracing::info!("V8 platform initialized");
 
     // Set up graceful shutdown with signal handling
-    // This creates a shutdown coordinator that listens for SIGTERM/SIGINT
-    // and provides graceful shutdown with request draining
     let drain = nano::app::drain::RequestDrain::new();
     let (shutdown, mut shutdown_rx) = nano::signal::setup_shutdown(
         nano::signal::ShutdownConfig::default(),
@@ -26,19 +69,16 @@ async fn main() -> Result<()> {
     // Create app registry for sharing between main server and admin API
     let registry = Arc::new(RwLock::new(nano::app::registry::AppRegistry::default()));
 
-    // Start HTTP server with virtual host routing and graceful shutdown
+    // Start HTTP server with virtual host routing
     let config = nano::http::ServerConfig::default();
     tracing::info!("Starting HTTP server on {}", config.socket_addr()?);
 
-    // Clone shutdown state for passing to server
     let shutdown_state = shutdown.state().clone();
-
-    // Spawn the main HTTP server in a separate task with graceful shutdown support
     let server_handle = tokio::spawn(async move {
         nano::http::start_server_with_state(config, shutdown_state).await
     });
 
-    // Start Admin API server (optional - only if API key is configured)
+    // Start Admin API server (optional)
     let admin_api_key = std::env::var("NANO_ADMIN_API_KEY").unwrap_or_default();
     let unix_socket_path = std::env::var("NANO_ADMIN_UNIX_SOCKET").ok();
     
@@ -61,7 +101,7 @@ async fn main() -> Result<()> {
         None
     };
 
-    // Start Unix socket admin server (optional - enabled via NANO_ADMIN_UNIX_SOCKET)
+    // Start Unix socket admin server (optional)
     let unix_socket_handle = if let Some(socket_path) = unix_socket_path {
         let unix_config = nano::admin::unix_socket::UnixSocketConfig::new(socket_path);
         let unix_auth = std::sync::Arc::new(nano::admin::auth::AdminAuth::new("unix-socket-unused"));
@@ -90,7 +130,7 @@ async fn main() -> Result<()> {
     // Perform graceful shutdown
     shutdown.shutdown().await;
 
-    // Shut down admin servers if running
+    // Shut down admin servers
     if let Some(admin_server) = admin_handle {
         tracing::info!("Shutting down Admin API server...");
         admin_server.shutdown().await;
@@ -101,7 +141,7 @@ async fn main() -> Result<()> {
         unix_server.shutdown().await;
     }
 
-    // Wait for main server to complete
+    // Wait for main server
     match server_handle.await {
         Ok(result) => {
             if let Err(e) = result {
@@ -114,6 +154,144 @@ async fn main() -> Result<()> {
     }
 
     tracing::info!("NANO Edge Runtime shutdown complete");
-
     Ok(())
+}
+
+/// Handle sliver management commands
+async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
+    match cmd {
+        cli::SliverCommand::Create(args) => {
+            tracing::info!("Creating sliver for hostname: {}", args.hostname);
+            
+            // Determine output path
+            let output = args.output.unwrap_or_else(|| {
+                let name = args.name.as_ref().unwrap_or(&args.hostname);
+                let tag = args.tag.as_ref().map(|t| format!("-{}", t)).unwrap_or_default();
+                PathBuf::from(format!("{}{}.sliver", name, tag))
+            });
+            
+            let name = args.name.unwrap_or_else(|| args.hostname.clone());
+            
+            // TODO: Implement actual sliver creation
+            // For now, print what would happen
+            println!("Creating sliver:");
+            println!("  Hostname: {}", args.hostname);
+            println!("  Name: {}", name);
+            println!("  Tag: {}", args.tag.as_deref().unwrap_or("none"));
+            println!("  Output: {}", output.display());
+            println!("");
+            println!("Note: Full implementation pending V8 SnapshotCreator integration");
+            
+            Ok(())
+        }
+        cli::SliverCommand::List(args) => {
+            tracing::info!("Listing slivers");
+            
+            // TODO: Implement actual sliver listing
+            println!("Slivers:");
+            println!("  (none found)");
+            
+            if args.verbose {
+                println!("\nUse 'nano-rs sliver list --verbose' for detailed info.");
+            }
+            
+            Ok(())
+        }
+        cli::SliverCommand::Delete(args) => {
+            tracing::info!("Deleting sliver: {}", args.name);
+            
+            if !args.force {
+                // TODO: Implement confirmation prompt
+                println!("Delete sliver '{}' ? (use --force to skip confirmation)", args.name);
+                return Ok(());
+            }
+            
+            // TODO: Implement actual deletion
+            println!("Deleting sliver: {}", args.name);
+            println!("Note: Full implementation pending");
+            
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cli_parse_run() {
+        let cli = Cli::try_parse_from(["nano-rs", "run"]);
+        assert!(cli.is_ok());
+        
+        if let Ok(Cli { command: Some(Commands::Run { .. }) }) = cli {
+            // Parsed correctly
+        } else {
+            panic!("Expected Run command");
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_sliver_create() {
+        let cli = Cli::try_parse_from([
+            "nano-rs", "sliver", "create", "api.example.com",
+            "--output", "./test.sliver"
+        ]);
+        assert!(cli.is_ok());
+        
+        if let Ok(Cli { command: Some(Commands::Sliver(cmd)) }) = cli {
+            match cmd {
+                cli::SliverCommand::Create(args) => {
+                    assert_eq!(args.hostname, "api.example.com");
+                    assert_eq!(args.output, Some(PathBuf::from("./test.sliver")));
+                }
+                _ => panic!("Expected Create command"),
+            }
+        } else {
+            panic!("Expected Sliver command");
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_sliver_list() {
+        let cli = Cli::try_parse_from(["nano-rs", "sliver", "list"]);
+        assert!(cli.is_ok());
+        
+        if let Ok(Cli { command: Some(Commands::Sliver(cmd)) }) = cli {
+            match cmd {
+                cli::SliverCommand::List(args) => {
+                    assert!(!args.verbose);
+                }
+                _ => panic!("Expected List command"),
+            }
+        } else {
+            panic!("Expected Sliver command");
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_sliver_delete() {
+        let cli = Cli::try_parse_from(["nano-rs", "sliver", "delete", "test-sliver"]);
+        assert!(cli.is_ok());
+        
+        if let Ok(Cli { command: Some(Commands::Sliver(cmd)) }) = cli {
+            match cmd {
+                cli::SliverCommand::Delete(args) => {
+                    assert_eq!(args.name, "test-sliver");
+                    assert!(!args.force);
+                }
+                _ => panic!("Expected Delete command"),
+            }
+        } else {
+            panic!("Expected Sliver command");
+        }
+    }
+
+    #[test]
+    fn test_cli_default_to_run() {
+        // Default behavior (no subcommand) should run server
+        let cli = Cli::try_parse_from(["nano-rs"]);
+        assert!(cli.is_ok());
+        assert!(matches!(cli.unwrap().command, None));
+    }
 }

@@ -14,20 +14,20 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 
 **Core value:** One OS process hosts many isolated JS apps with millisecond cold starts, zero container overhead, and strong per-app isolation.
 
-**Current focus:** Phase 12 — VFS JavaScript Bindings (Complete)
+**Current focus:** Phase 13 — Snapshot Format Design (Complete)
 
 ---
 
 ## Current Position
 
 **Milestone:** v1.1 — Isolate Snapshots & VFS  
-**Phase:** Phase 12 of 16 (VFS JavaScript Bindings)  
-**Plan:** 12-04 (Security Tests & Integration)  
+**Phase:** Phase 13 of 16 (Snapshot Format Design)  
+**Plan:** 13-02 (VFS State Serialization)  
 **Status:** Complete
 
 **Progress:**
 ```
-[████████████░░░░░░░░░░░░░░░░░░░░░░] 69% (11/16 phases complete, v1.1 in progress)
+[█████████████░░░░░░░░░░░░░░░░░░░░░] 75% (12/16 phases complete, v1.1 in progress)
 ```
 
 ---
@@ -77,6 +77,13 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 - **Uint8Array-first extraction** — Binary data extraction before string to preserve raw bytes (D-23)
 - **Block all ".." substrings** — Reject any path containing ".." for maximum security (D-24)
 
+### Phase 13 Decisions
+- **Sliver format uses tar crate** — Standard tar library for archive handling (D-25)
+- **heap.bin is completely opaque** — Never parsed by NANO, passed directly to V8 (D-26)
+- **VFS entries under vfs/ prefix** — Clear separation of metadata, heap, and filesystem (D-27)
+- **String-based format version** — Allows future versions without enum changes (D-28)
+- **MemoryBackend snapshot methods** — Direct extraction/restore for efficient serialization (D-29)
+
 ---
 
 ## Deferred Items from v1.0
@@ -92,12 +99,12 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 
 ## Session Continuity
 
-**Last session:** 2026-04-19 — Completed Phase 12 Plans 02-04 (VFS JavaScript Bindings)  
-**Completed:** Node.js fs polyfill, error code compatibility, security tests
-**Summary:** 48 tests passing - require('fs') works, ENOENT/EINVAL errors match Node.js, path traversal blocked
-**Next action:** Phase 13 — Snapshot Integration
+**Last session:** 2026-04-20 — Completed Phase 13 (Snapshot Format Design)  
+**Completed:** Sliver format core, VFS serialization, tar packing/unpacking
+**Summary:** 27 sliver tests + 4 VFS snapshot tests passing - tar-based format, opaque heap blobs, VFS state capture
+**Next action:** Phase 14 — Snapshot Creation (CLI + V8 SnapshotCreator integration)
 **Resume file:** None
 
 ---
 
-*State file: Updated at milestone transition*
+*State file: Updated 2026-04-20 — Phase 13 complete*
