@@ -80,6 +80,14 @@ libc = "0.2"
 # Async trait for VFS backends
 async-trait = "0.1"
 
+# S3-compatible object storage
+rust-s3 = { version = "0.37", optional = true }
+tokio-util = { version = "0.7", features = ["io"], optional = true }
+
+[features]
+default = []
+vfs-s3 = ["rust-s3", "tokio-util"]
+
 [profile.release]
 opt-level = 3
 lto = true
