@@ -2,9 +2,9 @@
 
 ## Current State
 
-**Version:** v1.0 SHIPPED ✅  
+**Version:** v1.1 IN PROGRESS 🚧  
 **Date:** 2026-04-19  
-**Status:** Production-ready multi-tenant edge runtime
+**Status:** Developing isolate snapshots and VFS for container-like semantics
 
 NANO is a single-process HTTP server that hosts multiple JavaScript applications in parallel, each in its own V8 isolate. It replaces container fleets running one Node.js app per pod—eliminating operational overhead, slow startup times, and resource waste. One binary, one config file, many isolated apps.
 
@@ -61,6 +61,30 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 
 ---
 
+## v1.1 Goals — Isolate Snapshots & VFS
+
+**Theme:** Container-image semantics for JavaScript isolates
+
+### Snapshot Features
+- **Build:** `nano-rs snapshot create <hostname>` produces `app-v1.tar`
+- **Run:** `nano-rs run --snapshot app-v1.tar` restores isolate state
+- **Fast starts:** ~1-2ms cold start from snapshot (vs ~5ms context reset, ~50-100ms fresh isolate)
+- **Migration:** Move isolates between NANO instances for load balancing
+- **Checkpoint/Restore:** Save and resume isolate state
+
+### VFS (Virtual File System)
+- **JS API:** `Nano.fs.readFile('/data/session.json')` — makes isolates look like containers
+- **Storage:** Filesystem or object storage (S3-compatible) backing
+- **Per-isolate:** Each app has isolated filesystem namespace
+- **In-memory:** Fast access with optional persistence
+
+### Design Principles
+- **Format:** Simple tar-based, extensible to deltas later
+- **Opaque blobs:** Version-agnostic snapshots (no fancy versioning)
+- **Container-inspired:** Familiar semantics for DevOps teams
+
+---
+
 ## Requirements
 
 ### Validated (v1.0)
@@ -80,24 +104,39 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 - [x] crypto.subtle implementation using Rust crypto crates (ring)
 - [x] EPT initialization fix (strong v8::Global sentinel)
 
-### Active (v2.0 Candidates)
+### Active (v1.1)
 
-- [ ] CompressionStream/DecompressionStream (flate2)
-- [ ] WebSocket server (RFC 6455)
-- [ ] VFS (Virtual Filesystem) per isolate
-- [ ] Inter-isolate messaging API
-- [ ] V8 startup snapshot support
-- [ ] Advanced crypto: RSA, ECDSA signatures
+- [ ] **SNAP-01:** CLI `nano-rs snapshot create <hostname>` produces tar archive
+- [ ] **SNAP-02:** Snapshot tar contains V8 isolate heap + VFS state + metadata
+- [ ] **SNAP-03:** CLI `nano-rs run --snapshot app-v1.tar` restores isolate from snapshot
+- [ ] **SNAP-04:** Restored isolate resumes execution with preserved state
+- [ ] **SNAP-05:** Snapshot format is tar-based with simple structure
+- [ ] **SNAP-06:** Snapshots are opaque blobs (version-agnostic, no embedded versioning)
+- [ ] **SNAP-07:** Multiple snapshots can coexist (versioned by filename)
+- [ ] **VFS-01:** VFS module at `src/vfs/` with in-memory storage
+- [ ] **VFS-02:** Per-isolate filesystem namespace (no cross-app access)
+- [ ] **VFS-03:** JS API `Nano.fs.readFile(path)` reads file contents
+- [ ] **VFS-04:** JS API `Nano.fs.writeFile(path, data)` writes file contents
+- [ ] **VFS-05:** JS API `Nano.fs.exists(path)` checks file existence
+- [ ] **VFS-06:** Optional disk backing for VFS persistence
+- [ ] **VFS-07:** Optional S3-compatible object storage backend
+- [ ] **VFS-08:** VFS state included in snapshot serialization
+- [ ] **PERF-01:** Cold start from snapshot achieves ~1-2ms latency
+- [ ] **MIGRATE-01:** Snapshot can be transferred between NANO instances
+- [ ] **CLI-01:** `nano-rs snapshot list` shows available snapshots
+- [ ] **CLI-02:** `nano-rs snapshot delete <name>` removes snapshot
 
-### Out of Scope (v1.0+)
+### Out of Scope (v1.1)
 
-- npm package resolution—apps are single-file, bundling is user responsibility
-- TypeScript/JSX transpilation (user must bundle beforehand)
-- Native module support (only pure JS/WinterCG APIs)
-- Subprocess spawning from JS
-- Built-in horizontal clustering (requires external load balancer)
-- Global edge network (self-hosted only)
-- queueMicrotask, atob/btoa (WinterCG gaps)
+| Feature | Reason |
+|---------|--------|
+| Delta/differential snapshots | Complex, defer to v1.2+ |
+| Live migration (running isolates) | Requires freeze/thaw, significant complexity |
+| npm package resolution | Apps remain single-file, bundling is user responsibility |
+| TypeScript/JSX transpilation | User must bundle beforehand |
+| Native module support | Only pure JS/WinterCG APIs |
+| Subprocess spawning from JS | Security/scope constraint |
+| Built-in horizontal clustering | External load balancer sufficient |
 
 ---
 
@@ -110,22 +149,27 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 | ring over V8 crypto | Safer, avoids V8 internal complexity | ✅ Secure implementation |
 | No npm resolution | Simplifies runtime, keeps isolates lightweight | ✅ Maintainable |
 | WorkerPool per virtual host | Resource isolation between apps | ✅ Multi-tenant ready |
+| Tar-based snapshot format | Simple, portable, extensible to deltas later | 🚧 v1.1 in progress |
+| V8 SnapshotCreator API | Standard V8 approach for heap serialization | 🚧 v1.1 in progress |
+| In-memory VFS with pluggable backends | Fast default, flexible persistence | 🚧 v1.1 in progress |
 
 ---
 
-## Next Milestone Goals (v2.0)
+## Milestones
 
-**Target:** Advanced features for production edge workloads
+**v1.0 — Edge Runtime Foundation** ✅ SHIPPED 2026-04-19
+- 9 phases, 42 requirements, 151 commits
+- Multi-tenant JavaScript edge runtime with WinterCG compliance
 
-**Potential scope:**
+**v1.1 — Isolate Snapshots & VFS** 🚧 IN PROGRESS
+- Target: Container-image semantics for JS isolates
+- Scope: Snapshot create/restore, VFS with JS API, fast cold starts
+
+**v2.0 — Advanced Edge Features** 📋 PLANNED
 - WebSocket support for real-time applications
-- VFS for static asset hosting and data persistence
 - Advanced crypto (RSA signatures, ECDSA)
 - Compression/Decompression streams
 - Inter-isolate messaging
-- V8 snapshots for ~2ms cold starts
-
-**Start planning:** `/gsd-new-milestone`
 
 ---
 
@@ -135,6 +179,7 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 - **API surface**: WinterCG Minimum Common API compliance
 - **V8 version**: Tracks Deno's rusty_v8 (auto-updates via crate)
 - **Build time**: Uses pre-built V8 (no 2-hour compiles)
+- **Snapshot format**: Tar-based, extensible, version-agnostic
 
 ---
 
@@ -142,8 +187,10 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 
 **v1.0 (2026-04-19):** Foundation complete — multi-tenant edge runtime with WinterCG compliance, production observability, and crypto support.
 
-**v2.0 (TBD):** Advanced features — WebSockets, VFS, advanced crypto, performance optimizations.
+**v1.1 (TBD):** Snapshot & VFS — container-image semantics for isolates with ~1-2ms cold starts and migration capabilities.
+
+**v2.0 (TBD):** Advanced features — WebSockets, advanced crypto, compression streams, inter-isolate messaging.
 
 ---
 
-*Last updated: 2026-04-19 after v1.0 milestone completion*
+*Last updated: 2026-04-19 — v1.1 milestone started*
