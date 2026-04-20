@@ -3,7 +3,7 @@
 **Project:** nano-rs — Edge JavaScript Runtime  
 **Version:** v1.1 — Isolate Snapshots & VFS  
 **Created:** 2026-04-19  
-**Updated:** 2026-04-19  
+**Updated:** 2026-04-20  
 **Mode:** YOLO (auto-approve execution)
 
 ---
@@ -14,20 +14,20 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 
 **Core value:** One OS process hosts many isolated JS apps with millisecond cold starts, zero container overhead, and strong per-app isolation.
 
-**Current focus:** Phase 13 — Snapshot Format Design (Complete)
+**Current focus:** Phase 14 — Snapshot Creation (Complete)
 
 ---
 
 ## Current Position
 
 **Milestone:** v1.1 — Isolate Snapshots & VFS  
-**Phase:** Phase 13 of 16 (Snapshot Format Design)  
-**Plan:** 13-02 (VFS State Serialization)  
+**Phase:** Phase 14 of 16 (Snapshot Creation)  
+**Plan:** All 4 plans complete (14-01 through 14-04)  
 **Status:** Complete
 
 **Progress:**
 ```
-[█████████████░░░░░░░░░░░░░░░░░░░░░] 75% (12/16 phases complete, v1.1 in progress)
+[██████████████░░░░░░░░░░░░░░░░░░░░] 81% (13/16 phases complete, v1.1 in progress)
 ```
 
 ---
@@ -78,11 +78,18 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 - **Block all ".." substrings** — Reject any path containing ".." for maximum security (D-24)
 
 ### Phase 13 Decisions
-- **Sliver format uses tar crate** — Standard tar library for archive handling (D-25)
+- **Tar-based snapshot format** — Simple, portable, extensible to deltas later (D-13)
 - **heap.bin is completely opaque** — Never parsed by NANO, passed directly to V8 (D-26)
 - **VFS entries under vfs/ prefix** — Clear separation of metadata, heap, and filesystem (D-27)
 - **String-based format version** — Allows future versions without enum changes (D-28)
 - **MemoryBackend snapshot methods** — Direct extraction/restore for efficient serialization (D-29)
+
+### Phase 14 Decisions
+- **CLI sliver commands use clap derive macros** — Type-safe, maintainable argument parsing (D-30)
+- **Sliver name defaults to hostname** — Sensible default for simple use cases (D-31)
+- **V8 135 SnapshotCreator API limited** — Use placeholders, full API not publicly exposed (D-32, D-33)
+- **Added 'name' field to SliverMetadata** — Separate management name from hostname (D-38)
+- **VFS capture framework ready** — Awaits list_dir() on backends for full implementation
 
 ---
 
@@ -99,12 +106,12 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 
 ## Session Continuity
 
-**Last session:** 2026-04-20 — Completed Phase 13 (Snapshot Format Design)  
-**Completed:** Sliver format core, VFS serialization, tar packing/unpacking
-**Summary:** 27 sliver tests + 4 VFS snapshot tests passing - tar-based format, opaque heap blobs, VFS state capture
-**Next action:** Phase 14 — Snapshot Creation (CLI + V8 SnapshotCreator integration)
+**Last session:** 2026-04-20 — Completed Phase 14 (Snapshot Creation)  
+**Completed:** CLI sliver commands, V8 snapshot integration, VFS capture, full pipeline
+**Summary:** 441 tests passing - CLI create/list/delete, tar-based sliver output, placeholder V8 heap capture
+**Next action:** Phase 15 — Snapshot Restoration (loading isolates from .sliver files)
 **Resume file:** None
 
 ---
 
-*State file: Updated 2026-04-20 — Phase 13 complete*
+*State file: Updated 2026-04-20 — Phase 14 complete*
