@@ -10,6 +10,8 @@ use crate::v8::{initialize_platform, NanoIsolate};
 use crate::worker::context::ContextManager;
 use crate::worker::oom::{OomMonitor, OomMonitorBuilder};
 use crate::worker::HandlerTask;
+use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use std::fs;
@@ -259,6 +261,12 @@ impl Drop for WorkerHandle {
 /// Each worker owns one V8 isolate (thread-local). Tasks are dispatched
 /// via MPSC channels. The pool uses round-robin for initial dispatch
 /// (affine dispatch comes in later phase).
+///
+/// # VFS Integration
+///
+/// Each WorkerPool has a shared VFS backend that all workers in the pool
+/// share. This means files written by one worker are visible to other
+/// workers in the same pool (same app), but isolated from other pools.
 #[derive(Debug)]
 pub struct WorkerPool {
     /// Worker handles for all threads in the pool
@@ -269,6 +277,8 @@ pub struct WorkerPool {
     pub hostname: String,
     /// Round-robin counter for dispatch
     next_worker: AtomicUsize,
+    /// Shared VFS backend for all workers in this pool
+    vfs_backend: Arc<MemoryBackend>,
 }
 
 impl WorkerPool {
@@ -300,13 +310,19 @@ impl WorkerPool {
 
         assert!(worker_count > 0, "Worker count must be at least 1");
 
+        // Create shared VFS backend for this pool
+        // All workers in this pool share the same backend
+        let vfs_backend = Arc::new(MemoryBackend::default());
+
         // Clone hostname for use in closures (original kept for final logging)
         let hostname_for_workers = hostname.clone();
+        let vfs_backend_for_workers = Arc::clone(&vfs_backend);
 
         let mut workers = Vec::with_capacity(worker_count);
 
         for id in 0..worker_count {
             let worker_hostname = hostname_for_workers.clone();
+            let worker_vfs_backend = Arc::clone(&vfs_backend_for_workers);
             let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
 
             // Spawn worker thread with thread-local isolate
@@ -325,9 +341,15 @@ impl WorkerPool {
                     None
                 };
 
-                // Create isolate in this thread - NEVER moves to another thread
+                // Create VFS for this worker with shared backend
+                let vfs = IsolateVfs::new(
+                    VfsNamespace::from_hostname(&worker_hostname),
+                    worker_vfs_backend,
+                );
+
+                // Create isolate with VFS in this thread - NEVER moves to another thread
                 // This is the critical POOL-05 constraint: isolate is !Send + !Sync
-                let isolate = match NanoIsolate::new() {
+                let isolate = match NanoIsolate::new_with_vfs(vfs) {
                     Ok(isol) => isol,
                     Err(e) => {
                         error!("Worker {} failed to create isolate: {}", id, e);
@@ -500,7 +522,16 @@ impl WorkerPool {
             worker_count,
             hostname,
             next_worker: AtomicUsize::new(0),
+            vfs_backend,
         }
+    }
+
+    /// Get a reference to the shared VFS backend
+    ///
+    /// This is useful for testing and administrative operations
+    /// that need to inspect or modify the filesystem.
+    pub fn vfs_backend(&self) -> &Arc<MemoryBackend> {
+        &self.vfs_backend
     }
 
     /// Dispatch a task to a worker
@@ -903,5 +934,49 @@ function fetch(request) {
         assert_eq!(resp.status(), 200);
 
         pool.shutdown().expect("Shutdown failed");
+    }
+
+    #[test]
+    fn test_worker_pool_vfs_isolation() {
+        // Test that different pools have isolated VFS namespaces
+        use crate::vfs::VfsBackend;
+        
+        init_platform();
+
+        // Create two pools for different apps
+        let pool1 = WorkerPool::new("app1.example.com".to_string(), 1, 0);
+        let pool2 = WorkerPool::new("app2.example.com".to_string(), 1, 0);
+
+        // Write a file via pool1's VFS backend directly
+        // (simulating what would happen through JS execution)
+        let namespace1 = VfsNamespace::from_hostname("app1.example.com");
+        let path1 = crate::vfs::VfsPath::new(&format!("{}::secret.txt", namespace1.as_str())).unwrap();
+        
+        // Use tokio runtime to run async write
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            pool1.vfs_backend().write(&path1, b"app1-secret-data").await.unwrap();
+        });
+
+        // Verify file exists in pool1's backend
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let exists_in_pool1: bool = rt.block_on(async {
+            pool1.vfs_backend().exists(&path1).await.unwrap()
+        });
+        assert!(exists_in_pool1, "File should exist in pool1's VFS");
+
+        // Verify file does NOT exist in pool2's backend (different namespace)
+        let namespace2 = VfsNamespace::from_hostname("app2.example.com");
+        let path2 = crate::vfs::VfsPath::new(&format!("{}::secret.txt", namespace2.as_str())).unwrap();
+        
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let exists_in_pool2: bool = rt.block_on(async {
+            pool2.vfs_backend().exists(&path2).await.unwrap()
+        });
+        assert!(!exists_in_pool2, "File should NOT exist in pool2's VFS (isolated)");
+
+        // Clean up
+        pool1.shutdown().expect("Pool1 shutdown failed");
+        pool2.shutdown().expect("Pool2 shutdown failed");
     }
 }
