@@ -341,9 +341,10 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
                 metadata.description = Some(format!("Tag: {}", tag));
             }
             
-            // Create V8 snapshot (currently returns placeholder)
-            // In the future, this would capture the actual isolate heap
-            let heap_data = nano::v8::create_snapshot(&mut nano::v8::NanoIsolate::new()?)?;
+            // Create V8 snapshot using the new snapshot creator API (v139+)
+            // This creates a snapshottable isolate and serializes it
+            let isolate = nano::v8::NanoIsolate::snapshot_creator()?;
+            let heap_data = nano::v8::create_snapshot_from_nano(isolate)?;
             tracing::info!("Created heap snapshot: {} bytes", heap_data.len());
             
             // Capture VFS state (currently returns empty)

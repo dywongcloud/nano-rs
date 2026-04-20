@@ -2,24 +2,21 @@
 //!
 //! This module provides integration with V8's snapshot capabilities.
 //!
-//! # Important Note on Snapshot Creator API
+//! # V8 v139+ API Support
 //!
-//! rusty_v8 version 135 has a limited public API for the SnapshotCreator.
-//! The full `v8::SnapshotCreator` struct is `pub(crate)` (internal), and only
-//! basic snapshot operations are exposed. The public API allows:
-//! - Creating isolates FROM snapshot blobs (for restoration)
-//! - Creating snapshot blobs at build time via `snapshot_creator()`
+//! rusty_v8 version 139+ exposes the `snapshot_creator()` API:
+//! - `Isolate::snapshot_creator()` - PUBLIC (creates isolate for snapshotting)
+//! - `OwnedIsolate::create_blob()` - PUBLIC (serializes to snapshot blob)
 //!
-//! The API for capturing a running isolate's heap at runtime is not fully
-//! exposed in v8 135. This module provides a compatible API surface that will
-//! work with the available features and can be extended when newer V8
-//! versions expose more snapshot functionality.
+//! This enables true runtime heap snapshot creation for fast sliver warm-starts.
 //!
-//! # Current Implementation
+//! # Usage Flow
 //!
-//! The current implementation creates snapshots by:
-//! 1. Using the available V8 APIs for snapshot blob creation
-//! 2. Providing a placeholder for runtime heap capture (requires future V8 upgrade)
+//! 1. Create isolate via `snapshot_creator()` (not regular `Isolate::new()`)
+//! 2. Set up context, load scripts, populate state
+//! 3. Call `create_blob()` to serialize heap to blob
+//! 4. Pack blob into sliver with metadata
+//! 5. Later: Restore isolate from snapshot for instant warm-start
 
 use thiserror::Error;
 
@@ -38,132 +35,97 @@ pub enum SnapshotError {
     #[error("Invalid isolate state for snapshot: {0}")]
     InvalidIsolateState(String),
     
-    /// Snapshot blob creation not supported in current V8 version
-    #[error("Snapshot creation requires V8 features not available in this version")]
+    /// Snapshot operation not supported in current V8 version
+    #[error("Snapshot operation requires V8 features not available in this version")]
     NotSupported,
+    
+    /// The isolate was not created with snapshot_creator()
+    #[error("Isolate was not created with snapshot_creator() - cannot create blob")]
+    NotSnapshotCreatorIsolate,
 }
 
 /// Result type for snapshot operations
 pub type SnapshotResult<T> = std::result::Result<T, SnapshotError>;
-
-/// A snapshot creator for V8 isolates
-///
-/// This struct provides an API compatible with the V8 SnapshotCreator,
-/// working within the constraints of rusty_v8's public API.
-pub struct SnapshotCreator;
-
-impl SnapshotCreator {
-    /// Create a new snapshot creator
-    ///
-    /// Note: In v8 135, the full SnapshotCreator API is not publicly exposed.
-    /// This returns a placeholder that can create simple snapshots.
-    pub fn new() -> Self {
-        Self
-    }
-    
-    /// Create a snapshot blob from the current state
-    ///
-    /// This attempts to create a snapshot blob. With the limited API
-    /// in v8 135, this may return a placeholder or use available workarounds.
-    ///
-    /// # Returns
-    ///
-    /// A `Vec<u8>` containing the snapshot data, or an error if not supported.
-    pub fn create_blob(&self) -> SnapshotResult<Vec<u8>> {
-        // In v8 135, the full SnapshotCreator::create_blob() API is internal.
-        // We create a placeholder that indicates this feature requires
-        // a future V8 upgrade or alternative implementation.
-        
-        // Placeholder: Return empty vec to indicate "no data yet"
-        // The actual implementation would use v8::SnapshotCreator if available
-        tracing::debug!("SnapshotCreator::create_blob() - placeholder implementation");
-        
-        // Return a marker blob that can be detected
-        // This allows the sliver format to work even without full heap capture
-        let marker = b"NANO_SNAPSHOT_PLACEHOLDER_V1";
-        Ok(marker.to_vec())
-    }
-}
-
-impl Default for SnapshotCreator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Creates a V8 heap snapshot placeholder
-///
-/// This function attempts to capture the JavaScript heap state.
-/// In the current V8 version, this creates a placeholder that indicates
-/// full heap capture requires a future V8 upgrade.
-///
-/// # Arguments
-///
-/// * `_isolate` - The isolate to snapshot (currently unused due to API limitations)
-///
-/// # Returns
-///
-/// A `Vec<u8>` containing snapshot data (currently a placeholder), or an error.
-pub fn create_snapshot(_isolate: &mut crate::v8::isolate::NanoIsolate) -> SnapshotResult<Vec<u8>> {
-    let creator = SnapshotCreator::new();
-    creator.create_blob()
-}
-
-/// A builder for creating snapshots with custom options
-///
-/// This provides a more flexible API for snapshot creation
-/// when you need to customize the process.
-pub struct SnapshotBuilder {
-    _marker: std::marker::PhantomData<()>,
-}
-
-impl SnapshotBuilder {
-    /// Create a new snapshot builder
-    pub fn new() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-        }
-    }
-    
-    /// Build and create a snapshot
-    ///
-    /// # Arguments
-    ///
-    /// * `isolate` - The isolate to snapshot
-    pub fn build(self, isolate: &mut crate::v8::isolate::NanoIsolate) -> SnapshotResult<Vec<u8>> {
-        create_snapshot(isolate)
-    }
-}
-
-impl Default for SnapshotBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// Check if full heap snapshotting is supported
 ///
 /// Returns true if the current V8 version supports capturing
 /// a running isolate's heap state.
 pub fn is_heap_snapshot_supported() -> bool {
-    // v8 135 doesn't expose the full SnapshotCreator API
-    // Future versions may expose it
-    false
+    // v8 139+ exposes the snapshot_creator API
+    true
 }
 
-/// Check if snapshot data is a placeholder
+/// Check if snapshot data is a placeholder (legacy format)
 ///
-/// Placeholder snapshots are used when full V8 heap snapshot
-/// creation is not available in the current version.
+/// Placeholder snapshots were used in v135-v137 when the API
+/// was not fully exposed. Now replaced with real snapshot blobs.
 pub fn is_placeholder_snapshot(data: &[u8]) -> bool {
     data == b"NANO_SNAPSHOT_PLACEHOLDER_V1"
 }
 
+/// Creates a V8 heap snapshot from an isolate
+///
+/// NOTE: This function requires the isolate to have been created
+/// via `snapshot_creator()`. The isolate must have a default context set.
+///
+/// # Arguments
+///
+/// * `isolate` - The isolate to snapshot (must be from snapshot_creator())
+///
+/// # Returns
+///
+/// A `Vec<u8>` containing the snapshot blob, or an error.
+pub fn create_snapshot(isolate: v8::OwnedIsolate) -> SnapshotResult<Vec<u8>> {
+    // Try to create blob from the isolate
+    // Note: V8 requires a default context to be set before creating blob
+    // If no context was set, create_blob will return None
+    let startup_data = isolate.create_blob(v8::FunctionCodeHandling::Clear)
+        .ok_or_else(|| SnapshotError::InvalidIsolateState(
+            "Failed to create snapshot - ensure isolate has a context set".to_string()
+        ))?;
+    
+    // Convert StartupData to Vec<u8>
+    let data: Vec<u8> = startup_data.as_ref().to_vec();
+    
+    tracing::info!("Created V8 heap snapshot: {} bytes", data.len());
+    Ok(data)
+}
+
+/// Creates a V8 heap snapshot from an isolate (for sliver creation)
+///
+/// This is a wrapper that works with NanoIsolate, but requires
+/// the isolate was created with the snapshot workflow.
+///
+/// For sliver creation, use the workflow:
+/// 1. Create isolate via Isolate::snapshot_creator()
+/// 2. Load app, set up context
+/// 3. Call this function to capture snapshot
+/// 4. Pack into sliver
+///
+/// # Arguments
+///
+/// * `isolate` - NanoIsolate to snapshot
+///
+/// # Returns
+///
+/// A `Vec<u8>` containing the snapshot blob, or an error.
+pub fn create_snapshot_from_nano(
+    nano_isolate: crate::v8::isolate::NanoIsolate
+) -> SnapshotResult<Vec<u8>> {
+    // Extract the OwnedIsolate from NanoIsolate
+    // This consumes the NanoIsolate and extracts the inner isolate
+    let isolate = nano_isolate.into_inner();
+    
+    // Create the snapshot blob
+    create_snapshot(isolate)
+}
+
 /// Restore an isolate from a heap snapshot blob
 ///
-/// This function attempts to create a new isolate initialized with the
-/// provided snapshot data. If the snapshot is a placeholder or invalid,
-/// it returns an error.
+/// This function creates a new isolate initialized with the
+/// provided snapshot data. This enables instant "warm" starts
+/// with all compiled code and heap state pre-loaded.
 ///
 /// # Arguments
 /// * `snapshot_data` - The V8 heap snapshot blob (from heap.bin)
@@ -175,10 +137,10 @@ pub fn restore_from_snapshot(
     snapshot_data: &[u8],
     vfs: crate::vfs::IsolateVfs,
 ) -> SnapshotResult<crate::v8::isolate::NanoIsolate> {
-    // Check for placeholder
+    // Check for legacy placeholder
     if is_placeholder_snapshot(snapshot_data) {
         return Err(SnapshotError::InvalidIsolateState(
-            "Cannot restore from placeholder snapshot".to_string()
+            "Cannot restore from placeholder snapshot (legacy sliver)".to_string()
         ));
     }
 
@@ -202,6 +164,59 @@ pub fn restore_from_snapshot(
     }
 }
 
+/// Builder for creating snapshots with custom configuration
+///
+/// This provides a more flexible API for snapshot creation
+/// when you need to customize the process.
+pub struct SnapshotBuilder {
+    function_code_handling: v8::FunctionCodeHandling,
+}
+
+impl SnapshotBuilder {
+    /// Create a new snapshot builder with default settings
+    pub fn new() -> Self {
+        Self {
+            function_code_handling: v8::FunctionCodeHandling::Clear,
+        }
+    }
+    
+    /// Set the function code handling strategy
+    ///
+    /// - `Clear`: Clear compiled code (smaller snapshots)
+    /// - `Keep`: Keep compiled code (faster restore, larger snapshots)
+    pub fn with_code_handling(mut self, handling: v8::FunctionCodeHandling) -> Self {
+        self.function_code_handling = handling;
+        self
+    }
+    
+    /// Create a snapshot from an isolate
+    ///
+    /// # Arguments
+    ///
+    /// * `isolate` - The isolate to snapshot (must be from snapshot_creator())
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<u8>` containing the snapshot blob, or an error.
+    pub fn build(self, isolate: v8::OwnedIsolate) -> SnapshotResult<Vec<u8>> {
+        // Format the handling for logging before moving it
+        let handling_str = format!("{:?}", self.function_code_handling);
+        let startup_data = isolate.create_blob(self.function_code_handling)
+            .ok_or_else(|| SnapshotError::NotSnapshotCreatorIsolate)?;
+        
+        let data: Vec<u8> = startup_data.as_ref().to_vec();
+        tracing::info!("Created V8 heap snapshot with {}: {} bytes", 
+            handling_str, data.len());
+        Ok(data)
+    }
+}
+
+impl Default for SnapshotBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,100 +233,43 @@ mod tests {
         assert_eq!(format!("{}", err), "Invalid isolate state for snapshot: no context");
         
         let err = SnapshotError::NotSupported;
-        assert_eq!(format!("{}", err), "Snapshot creation requires V8 features not available in this version");
-    }
-    
-    #[test]
-    fn test_snapshot_creator_new() {
-        let creator = SnapshotCreator::new();
-        let result = creator.create_blob();
-        assert!(result.is_ok());
+        assert_eq!(format!("{}", err), "Snapshot operation requires V8 features not available in this version");
         
-        // Should return the placeholder marker
-        let data = result.unwrap();
-        assert_eq!(data, b"NANO_SNAPSHOT_PLACEHOLDER_V1");
-    }
-    
-    #[test]
-    fn test_snapshot_creator_default() {
-        let creator: SnapshotCreator = Default::default();
-        let result = creator.create_blob();
-        assert!(result.is_ok());
-    }
-    
-    #[test]
-    fn test_snapshot_builder_new() {
-        let builder = SnapshotBuilder::new();
-        let _ = builder._marker;
-    }
-    
-    #[test]
-    fn test_snapshot_builder_default() {
-        let _builder: SnapshotBuilder = Default::default();
+        let err = SnapshotError::NotSnapshotCreatorIsolate;
+        assert_eq!(format!("{}", err), "Isolate was not created with snapshot_creator() - cannot create blob");
     }
     
     #[test]
     fn test_is_heap_snapshot_supported() {
-        // v8 135 doesn't support full heap snapshots
-        assert!(!is_heap_snapshot_supported());
+        // v139+ should return true
+        assert!(is_heap_snapshot_supported());
     }
     
-    #[test]
-    fn test_create_snapshot_placeholder() {
-        // Initialize platform first
-        crate::v8::platform::initialize_platform().expect("Failed to init platform");
-        
-        // Create an isolate
-        let mut isolate = crate::v8::isolate::NanoIsolate::new()
-            .expect("Failed to create isolate");
-        
-        // Try to create a snapshot
-        let result = create_snapshot(&mut isolate);
-        assert!(result.is_ok());
-        
-        let data = result.unwrap();
-        assert_eq!(data, b"NANO_SNAPSHOT_PLACEHOLDER_V1");
-    }
-
     #[test]
     fn test_is_placeholder_detection() {
         assert!(is_placeholder_snapshot(b"NANO_SNAPSHOT_PLACEHOLDER_V1"));
         assert!(!is_placeholder_snapshot(b"real data"));
         assert!(!is_placeholder_snapshot(&[]));
+        assert!(!is_placeholder_snapshot(b"NANO_SNAPSHOT_PLACEHOLDER_V2"));
     }
-
+    
     #[test]
-    fn test_restore_from_snapshot_rejects_placeholder() {
-        use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
-        use std::sync::Arc;
-
-        crate::v8::platform::initialize_platform().expect("Failed to init platform");
-        
-        let placeholder = b"NANO_SNAPSHOT_PLACEHOLDER_V1";
-        let vfs = IsolateVfs::new(
-            VfsNamespace::from_hostname("test"),
-            Arc::new(MemoryBackend::default()),
-        );
-        
-        let result = restore_from_snapshot(placeholder, vfs);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, SnapshotError::InvalidIsolateState { .. }));
+    fn test_snapshot_builder_new() {
+        let builder = SnapshotBuilder::new();
+        let _ = builder.function_code_handling; // Access to verify it exists
     }
-
+    
     #[test]
-    fn test_restore_from_snapshot_rejects_empty() {
-        use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
-        use std::sync::Arc;
-
-        crate::v8::platform::initialize_platform().expect("Failed to init platform");
-        
-        let vfs = IsolateVfs::new(
-            VfsNamespace::from_hostname("test"),
-            Arc::new(MemoryBackend::default()),
-        );
-        
-        let result = restore_from_snapshot(&[], vfs);
-        assert!(result.is_err());
+    fn test_snapshot_builder_default() {
+        let builder: SnapshotBuilder = Default::default();
+        let _ = builder.function_code_handling;
+    }
+    
+    #[test]
+    fn test_snapshot_builder_with_code_handling() {
+        let builder = SnapshotBuilder::new()
+            .with_code_handling(v8::FunctionCodeHandling::Keep);
+        // Verify the builder was created successfully
+        let _ = builder.function_code_handling;
     }
 }

@@ -149,35 +149,32 @@ impl NanoIsolate {
     /// # Platform Requirement
     /// The V8 platform MUST be initialized before calling this function.
     pub fn from_snapshot(
-        _snapshot_data: &[u8],
+        snapshot_data: &[u8],
         vfs: IsolateVfs,
     ) -> Result<Self> {
-        // Note: In v135, the full snapshot restoration API is not publicly exposed.
-        // This implementation attempts to use available startup snapshot APIs.
-        // For now, we create a fresh isolate as a fallback.
+        // Check for placeholder (legacy sliver format)
+        if snapshot_data == b"NANO_SNAPSHOT_PLACEHOLDER_V1" {
+            // Legacy format - create fresh isolate
+            tracing::warn!("Restoring from placeholder snapshot (legacy sliver) - creating fresh isolate");
+            return Self::new_with_vfs(vfs);
+        }
         
-        // Create the isolate with default params
-        let mut isolate = v8::Isolate::new(Default::default());
-
-        // Create the EPT fix sentinel (same as new_with_vfs)
-        let sentinel = {
-            let scope = &mut v8::HandleScope::new(&mut isolate);
-            let undefined = v8::undefined(scope);
-            let value: v8::Local<v8::Value> = undefined.into();
-            v8::Global::new(scope, value)
-        };
-
-        tracing::info!(
-            "Created NanoIsolate from snapshot placeholder ({} bytes provided)",
-            _snapshot_data.len()
-        );
-
-        Ok(Self {
-            sentinel,
-            isolate,
-            _not_send_sync: PhantomData,
-            vfs,
-        })
+        // Check for invalid/empty snapshot data
+        if snapshot_data.len() < 8 {
+            tracing::warn!("Snapshot data too small ({} bytes) - creating fresh isolate", snapshot_data.len());
+            return Self::new_with_vfs(vfs);
+        }
+        
+        // Check if the data looks like a valid V8 snapshot
+        // V8 snapshots have a specific magic number at the start
+        // For safety, we currently only support placeholder snapshots
+        // Real V8 snapshot integration requires more careful handling
+        tracing::warn!("Non-placeholder snapshot detected ({} bytes) - V8 snapshot integration requires valid snapshot blob", 
+            snapshot_data.len());
+        
+        // For now, create fresh isolate (safer than trying to load potentially invalid snapshot)
+        // TODO: Implement proper V8 snapshot validation and loading
+        Self::new_with_vfs(vfs)
     }
 
     /// Get a reference to the VFS
@@ -220,6 +217,109 @@ impl NanoIsolate {
     /// Prefer using the provided methods when possible.
     pub fn isolate(&mut self) -> &mut v8::OwnedIsolate {
         &mut self.isolate
+    }
+    
+    /// Consume the NanoIsolate and return the inner OwnedIsolate
+    ///
+    /// This is used for snapshot creation - the OwnedIsolate can be
+    /// passed to `create_blob()` to serialize the heap state.
+    ///
+    /// Note: The EPT sentinel and VFS are properly dropped, only the
+    /// isolate is extracted for snapshotting.
+    pub fn into_inner(self) -> v8::OwnedIsolate {
+        use std::mem::ManuallyDrop;
+        
+        // Wrap fields in ManuallyDrop to prevent automatic dropping
+        // when we destructure self
+        let mut this = ManuallyDrop::new(self);
+        
+        // SAFETY: We're extracting isolate and will properly drop other fields
+        unsafe {
+            // Extract the isolate
+            let isolate = std::ptr::read(&this.isolate);
+            
+            // Explicitly drop the other fields
+            std::ptr::drop_in_place(&mut this.sentinel);
+            std::ptr::drop_in_place(&mut this.vfs);
+            // _not_send_sync is Copy (PhantomData), no need to drop
+            
+            isolate
+        }
+    }
+    
+    /// Create a NanoIsolate using the snapshot creator workflow
+    ///
+    /// This creates an isolate that can later be serialized to a snapshot blob.
+    /// Use this constructor when you intend to create a sliver snapshot.
+    ///
+    /// The isolate will have a default context automatically set up for snapshotting.
+    ///
+    /// # Example
+    /// ```
+    /// use nano::v8::{initialize_platform, NanoIsolate};
+    /// use nano::v8::snapshot::create_snapshot_from_nano;
+    ///
+    /// initialize_platform().unwrap();
+    /// 
+    /// // Create isolate for snapshotting with default context
+    /// let isolate = NanoIsolate::snapshot_creator().unwrap();
+    /// 
+    /// // Create snapshot blob (required before dropping snapshot_creator isolate)
+    /// let blob = create_snapshot_from_nano(isolate).unwrap();
+    /// assert!(!blob.is_empty());
+    /// ```
+    pub fn snapshot_creator() -> Result<Self> {
+        // Create default VFS
+        let vfs = IsolateVfs::new(
+            VfsNamespace::from_hostname("snapshot"),
+            Arc::new(MemoryBackend::default()),
+        );
+        Self::snapshot_creator_with_vfs(vfs)
+    }
+    
+    /// Create a NanoIsolate using snapshot creator with specific VFS
+    ///
+    /// This is the primary constructor for creating sliver snapshots.
+    /// The resulting isolate can be serialized via `create_blob()`.
+    /// A default context is automatically set up for snapshotting.
+    ///
+    /// # Arguments
+    ///
+    /// * `vfs` - The IsolateVfs to use for this isolate's filesystem
+    pub fn snapshot_creator_with_vfs(vfs: IsolateVfs) -> Result<Self> {
+        // Create isolate using snapshot_creator API (v139+)
+        let mut isolate = v8::Isolate::snapshot_creator(None, None);
+        
+        // Create a default context for the snapshot
+        // V8 requires a default context to be set before create_blob() can work
+        let sentinel = {
+            let handle_scope = &mut v8::HandleScope::new(&mut isolate);
+            
+            // Create a default context
+            let context = v8::Context::new(handle_scope, Default::default());
+            
+            // Enter the context and set it as default for snapshotting
+            let context_scope = &mut v8::ContextScope::new(handle_scope, context);
+            
+            // Set as default context (required for snapshot creation)
+            context_scope.set_default_context(context);
+            
+            // Create the EPT fix sentinel within the context scope
+            let undefined = v8::undefined(context_scope);
+            let value: v8::Local<v8::Value> = undefined.into();
+            let sentinel = v8::Global::new(context_scope, value);
+            
+            sentinel
+        };
+        
+        tracing::debug!("Created NanoIsolate using snapshot_creator with default context (snapshottable)");
+        
+        Ok(Self {
+            sentinel,
+            isolate,
+            _not_send_sync: PhantomData,
+            vfs,
+        })
     }
 
     /// Set V8 heap limits for memory constraint enforcement
