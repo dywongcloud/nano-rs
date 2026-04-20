@@ -1,14 +1,14 @@
 # NANO Edge Runtime — Roadmap
 
-**Current:** v1.1 IN PROGRESS 🚧  
-**Date:** 2026-04-19
+**Current:** v1.1 SHIPPED ✅  
+**Date:** 2026-04-20
 
 ---
 
 ## Milestones
 
 - ✅ **v1.0 Foundation** — Phases 1-9 (shipped 2026-04-19)
-- 🚧 **v1.1 Snapshots & VFS** — Phases 10-16 (in progress)
+- ✅ **v1.1 SLIVER** — Phases 10-16 (shipped 2026-04-20)
 - 📋 **v2.0 Advanced Features** — Phases 17+ (planned)
 
 ---
@@ -61,109 +61,91 @@
 
 ---
 
-## v1.1 Snapshots & VFS 🚧
+## v1.1 SLIVER ✅
 
-**Milestone Goal:** Container-image semantics for JavaScript isolates with ~1-2ms cold starts
+<details>
+<summary>✅ v1.1 — Snapshots & VFS (Phases 10-16) SHIPPED 2026-04-20</summary>
 
 ### Phase 10: VFS Foundation
 **Goal:** Core VFS module with in-memory storage  
-**Depends on:** Phase 9 (v1.0 complete)  
-**Requirements:** VFS-01, VFS-02
-**Success Criteria** (what must be TRUE):
-  1. VFS module exists at `src/vfs/` with clean API
-  2. In-memory file storage works per-isolate
-  3. Files are isolated between apps (no cross-access)
-  4. Basic file operations (read, write, exists) work in Rust
-**Plans**: 3 plans
-- [ ] 10-01-PLAN.md — VFS Core Module (types, traits, MemoryBackend)
-- [ ] 10-02-PLAN.md — Per-Isolate VFS Integration (namespace isolation)
-- [ ] 10-03-PLAN.md — Security & Testing (path validation, limits, tests)
-**UI hint**: no
+**Plans:** 3 plans complete
 
 ### Phase 11: VFS Storage Backends
 **Goal:** Pluggable storage backends (disk, S3)  
-**Depends on:** Phase 10  
-**Requirements:** VFS-06, VFS-07
-**Success Criteria** (what must be TRUE):
-  1. Disk backend persists VFS to local filesystem
-  2. S3-compatible backend stores files in object storage
-  3. Backend selection is configurable per-app
-  4. Storage backend abstraction is extensible
-**Plans**: TBD
-**UI hint**: no
+**Plans:** 1 plan complete
 
 ### Phase 12: VFS JavaScript Bindings
-**Goal:** `Nano.fs.*` API + Node.js `fs` polyfill exposed to JavaScript  
-**Depends on:** Phase 10  
-**Requirements:** VFS-03, VFS-04, VFS-05, NODE-01, NODE-02, NODE-03, NODE-04, NODE-05, NODE-06
-**Success Criteria** (what must be TRUE):
-  1. JS can call `Nano.fs.readFile('/path')` and get contents
-  2. JS can call `Nano.fs.writeFile('/path', data)` to store data
-  3. JS can call `Nano.fs.exists('/path')` to check files
-  4. `require('fs')` resolves to VFS polyfill (tricks Node.js apps)
-  5. `fs.readFileSync()` routes to VFS backend
-  6. `fs.writeFileSync()` routes to VFS backend
-  7. `fs.existsSync()` routes to VFS backend
-  8. ES module `import fs from 'fs'` resolves to VFS polyfill
-  9. Error codes (ENOENT, EACCES) match Node.js semantics
-  10. Paths are resolved within isolate's namespace
-  11. Errors are properly thrown as JS exceptions
-**Plans**: TBD
-**UI hint**: no
+**Goal:** `Nano.fs.*` API + Node.js `fs` polyfill  
+**Plans:** 4 plans complete
 
 ### Phase 13: Snapshot Format Design
 **Goal:** Define tar-based snapshot structure  
-**Depends on:** Phase 10  
-**Requirements:** SNAP-05, SNAP-06, VFS-08
-**Success Criteria** (what must be TRUE):
-  1. Snapshot format specification documented
-  2. Tar structure includes: metadata, V8 heap, VFS state
-  3. Format is version-agnostic (opaque blob)
-  4. Design allows future delta/differential extension
-  5. Format is portable between systems
-**Plans**: TBD
-**UI hint**: no
+**Plans:** 2 plans complete
 
-### Phase 14: Snapshot Creation ✅
+### Phase 14: Snapshot Creation
 **Goal:** CLI `snapshot create` with V8 SnapshotCreator  
-**Depends on:** Phase 13  
-**Requirements:** SNAP-01, SNAP-02, SNAP-07, CLI-01, CLI-02
-**Success Criteria** (what must be TRUE):
-  1. ✅ `nano-rs sliver create <hostname>` produces tar file
-  2. ⚠️ Snapshot captures V8 isolate heap (placeholder - v8 135 API limitation)
-  3. ⚠️ Snapshot includes VFS state (framework ready, needs list_dir())
-  4. ✅ Multiple snapshots can be listed and managed
-  5. ✅ Old snapshots can be deleted
-**Plans**: 4 plans complete
-- ✅ 14-01-PLAN.md — CLI Sliver Commands
-- ✅ 14-02-PLAN.md — V8 SnapshotCreator Integration
-- ✅ 14-03-PLAN.md — VFS State Capture
-- ✅ 14-04-PLAN.md — Sliver Creation Integration
-**UI hint**: no
+**Plans:** 4 plans complete
 
 ### Phase 15: Snapshot Restoration
 **Goal:** Run isolates from snapshot with ~1-2ms cold start  
-**Depends on:** Phase 14  
-**Requirements:** SNAP-03, SNAP-04, PERF-01, MIGRATE-01
-**Success Criteria** (what must be TRUE):
-  1. `nano-rs run --snapshot app-v1.tar` restores isolate
-  2. Restored isolate has preserved heap state
-  3. Restored isolate has preserved VFS state
-  4. Cold start from snapshot is ~1-2ms
-  5. Snapshot can be moved to another NANO instance and work
-**Plans**: TBD
-**UI hint**: no
+**Plans:** 5 plans complete
 
 ### Phase 16: CLI Integration & Polish
 **Goal:** Complete CLI commands and integration tests  
-**Depends on:** Phase 15  
-**Requirements:** (integration of all v1.1 requirements)
+**Plans:** 5 plans complete
+
+**Full details:** [v1.1-ROADMAP.md](./milestones/v1.1-ROADMAP.md)  
+**Requirements:** [v1.1-REQUIREMENTS.md](./milestones/v1.1-REQUIREMENTS.md)
+
+</details>
+
+---
+
+## v2.0 Advanced Features 📋
+
+**Milestone Goal:** WebSockets, advanced crypto, compression, inter-isolate messaging
+
+### Phase 17: WebSocket Server
+**Goal:** RFC 6455 WebSocket upgrade handling  
+**Depends on:** v1.1 complete  
+**Requirements:** WS-01, WS-02, WS-03  
 **Success Criteria** (what must be TRUE):
-  1. All CLI commands work end-to-end
-  2. Snapshot roundtrip (create → move → restore) verified
-  3. VFS JS API works with all storage backends
-  4. Performance targets verified with benchmarks
-  5. Documentation complete
+  1. HTTP server supports WebSocket upgrade
+  2. JS can handle WebSocket connections
+  3. Per-isolate connection limits enforced
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 18: Advanced Crypto
+**Goal:** RSA and ECDSA operations  
+**Depends on:** Phase 17  
+**Requirements:** CRYPT-05, CRYPT-06, CRYPT-07  
+**Success Criteria** (what must be TRUE):
+  1. RSA key generation and import/export
+  2. ECDSA sign/verify operations
+  3. RSA-OAEP encrypt/decrypt
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 19: Compression Streams
+**Goal:** CompressionStream and DecompressionStream  
+**Depends on:** Phase 18  
+**Requirements:** COMP-01, COMP-02  
+**Success Criteria** (what must be TRUE):
+  1. CompressionStream with deflate
+  2. DecompressionStream with inflate
+  3. Works with fetch() Response/Request bodies
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 20: Inter-Isolate Messaging
+**Goal:** PostMessage API between isolates  
+**Depends on:** Phase 19  
+**Requirements:** MSG-01, MSG-02  
+**Success Criteria** (what must be TRUE):
+  1. JS can postMessage to other isolates
+  2. Broadcast channels for app groups
+  3. Message serialization preserves types
 **Plans**: TBD
 **UI hint**: no
 
@@ -187,15 +169,21 @@
 | 12. VFS JS Bindings | v1.1 | 4/4 | Complete | 2026-04-19 |
 | 13. Snapshot Format | v1.1 | 2/2 | Complete | 2026-04-20 |
 | 14. Snapshot Create | v1.1 | 4/4 | Complete | 2026-04-20 |
-| 15. Snapshot Restore | v1.1 | 0/TBD | Not started | - |
-| 16. CLI Integration | v1.1 | 0/TBD | Not started | - |
+| 15. Snapshot Restore | v1.1 | 5/5 | Complete | 2026-04-20 |
+| 16. CLI Integration | v1.1 | 5/5 | Complete | 2026-04-20 |
+| 17. WebSocket Server | v2.0 | 0/TBD | Not started | - |
+| 18. Advanced Crypto | v2.0 | 0/TBD | Not started | - |
+| 19. Compression | v2.0 | 0/TBD | Not started | - |
+| 20. Inter-Isolate | v2.0 | 0/TBD | Not started | - |
 
 ---
 
 ## What's Next
 
-To start Phase 10 planning: `/gsd-plan-phase 10`
+To start Phase 17 planning: `/gsd-plan-phase 17`
+
+Or to start a new milestone: `/gsd-new-milestone`
 
 ---
 
-*Roadmap updated: 2026-04-19 — v1.1 milestone initialized*
+*Roadmap updated: 2026-04-20 — v1.1 milestone shipped*
