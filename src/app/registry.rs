@@ -71,6 +71,9 @@ mod tests {
             entrypoint: format!("./{}.js", hostname),
             env_vars: HashMap::new(),
             limits: crate::config::AppLimits::default(),
+            vfs_backend: Default::default(),
+            vfs_disk: None,
+            vfs_s3: None,
         }
     }
 

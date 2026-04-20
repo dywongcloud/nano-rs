@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 // Re-export all types
 pub mod disk;
+pub mod factory;
 pub mod isolate;
 pub mod memory;
 pub mod types;
@@ -31,6 +32,7 @@ pub mod types;
 pub mod s3;
 
 pub use disk::DiskBackend;
+pub use factory::BackendFactory;
 pub use isolate::{IsolateVfs, VfsNamespace};
 pub use memory::MemoryBackend;
 pub use security::{PathValidator, ResourceLimiter};

@@ -162,6 +162,9 @@ mod tests {
                     entrypoint: format!("./{}.js", h),
                     env_vars: HashMap::new(),
                     limits: AppLimits::default(),
+                    vfs_backend: Default::default(),
+                    vfs_disk: None,
+                    vfs_s3: None,
                 };
                 (h.to_string(), app)
             })

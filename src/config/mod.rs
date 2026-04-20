@@ -24,6 +24,52 @@ use std::path::Path;
 pub mod loader;
 pub mod watcher;
 
+/// VFS backend type selection
+///
+/// Determines which storage backend is used for this application's
+/// virtual file system.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VfsBackendType {
+    /// In-memory storage (default, ephemeral)
+    #[default]
+    Memory,
+    /// Local filesystem persistence
+    Disk,
+    /// S3-compatible object storage (requires vfs-s3 feature)
+    S3,
+}
+
+/// Configuration for disk VFS backend
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct VfsDiskConfig {
+    /// Base directory for file storage
+    pub base_path: String,
+}
+
+/// Configuration for S3 VFS backend
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct VfsS3Config {
+    /// S3 endpoint URL (e.g., "https://s3.amazonaws.com" or "http://localhost:9000")
+    pub endpoint: String,
+    /// S3 bucket name
+    pub bucket: String,
+    /// AWS region (e.g., "us-east-1")
+    pub region: String,
+    /// Access key ID
+    pub access_key: String,
+    /// Secret access key
+    pub secret_key: String,
+    /// Optional key prefix for all objects
+    #[serde(default)]
+    pub prefix: Option<String>,
+    /// Use path-style URLs (true for MinIO, false for AWS)
+    #[serde(default)]
+    pub path_style: bool,
+}
+
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -38,6 +84,29 @@ pub struct AppConfig {
     /// Resource limits
     #[serde(default)]
     pub limits: AppLimits,
+    /// VFS backend type (default: memory)
+    #[serde(default)]
+    pub vfs_backend: VfsBackendType,
+    /// Disk backend configuration (required when vfs_backend = disk)
+    #[serde(default)]
+    pub vfs_disk: Option<VfsDiskConfig>,
+    /// S3 backend configuration (required when vfs_backend = s3)
+    #[serde(default)]
+    pub vfs_s3: Option<VfsS3Config>,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            hostname: String::new(),
+            entrypoint: String::new(),
+            env_vars: HashMap::new(),
+            limits: AppLimits::default(),
+            vfs_backend: VfsBackendType::default(),
+            vfs_disk: None,
+            vfs_s3: None,
+        }
+    }
 }
 
 /// Validation errors container
@@ -281,6 +350,44 @@ pub fn validate_config(config: &AppConfig, base_path: Option<&std::path::Path>) 
         }
     }
 
+    // Validate VFS backend configuration
+    match config.vfs_backend {
+        VfsBackendType::Memory => {
+            // Memory backend requires no additional config
+        }
+        VfsBackendType::Disk => {
+            if config.vfs_disk.is_none() {
+                errors.add("vfs_backend is 'disk' but vfs_disk configuration is missing");
+            } else {
+                let disk_config = config.vfs_disk.as_ref().unwrap();
+                if disk_config.base_path.is_empty() {
+                    errors.add("vfs_disk.base_path cannot be empty");
+                } else if disk_config.base_path.contains("..") {
+                    errors.add("vfs_disk.base_path contains '..' which is not allowed for security");
+                }
+            }
+        }
+        VfsBackendType::S3 => {
+            if config.vfs_s3.is_none() {
+                errors.add("vfs_backend is 's3' but vfs_s3 configuration is missing");
+            } else {
+                let s3_config = config.vfs_s3.as_ref().unwrap();
+                if s3_config.endpoint.is_empty() {
+                    errors.add("vfs_s3.endpoint cannot be empty");
+                }
+                if s3_config.bucket.is_empty() {
+                    errors.add("vfs_s3.bucket cannot be empty");
+                }
+                if s3_config.access_key.is_empty() {
+                    errors.add("vfs_s3.access_key cannot be empty");
+                }
+                if s3_config.secret_key.is_empty() {
+                    errors.add("vfs_s3.secret_key cannot be empty");
+                }
+            }
+        }
+    }
+
     if errors.is_empty() {
         Ok(())
     } else {
@@ -428,12 +535,18 @@ mod tests {
                     entrypoint: "/app1.js".to_string(),
                     env_vars: HashMap::new(),
                     limits: AppLimits::default(),
+                    vfs_backend: VfsBackendType::default(),
+                    vfs_disk: None,
+                    vfs_s3: None,
                 },
                 AppConfig {
                     hostname: "example.com".to_string(),
                     entrypoint: "/app2.js".to_string(),
                     env_vars: HashMap::new(),
                     limits: AppLimits::default(),
+                    vfs_backend: VfsBackendType::default(),
+                    vfs_disk: None,
+                    vfs_s3: None,
                 },
             ],
             server: ServerConfigSection::default(),
@@ -452,6 +565,9 @@ mod tests {
                 entrypoint: "".to_string(),
                 env_vars: HashMap::new(),
                 limits: AppLimits::default(),
+                vfs_backend: VfsBackendType::default(),
+                vfs_disk: None,
+                vfs_s3: None,
             }],
             server: ServerConfigSection::default(),
         };

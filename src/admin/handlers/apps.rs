@@ -338,6 +338,9 @@ pub async fn create_app(
         entrypoint: request.entrypoint.clone(),
         env_vars: request.env_vars.clone(),
         limits: request.limits.clone(),
+        vfs_backend: Default::default(),
+        vfs_disk: None,
+        vfs_s3: None,
     };
 
     // Validate the config
@@ -782,6 +785,9 @@ mod tests {
             entrypoint: "/app.js".to_string(),
             env_vars: HashMap::new(),
             limits: AppLimits::default(),
+            vfs_backend: Default::default(),
+            vfs_disk: None,
+            vfs_s3: None,
         };
 
         let info = config_to_info(&config, AppStatus::Active, "2026-04-19T21:41:09.123Z");
