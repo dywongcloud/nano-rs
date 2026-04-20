@@ -120,6 +120,45 @@ impl Default for MemoryBackend {
     }
 }
 
+impl MemoryBackend {
+    /// Get all stored files as (path, file) pairs for snapshot serialization
+    ///
+    /// This method is used by the sliver packer to capture the complete
+    /// VFS state for snapshot creation.
+    pub fn snapshot_entries(&self) -> Vec<(VfsPath, VfsFile)> {
+        self.storage
+            .iter()
+            .filter_map(|entry| {
+                let path_str = entry.key();
+                match VfsPath::new(path_str) {
+                    Ok(path) => {
+                        let file = entry.value().clone();
+                        Some((path, file))
+                    }
+                    Err(_) => None, // Skip invalid paths
+                }
+            })
+            .collect()
+    }
+
+    /// Restore entries from a snapshot
+    ///
+    /// Clears existing data and populates from the given entries.
+    /// Used by the sliver unpacker to restore VFS state.
+    pub fn restore_from_snapshot(&self, entries: &[(VfsPath, VfsFile)]) {
+        self.clear();
+        
+        let mut total_bytes: usize = 0;
+        for (path, file) in entries {
+            total_bytes += file.content.len();
+            self.storage.insert(path.as_str().to_string(), file.clone());
+        }
+        
+        self.file_count.store(entries.len(), Ordering::SeqCst);
+        self.total_bytes.store(total_bytes, Ordering::SeqCst);
+    }
+}
+
 #[async_trait]
 impl VfsBackend for MemoryBackend {
     async fn read(&self, path: &VfsPath) -> VfsResult<Vec<u8>> {
@@ -408,5 +447,87 @@ mod tests {
             let path = VfsPath::new(&format!("file{}.txt", i)).unwrap();
             assert!(backend.exists(&path).await.unwrap());
         }
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_entries() {
+        let backend = MemoryBackend::default();
+        
+        // Create some files
+        backend.write(&VfsPath::new("file1.txt").unwrap(), b"content1").await.unwrap();
+        backend.write(&VfsPath::new("dir/file2.txt").unwrap(), b"content2").await.unwrap();
+        backend.write(&VfsPath::new("empty.txt").unwrap(), b"").await.unwrap();
+
+        // Get snapshot entries
+        let entries = backend.snapshot_entries();
+        
+        assert_eq!(entries.len(), 3);
+        
+        // Check that all files are present
+        let paths: Vec<_> = entries.iter().map(|(p, _)| p.as_str().to_string()).collect();
+        assert!(paths.contains(&"file1.txt".to_string()));
+        assert!(paths.contains(&"dir/file2.txt".to_string()));
+        assert!(paths.contains(&"empty.txt".to_string()));
+        
+        // Verify content is preserved
+        let file1 = entries.iter().find(|(p, _)| p.as_str() == "file1.txt").unwrap();
+        assert_eq!(file1.1.content, b"content1");
+    }
+
+    #[tokio::test]
+    async fn test_restore_from_snapshot() {
+        let backend = MemoryBackend::default();
+        
+        // Create initial data
+        backend.write(&VfsPath::new("old.txt").unwrap(), b"old content").await.unwrap();
+        assert_eq!(backend.len(), 1);
+        
+        // Prepare snapshot entries
+        let entries = vec![
+            (VfsPath::new("new1.txt").unwrap(), VfsFile::new(b"new content 1".to_vec())),
+            (VfsPath::new("new2.txt").unwrap(), VfsFile::new(b"new content 2".to_vec())),
+        ];
+        
+        // Restore from snapshot
+        backend.restore_from_snapshot(&entries);
+        
+        // Verify old data is gone
+        assert!(!backend.exists(&VfsPath::new("old.txt").unwrap()).await.unwrap());
+        
+        // Verify new data is present
+        assert_eq!(backend.len(), 2);
+        assert!(backend.exists(&VfsPath::new("new1.txt").unwrap()).await.unwrap());
+        assert!(backend.exists(&VfsPath::new("new2.txt").unwrap()).await.unwrap());
+        
+        let content1 = backend.read(&VfsPath::new("new1.txt").unwrap()).await.unwrap();
+        assert_eq!(content1, b"new content 1");
+        
+        // Verify counters are correct
+        assert_eq!(backend.current_usage(), (2, 26)); // 2 files, 13+13 bytes
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_roundtrip() {
+        let backend = MemoryBackend::default();
+        
+        // Create files
+        backend.write(&VfsPath::new("config.json").unwrap(), b"{\"key\": \"value\"}").await.unwrap();
+        backend.write(&VfsPath::new("data/users.txt").unwrap(), b"user1\nuser2").await.unwrap();
+        
+        // Snapshot
+        let entries = backend.snapshot_entries();
+        
+        // Create new backend and restore
+        let new_backend = MemoryBackend::default();
+        new_backend.restore_from_snapshot(&entries);
+        
+        // Verify all data restored
+        assert_eq!(new_backend.len(), 2);
+        
+        let config = new_backend.read(&VfsPath::new("config.json").unwrap()).await.unwrap();
+        assert_eq!(config, b"{\"key\": \"value\"}");
+        
+        let users = new_backend.read(&VfsPath::new("data/users.txt").unwrap()).await.unwrap();
+        assert_eq!(users, b"user1\nuser2");
     }
 }
