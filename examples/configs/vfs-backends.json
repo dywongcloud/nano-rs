@@ -1,0 +1,57 @@
+{
+  "apps": [
+    {
+      "hostname": "api.example.com",
+      "entrypoint": "/apps/api/index.js",
+      "env_vars": {
+        "API_KEY": "secret123"
+      },
+      "limits": {
+        "memory_mb": 256,
+        "timeout_secs": 60,
+        "workers": 8
+      },
+      "vfs_backend": "disk",
+      "vfs_disk": {
+        "base_path": "/data/nano/api"
+      }
+    },
+    {
+      "hostname": "blog.example.com",
+      "entrypoint": "/apps/blog/index.js",
+      "env_vars": {
+        "DB_URL": "postgres://localhost/blog"
+      },
+      "limits": {
+        "memory_mb": 128,
+        "timeout_secs": 30,
+        "workers": 4
+      },
+      "vfs_backend": "s3",
+      "vfs_s3": {
+        "endpoint": "http://localhost:9000",
+        "bucket": "nano-vfs",
+        "region": "us-east-1",
+        "access_key": "minioadmin",
+        "secret_key": "minioadmin",
+        "prefix": "blog",
+        "path_style": true
+      }
+    },
+    {
+      "hostname": "cache.example.com",
+      "entrypoint": "/apps/cache/index.js",
+      "env_vars": {},
+      "limits": {
+        "memory_mb": 64,
+        "timeout_secs": 10,
+        "workers": 2
+      },
+      "vfs_backend": "memory"
+    }
+  ],
+  "server": {
+    "port": 8080,
+    "host": "0.0.0.0"
+  }
+}
