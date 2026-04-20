@@ -267,7 +267,6 @@ impl Drop for WorkerHandle {
 /// Each WorkerPool has a shared VFS backend that all workers in the pool
 /// share. This means files written by one worker are visible to other
 /// workers in the same pool (same app), but isolated from other pools.
-#[derive(Debug)]
 pub struct WorkerPool {
     /// Worker handles for all threads in the pool
     workers: Vec<WorkerHandle>,
@@ -278,7 +277,19 @@ pub struct WorkerPool {
     /// Round-robin counter for dispatch
     next_worker: AtomicUsize,
     /// Shared VFS backend for all workers in this pool
-    vfs_backend: Arc<MemoryBackend>,
+    vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
+}
+
+impl std::fmt::Debug for WorkerPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerPool")
+            .field("workers", &self.workers.len())
+            .field("worker_count", &self.worker_count)
+            .field("hostname", &self.hostname)
+            .field("next_worker", &self.next_worker)
+            .field("vfs_backend", &"<dyn VfsBackend>")
+            .finish()
+    }
 }
 
 impl WorkerPool {
@@ -303,16 +314,40 @@ impl WorkerPool {
     ///
     /// Panics if the V8 platform is not initialized
     pub fn new(hostname: String, worker_count: usize, memory_limit_mb: u32) -> Self {
+        Self::with_backend(hostname, worker_count, memory_limit_mb, Arc::new(MemoryBackend::default()))
+    }
+
+    /// Create a new worker pool with a specific VFS backend
+    ///
+    /// This allows configuring the storage backend (memory, disk, S3)
+    /// for the VFS used by all workers in this pool.
+    ///
+    /// # Arguments
+    ///
+    /// * `hostname` - Hostname this pool serves (for logging)
+    /// * `worker_count` - Number of worker threads to spawn
+    /// * `memory_limit_mb` - Memory limit per isolate in MB (0 = no limit)
+    /// * `vfs_backend` - The VFS backend to use (Arc<dyn VfsBackend>)
+    ///
+    /// # Returns
+    ///
+    /// A new WorkerPool with N workers ready to receive tasks
+    ///
+    /// # Panics
+    ///
+    /// Panics if the V8 platform is not initialized
+    pub fn with_backend(
+        hostname: String,
+        worker_count: usize,
+        memory_limit_mb: u32,
+        vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
+    ) -> Self {
         // Ensure platform is initialized
         if !crate::v8::is_initialized() {
             initialize_platform().expect("Failed to initialize V8 platform");
         }
 
         assert!(worker_count > 0, "Worker count must be at least 1");
-
-        // Create shared VFS backend for this pool
-        // All workers in this pool share the same backend
-        let vfs_backend = Arc::new(MemoryBackend::default());
 
         // Clone hostname for use in closures (original kept for final logging)
         let hostname_for_workers = hostname.clone();
@@ -530,7 +565,7 @@ impl WorkerPool {
     ///
     /// This is useful for testing and administrative operations
     /// that need to inspect or modify the filesystem.
-    pub fn vfs_backend(&self) -> &Arc<MemoryBackend> {
+    pub fn vfs_backend(&self) -> &Arc<dyn crate::vfs::VfsBackend> {
         &self.vfs_backend
     }
 
