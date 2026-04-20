@@ -15,8 +15,8 @@ name = "nano-rs"
 path = "src/main.rs"
 
 [dependencies]
-# Core V8 bindings (v137 for compatibility - minimal upgrade from v135)
-v8 = "137"
+# Core V8 bindings (v139 - conservative upgrade from v137)
+v8 = "139"
 
 # Async runtime
 tokio = { version = "1.52", features = ["full"] }
