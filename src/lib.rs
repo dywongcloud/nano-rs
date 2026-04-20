@@ -17,6 +17,7 @@ pub mod logging;
 pub mod signal;
 pub mod metrics;
 pub mod vfs;
+pub mod sliver;
 
 /// Library entry point for running the NANO runtime
 ///

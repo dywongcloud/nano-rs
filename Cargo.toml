@@ -87,6 +87,9 @@ rand = "0.8"
 rust-s3 = { version = "0.37", optional = true }
 tokio-util = { version = "0.7", features = ["io"], optional = true }
 
+# Tar archive format for sliver snapshots
+tar = "0.4"
+
 [features]
 default = []
 vfs-s3 = ["rust-s3", "tokio-util"]
