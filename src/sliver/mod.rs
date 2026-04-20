@@ -50,6 +50,7 @@ mod error;
 mod format;
 mod metadata;
 mod packer;
+pub mod restore;
 mod unpacker;
 pub mod vfs_capture;
 

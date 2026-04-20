@@ -58,6 +58,37 @@ impl UnpackedSliver {
             self.total_size()
         )
     }
+
+    /// Restore VFS entries to an IsolateVfs
+    ///
+    /// This populates the isolate's VFS with all files extracted
+    /// from the sliver archive.
+    ///
+    /// # Arguments
+    /// * `vfs` - The IsolateVfs to populate
+    ///
+    /// # Returns
+    /// SliverResult indicating success
+    pub async fn restore_to_vfs(&self, vfs: &crate::vfs::IsolateVfs) -> SliverResult<()> {
+        use crate::vfs::VfsBackend;
+
+        tracing::info!(
+            "Restoring {} VFS entries to isolate",
+            self.vfs_entries.len()
+        );
+
+        for (path, file) in &self.vfs_entries {
+            vfs.write(path, &file.content).await.map_err(|e| {
+                SliverError::VfsRestore {
+                    path: path.to_string(),
+                    reason: e.to_string(),
+                }
+            })?;
+        }
+
+        tracing::info!("VFS restoration complete");
+        Ok(())
+    }
 }
 
 /// Unpacker for sliver archives

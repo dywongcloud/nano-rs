@@ -40,6 +40,10 @@ pub enum SliverError {
     /// VFS entry type is unsupported
     #[error("Unsupported VFS entry type: {entry_type}")]
     UnsupportedEntryType { entry_type: String },
+
+    /// VFS restoration failed
+    #[error("Failed to restore VFS entry at {path}: {reason}")]
+    VfsRestore { path: String, reason: String },
 }
 
 impl From<serde_json::Error> for SliverError {
