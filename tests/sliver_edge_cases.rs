@@ -14,7 +14,7 @@ fn create_test_sliver(path: &std::path::Path, hostname: &str) -> Vec<u8> {
     
     let mut builder = Builder::new(Vec::new());
     
-    // Metadata
+    // Metadata - use correct filename from sliver format
     let metadata = serde_json::json!({
         "format_version": "1.0",
         "hostname": hostname,
@@ -24,8 +24,9 @@ fn create_test_sliver(path: &std::path::Path, hostname: &str) -> Vec<u8> {
     });
     
     let mut header = Header::new_gnu();
-    header.set_path("metadata.json").unwrap();
+    header.set_path("meta.json").unwrap();
     header.set_size(metadata.to_string().len() as u64);
+    header.set_cksum();
     builder.append(&header, metadata.to_string().as_bytes()).unwrap();
     
     // Heap
@@ -33,6 +34,7 @@ fn create_test_sliver(path: &std::path::Path, hostname: &str) -> Vec<u8> {
     let mut header = Header::new_gnu();
     header.set_path("heap.bin").unwrap();
     header.set_size(heap.len() as u64);
+    header.set_cksum();
     builder.append(&header, heap.as_slice()).unwrap();
     
     let data = builder.into_inner().unwrap();
@@ -54,6 +56,7 @@ fn create_corrupted_sliver(path: &std::path::Path, corruption_type: &str) {
             let mut header = Header::new_gnu();
             header.set_path("heap.bin").unwrap();
             header.set_size(heap.len() as u64);
+            header.set_cksum();
             builder.append(&header, heap.as_slice()).unwrap();
             let data = builder.into_inner().unwrap();
             std::fs::write(path, data).unwrap();
@@ -62,8 +65,9 @@ fn create_corrupted_sliver(path: &std::path::Path, corruption_type: &str) {
             let mut builder = Builder::new(Vec::new());
             let metadata = r#"{"format_version":"1.0","hostname":"test.example.com","name":"test","created_at":"2026-04-20T00:00:00Z","nano_version":"1.1.0"}"#;
             let mut header = Header::new_gnu();
-            header.set_path("metadata.json").unwrap();
+            header.set_path("meta.json").unwrap();  // Use correct filename
             header.set_size(metadata.len() as u64);
+            header.set_cksum();
             builder.append(&header, metadata.as_bytes()).unwrap();
             let data = builder.into_inner().unwrap();
             std::fs::write(path, data).unwrap();
@@ -72,13 +76,15 @@ fn create_corrupted_sliver(path: &std::path::Path, corruption_type: &str) {
             let mut builder = Builder::new(Vec::new());
             let bad_json = "not valid json";
             let mut header = Header::new_gnu();
-            header.set_path("metadata.json").unwrap();
+            header.set_path("meta.json").unwrap();  // Use correct filename
             header.set_size(bad_json.len() as u64);
+            header.set_cksum();
             builder.append(&header, bad_json.as_bytes()).unwrap();
             let heap = vec![0u8; 1024];
             let mut header = Header::new_gnu();
             header.set_path("heap.bin").unwrap();
             header.set_size(heap.len() as u64);
+            header.set_cksum();
             builder.append(&header, heap.as_slice()).unwrap();
             let data = builder.into_inner().unwrap();
             std::fs::write(path, data).unwrap();
@@ -245,7 +251,7 @@ mod tests {
         
         let mut builder = Builder::new(Vec::new());
         
-        // Metadata
+        // Metadata - use correct filename
         let metadata = serde_json::json!({
             "format_version": "1.0",
             "hostname": "many.example.com",
@@ -255,8 +261,9 @@ mod tests {
         });
         
         let mut header = Header::new_gnu();
-        header.set_path("metadata.json").unwrap();
+        header.set_path("meta.json").unwrap();
         header.set_size(metadata.to_string().len() as u64);
+        header.set_cksum();
         builder.append(&header, metadata.to_string().as_bytes()).unwrap();
         
         // Heap
@@ -264,6 +271,7 @@ mod tests {
         let mut header = Header::new_gnu();
         header.set_path("heap.bin").unwrap();
         header.set_size(heap.len() as u64);
+        header.set_cksum();
         builder.append(&header, heap.as_slice()).unwrap();
         
         // Add 100 small files
@@ -272,6 +280,7 @@ mod tests {
             let mut header = Header::new_gnu();
             header.set_path(format!("vfs/file-{:03}.txt", i)).unwrap();
             header.set_size(content.len() as u64);
+            header.set_cksum();
             builder.append(&header, content.as_bytes()).unwrap();
         }
         
@@ -285,7 +294,7 @@ mod tests {
         let file = std::fs::File::open(&sliver_path).unwrap();
         let mut archive = tar::Archive::new(file);
         let count = archive.entries().unwrap().count();
-        assert_eq!(count, 102); // metadata + heap + 100 files
+        assert_eq!(count, 102); // meta.json + heap.bin + 100 files
     }
 
     #[test]

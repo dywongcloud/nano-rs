@@ -164,10 +164,9 @@ fn test_aes_gcm_different_key_lengths() {
     assert_eq!(result_str, "true", "Both 128-bit and 256-bit AES-GCM should work");
 }
 
-// TODO: Implement AES-GCM authentication tag verification
-// Currently decrypt doesn't verify the auth tag, so tampering isn't detected
+/// Test that AES-GCM correctly detects tampered ciphertext
+/// This verifies the authentication tag is properly checked during decryption
 #[test]
-#[ignore = "Pending: AES-GCM auth tag verification not yet implemented"]
 fn test_aes_gcm_tampered_ciphertext_fails() {
     init_platform();
     
@@ -350,10 +349,9 @@ fn test_aes_gcm_jwk_import_export() {
     assert_eq!(result_str, "true", "AES-GCM JWK import/export should work");
 }
 
-// TODO: Implement non-extractable key enforcement in exportKey
-// Currently exportKey doesn't check the extractable flag
+/// Test that non-extractable keys cannot be exported
+/// Verifies the extractable flag is enforced by exportKey
 #[test]
-#[ignore = "Pending: Non-extractable key enforcement not yet implemented"]
 fn test_non_extractable_key_cannot_export() {
     init_platform();
     

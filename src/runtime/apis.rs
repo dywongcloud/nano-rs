@@ -1276,32 +1276,37 @@ fn create_crypto_key_js<'s>(
 ) -> Option<v8::Local<'s, v8::Object>> {
     let obj = v8::Object::new(scope);
     
+    // Read properties from key BEFORE boxing it
+    let extractable = key.extractable;
+    let algorithm = key.algorithm.clone();
+    let usages: Vec<_> = key.usages.clone();
+    let type_str = key.key_type();
+    
     // Store the actual CryptoKey in an internal field using external
-    // For now, we'll store a reference as a hidden property
     let key_ptr = Box::into_raw(Box::new(key));
     let external = v8::External::new(scope, key_ptr as *mut std::ffi::c_void);
     let external_key = v8::String::new(scope, "__crypto_key_ptr__").unwrap();
     obj.set(scope, external_key.into(), external.into());
     
-    // Set type property (always "secret" for symmetric keys)
+    // Set type property
     let type_key = v8::String::new(scope, "type").unwrap();
-    let type_val = v8::String::new(scope, "secret").unwrap();
+    let type_val = v8::String::new(scope, type_str).unwrap();
     obj.set(scope, type_key.into(), type_val.into());
     
     // Set extractable property
     let extractable_key = v8::String::new(scope, "extractable").unwrap();
-    let extractable_val = v8::Boolean::new(scope, unsafe { (*key_ptr).extractable });
+    let extractable_val = v8::Boolean::new(scope, extractable);
     obj.set(scope, extractable_key.into(), extractable_val.into());
     
     // Set algorithm property
     let algorithm_key = v8::String::new(scope, "algorithm").unwrap();
-    let algorithm_obj = create_algorithm_js(scope, unsafe { &(*key_ptr).algorithm })?;
+    let algorithm_obj = create_algorithm_js(scope, &algorithm)?;
     obj.set(scope, algorithm_key.into(), algorithm_obj.into());
     
     // Set usages property
     let usages_key = v8::String::new(scope, "usages").unwrap();
-    let usages_arr = v8::Array::new(scope, unsafe { (*key_ptr).usages.len() as i32 });
-    for (i, usage) in unsafe { (*key_ptr).usages.iter().enumerate() } {
+    let usages_arr = v8::Array::new(scope, usages.len() as i32);
+    for (i, usage) in usages.iter().enumerate() {
         let usage_str = v8::String::new(scope, usage.as_str()).unwrap();
         let idx = v8::Number::new(scope, i as f64);
         usages_arr.set(scope, idx.into(), usage_str.into());
@@ -1541,13 +1546,13 @@ fn subtle_export_key(
                     } else {
                         let msg = v8::String::new(scope, "Failed to create JWK object").unwrap();
                         let error = v8::Exception::error(scope, msg);
-                        retval.set(error);
+                        scope.throw_exception(error);
                     }
                 }
                 Err(e) => {
                     let msg = v8::String::new(scope, &e.to_string()).unwrap();
                     let error = v8::Exception::error(scope, msg);
-                    retval.set(error);
+                    scope.throw_exception(error);
                 }
             }
         }
@@ -1681,7 +1686,7 @@ fn subtle_encrypt(
         Err(e) => {
             let msg = v8::String::new(scope, &e.to_string()).unwrap();
             let error = v8::Exception::error(scope, msg);
-            retval.set(error);
+            scope.throw_exception(error);
         }
     }
 }
@@ -1806,7 +1811,7 @@ fn subtle_decrypt(
         Err(e) => {
             let msg = v8::String::new(scope, &e.to_string()).unwrap();
             let error = v8::Exception::error(scope, msg);
-            retval.set(error);
+            scope.throw_exception(error);
         }
     }
 }
@@ -1939,7 +1944,7 @@ fn subtle_sign(
         Err(e) => {
             let msg = v8::String::new(scope, &e.to_string()).unwrap();
             let error = v8::Exception::error(scope, msg);
-            retval.set(error);
+            scope.throw_exception(error);
         }
     }
 }
@@ -2018,7 +2023,7 @@ fn subtle_verify(
         Err(e) => {
             let msg = v8::String::new(scope, &e.to_string()).unwrap();
             let error = v8::Exception::error(scope, msg);
-            retval.set(error);
+            scope.throw_exception(error);
         }
     }
 }

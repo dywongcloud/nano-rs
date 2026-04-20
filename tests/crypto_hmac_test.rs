@@ -270,6 +270,8 @@ fn test_hmac_jwk_import_export() {
     assert_eq!(result_str, "true", "HMAC JWK import/export should work");
 }
 
+/// Test that key usage restrictions are enforced
+/// Keys without 'verify' usage should not be able to verify signatures
 #[test]
 fn test_hmac_key_usage_validation() {
     init_platform();

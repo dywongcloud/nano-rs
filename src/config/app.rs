@@ -273,8 +273,7 @@ impl std::error::Error for ValidationErrors {}
 /// let config = AppConfig {
 ///     hostname: "api.example.com".to_string(),
 ///     entrypoint: "/app/index.js".to_string(),
-///     env_vars: Default::default(),
-///     limits: Default::default(),
+///     ..Default::default()
 /// };
 ///
 /// // Validate without entrypoint existence check (for testing)

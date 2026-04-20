@@ -297,10 +297,27 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
 /// Handle sliver management commands
 async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
     use nano::sliver::{pack_sliver, SliverMetadata, unpack_sliver, validate_sliver};
+    use cli::validation::{validate_hostname, validate_sliver_name, validate_tag};
     
     match cmd {
         cli::SliverCommand::Create(args) => {
             tracing::info!("Creating sliver for hostname: {}", args.hostname);
+            
+            // Validate hostname
+            validate_hostname(&args.hostname)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            
+            // Validate optional name
+            if let Some(ref name) = args.name {
+                validate_sliver_name(name)
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+            }
+            
+            // Validate optional tag
+            if let Some(ref tag) = args.tag {
+                validate_tag(tag)
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+            }
             
             // Determine output path
             let output = args.output.unwrap_or_else(|| {
@@ -308,6 +325,11 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
                 let tag = args.tag.as_ref().map(|t| format!("-{}", t)).unwrap_or_default();
                 PathBuf::from(format!("{}{}.sliver", name, tag))
             });
+            
+            // Validate output path doesn't already exist
+            if output.exists() {
+                anyhow::bail!("Sliver file already exists: {}. Use --output to specify a different path.", output.display());
+            }
             
             let sliver_name = args.name.clone();
             let sliver_tag = args.tag.clone();
@@ -404,6 +426,10 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
         }
         cli::SliverCommand::Delete(args) => {
             tracing::info!("Deleting sliver: {}", args.name);
+            
+            // Validate sliver name
+            validate_sliver_name(&args.name)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
             
             // Look for sliver file with the given name
             let sliver_path = PathBuf::from(format!("{}.sliver", args.name));
