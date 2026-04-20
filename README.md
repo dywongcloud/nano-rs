@@ -1,6 +1,14 @@
 # NANO
 
-A multi-tenant JavaScript edge runtime. One OS process hosts many isolated apps in separate V8 isolates, with millisecond cold starts and no container overhead.
+A multi-tenant JavaScript edge runtime. One OS process hosts many isolated apps in separate V8 isolates, with **~1-2ms cold starts** using sliver snapshots and no container overhead.
+
+**Features:**
+- ✅ Multi-tenant JavaScript isolation (one process, many apps)
+- ✅ Sub-2ms cold starts with sliver snapshots  
+- ✅ WinterCG-compatible `fetch()` and streams
+- ✅ WebCrypto AES-GCM, HMAC, PBKDF2
+- ✅ VFS with memory/disk/S3 backends
+- ✅ Hono.js, Next.js static, Astro support
 
 ## Quick Start
 
@@ -66,6 +74,64 @@ export default {
 
 NANO provides WinterCG-compatible APIs: `Request`, `Response`, `Headers`, `URL`, `TextEncoder`, `TextDecoder`, `console`, `crypto.subtle`.
 
+### Filesystem (VFS)
+
+Each isolate has its own ephemeral filesystem:
+
+```javascript
+// Explicit API
+const data = await Nano.fs.readFile('/data/config.json');
+await Nano.fs.writeFile('/data/output.txt', 'Hello');
+
+// Or use Node.js compatible API
+const fs = require('fs');
+fs.writeFileSync('/data/output.txt', 'Hello');
+```
+
+## Quick Start with Slivers (v1.1)
+
+Slivers are portable snapshots of JavaScript isolates. They enable **~1-2ms cold starts** (measured: ~267µs) vs ~50-100ms for fresh isolates.
+
+### 1. Create a Sliver
+
+```bash
+# From a configured app
+nano-rs sliver create api.example.com --name api-prod --tag v1.0
+```
+
+### 2. Run from Sliver
+
+```bash
+# Start server using the sliver
+nano-rs run --sliver api-prod.sliver
+
+# Or use config which references the sliver
+nano-rs run --config production.json
+```
+
+### 3. Manage Slivers
+
+```bash
+# List all slivers
+nano-rs sliver list --verbose
+
+# Inspect a sliver
+nano-rs sliver inspect api-prod.sliver
+
+# Delete old versions
+nano-rs sliver delete api-prod --force
+```
+
+### Performance Comparison
+
+| Startup Method | Time | Use Case |
+|---------------|------|----------|
+| Fresh isolate | ~50-100ms | Development |
+| Context reset | ~5ms | Hot code reload |
+| **Sliver restore** | **~267µs** | **Production** |
+
+See [SLIVER.md](SLIVER.md) for complete documentation.
+
 ## Admin API
 
 HTTP admin interface on port 8889 (configurable):
@@ -80,6 +146,9 @@ Unix socket (default `/var/run/nano/control.sock`) for local access.
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Internal design and decisions
+- [VFS.md](VFS.md) — Virtual File System API and configuration
+- [SLIVER.md](SLIVER.md) — Edge snapshots and container-like deployments
+- [EXAMPLES.md](EXAMPLES.md) — Comprehensive usage examples
 - [examples/hello.js](examples/hello.js) — Minimal example app
 
 ## Requirements

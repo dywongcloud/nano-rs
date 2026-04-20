@@ -10,6 +10,9 @@ use crate::v8::{initialize_platform, NanoIsolate};
 use crate::worker::context::ContextManager;
 use crate::worker::oom::{OomMonitor, OomMonitorBuilder};
 use crate::worker::HandlerTask;
+use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
+use crate::sliver::UnpackedSliver;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use std::fs;
@@ -259,7 +262,12 @@ impl Drop for WorkerHandle {
 /// Each worker owns one V8 isolate (thread-local). Tasks are dispatched
 /// via MPSC channels. The pool uses round-robin for initial dispatch
 /// (affine dispatch comes in later phase).
-#[derive(Debug)]
+///
+/// # VFS Integration
+///
+/// Each WorkerPool has a shared VFS backend that all workers in the pool
+/// share. This means files written by one worker are visible to other
+/// workers in the same pool (same app), but isolated from other pools.
 pub struct WorkerPool {
     /// Worker handles for all threads in the pool
     workers: Vec<WorkerHandle>,
@@ -269,6 +277,20 @@ pub struct WorkerPool {
     pub hostname: String,
     /// Round-robin counter for dispatch
     next_worker: AtomicUsize,
+    /// Shared VFS backend for all workers in this pool
+    vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
+}
+
+impl std::fmt::Debug for WorkerPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerPool")
+            .field("workers", &self.workers.len())
+            .field("worker_count", &self.worker_count)
+            .field("hostname", &self.hostname)
+            .field("next_worker", &self.next_worker)
+            .field("vfs_backend", &"<dyn VfsBackend>")
+            .finish()
+    }
 }
 
 impl WorkerPool {
@@ -293,6 +315,34 @@ impl WorkerPool {
     ///
     /// Panics if the V8 platform is not initialized
     pub fn new(hostname: String, worker_count: usize, memory_limit_mb: u32) -> Self {
+        Self::with_backend(hostname, worker_count, memory_limit_mb, Arc::new(MemoryBackend::default()))
+    }
+
+    /// Create a new worker pool with a specific VFS backend
+    ///
+    /// This allows configuring the storage backend (memory, disk, S3)
+    /// for the VFS used by all workers in this pool.
+    ///
+    /// # Arguments
+    ///
+    /// * `hostname` - Hostname this pool serves (for logging)
+    /// * `worker_count` - Number of worker threads to spawn
+    /// * `memory_limit_mb` - Memory limit per isolate in MB (0 = no limit)
+    /// * `vfs_backend` - The VFS backend to use (Arc<dyn VfsBackend>)
+    ///
+    /// # Returns
+    ///
+    /// A new WorkerPool with N workers ready to receive tasks
+    ///
+    /// # Panics
+    ///
+    /// Panics if the V8 platform is not initialized
+    pub fn with_backend(
+        hostname: String,
+        worker_count: usize,
+        memory_limit_mb: u32,
+        vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
+    ) -> Self {
         // Ensure platform is initialized
         if !crate::v8::is_initialized() {
             initialize_platform().expect("Failed to initialize V8 platform");
@@ -302,11 +352,13 @@ impl WorkerPool {
 
         // Clone hostname for use in closures (original kept for final logging)
         let hostname_for_workers = hostname.clone();
+        let vfs_backend_for_workers = Arc::clone(&vfs_backend);
 
         let mut workers = Vec::with_capacity(worker_count);
 
         for id in 0..worker_count {
             let worker_hostname = hostname_for_workers.clone();
+            let worker_vfs_backend = Arc::clone(&vfs_backend_for_workers);
             let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
 
             // Spawn worker thread with thread-local isolate
@@ -325,9 +377,15 @@ impl WorkerPool {
                     None
                 };
 
-                // Create isolate in this thread - NEVER moves to another thread
+                // Create VFS for this worker with shared backend
+                let vfs = IsolateVfs::new(
+                    VfsNamespace::from_hostname(&worker_hostname),
+                    worker_vfs_backend,
+                );
+
+                // Create isolate with VFS in this thread - NEVER moves to another thread
                 // This is the critical POOL-05 constraint: isolate is !Send + !Sync
-                let isolate = match NanoIsolate::new() {
+                let isolate = match NanoIsolate::new_with_vfs(vfs) {
                     Ok(isol) => isol,
                     Err(e) => {
                         error!("Worker {} failed to create isolate: {}", id, e);
@@ -500,7 +558,16 @@ impl WorkerPool {
             worker_count,
             hostname,
             next_worker: AtomicUsize::new(0),
+            vfs_backend,
         }
+    }
+
+    /// Get a reference to the shared VFS backend
+    ///
+    /// This is useful for testing and administrative operations
+    /// that need to inspect or modify the filesystem.
+    pub fn vfs_backend(&self) -> &Arc<dyn crate::vfs::VfsBackend> {
+        &self.vfs_backend
     }
 
     /// Dispatch a task to a worker
@@ -609,6 +676,377 @@ impl Drop for WorkerPool {
                 .collect();
 
             // Try to join threads (best effort - may not complete if already panicking)
+            for handle in handles {
+                if let Some(h) = handle {
+                    let _ = h.join();
+                }
+            }
+        }
+    }
+}
+
+/// Worker pool for sliver-based (snapshot-restored) applications
+///
+/// This specialized worker pool creates isolates from V8 heap snapshots
+/// rather than fresh isolates. It also restores VFS state from the sliver.
+///
+/// # Design
+///
+/// - Each worker restores its isolate from the snapshot blob
+/// - VFS entries are restored before the worker accepts tasks
+/// - Falls back to fresh isolate if snapshot restoration fails
+/// - Shares the same dispatch interface as regular WorkerPool
+pub struct SliverWorkerPool {
+    /// Worker handles for all threads in the pool
+    workers: Vec<WorkerHandle>,
+    /// Number of workers (for verification)
+    pub worker_count: usize,
+    /// Hostname this pool serves
+    pub hostname: String,
+    /// Round-robin counter for dispatch
+    next_worker: AtomicUsize,
+    /// Shared VFS backend for all workers
+    vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
+    /// Unpacked sliver data containing snapshot and VFS entries
+    unpacked_sliver: crate::sliver::UnpackedSliver,
+}
+
+impl std::fmt::Debug for SliverWorkerPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SliverWorkerPool")
+            .field("workers", &self.workers.len())
+            .field("worker_count", &self.worker_count)
+            .field("hostname", &self.hostname)
+            .field("hostname", &self.hostname)
+            .field("vfs_backend", &"<dyn VfsBackend>")
+            .field("unpacked_sliver", &self.unpacked_sliver.metadata.hostname)
+            .finish()
+    }
+}
+
+impl SliverWorkerPool {
+    /// Create a new sliver worker pool with restored isolates
+    ///
+    /// Each worker thread:
+    /// 1. Creates its NanoIsolate from the snapshot (or fresh if fails)
+    /// 2. Restores VFS entries from the sliver
+    /// 3. Runs an event loop receiving HandlerTask via MPSC
+    ///
+    /// # Arguments
+    ///
+    /// * `hostname` - Hostname this pool serves (for logging)
+    /// * `worker_count` - Number of worker threads to spawn
+    /// * `memory_limit_mb` - Memory limit per isolate in MB (0 = no limit)
+    /// * `unpacked_sliver` - The unpacked sliver containing snapshot and VFS data
+    ///
+    /// # Returns
+    ///
+    /// A new SliverWorkerPool with N workers restored from snapshot
+    pub fn new(
+        hostname: String,
+        worker_count: usize,
+        memory_limit_mb: u32,
+        unpacked_sliver: crate::sliver::UnpackedSliver,
+    ) -> Self {
+        Self::with_backend(
+            hostname,
+            worker_count,
+            memory_limit_mb,
+            Arc::new(MemoryBackend::default()),
+            unpacked_sliver,
+        )
+    }
+
+    /// Create a new sliver worker pool with a specific VFS backend
+    pub fn with_backend(
+        hostname: String,
+        worker_count: usize,
+        memory_limit_mb: u32,
+        vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
+        unpacked_sliver: crate::sliver::UnpackedSliver,
+    ) -> Self {
+        // Ensure platform is initialized
+        if !crate::v8::is_initialized() {
+            initialize_platform().expect("Failed to initialize V8 platform");
+        }
+
+        assert!(worker_count > 0, "Worker count must be at least 1");
+
+        let hostname_for_workers = hostname.clone();
+        let vfs_backend_for_workers = Arc::clone(&vfs_backend);
+        let sliver_for_workers = unpacked_sliver.clone();
+
+        let mut workers = Vec::with_capacity(worker_count);
+
+        for id in 0..worker_count {
+            let worker_hostname = hostname_for_workers.clone();
+            let worker_vfs_backend = Arc::clone(&vfs_backend_for_workers);
+            let worker_sliver = sliver_for_workers.clone();
+            let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
+
+            // Spawn worker thread with snapshot-restored isolate
+            let thread = thread::spawn(move || {
+                info!("SliverWorker {} starting for {}", id, worker_hostname);
+
+                // Create OOM monitor
+                let mut oom_monitor = if memory_limit_mb > 0 {
+                    Some(
+                        OomMonitorBuilder::new(format!("sliver_worker_{}_{}", worker_hostname, id))
+                            .with_limit_mb(memory_limit_mb)
+                            .for_hostname(&worker_hostname)
+                            .build(),
+                    )
+                } else {
+                    None
+                };
+
+                // Create VFS for this worker
+                let vfs = IsolateVfs::new(
+                    VfsNamespace::from_hostname(&worker_hostname),
+                    worker_vfs_backend,
+                );
+
+                // Restore VFS entries from sliver before creating isolate
+                let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+                if let Err(e) = rt.block_on(worker_sliver.restore_to_vfs(&vfs)) {
+                    error!("Worker {} failed to restore VFS: {}", id, e);
+                    // Continue anyway - the app might work without VFS data
+                } else {
+                    debug!("Worker {} restored {} VFS entries", id, worker_sliver.vfs_entries.len());
+                }
+
+                // Create isolate from snapshot or fresh as fallback
+                let vfs_clone = vfs.clone();
+                let isolate = match crate::v8::restore_from_snapshot(&worker_sliver.heap_data, vfs_clone) {
+                    Ok(isol) => {
+                        info!("Worker {} created isolate from snapshot", id);
+                        isol
+                    }
+                    Err(e) => {
+                        warn!("Worker {} failed to restore from snapshot: {}. Creating fresh isolate.", id, e);
+                        match NanoIsolate::new_with_vfs(vfs.clone()) {
+                            Ok(isol) => isol,
+                            Err(e) => {
+                                error!("Worker {} failed to create isolate: {}", id, e);
+                                return;
+                            }
+                        }
+                    }
+                };
+
+                // Create context manager
+                let mut context_manager = ContextManager::new(isolate);
+                if let Err(e) = context_manager.create_initial_context() {
+                    error!("Worker {} failed to create context: {}", id, e);
+                    return;
+                }
+                info!("SliverWorker {} initialized with restored context", id);
+
+                // Event loop: same as regular WorkerPool
+                loop {
+                    match task_rx.recv() {
+                        Ok(task) => {
+                            debug!("SliverWorker {} received task for {}", id, task.entrypoint);
+
+                            // OOM check before request
+                            if let Some(ref monitor) = oom_monitor {
+                                let isolate_ref = context_manager.isolate_mut().isolate();
+                                match monitor.check(isolate_ref) {
+                                    Ok(_) => {}
+                                    Err(oom_error) => {
+                                        let request_id = format!("req_{}", uuid::Uuid::new_v4());
+                                        monitor.log_oom_event(&oom_error, &request_id);
+
+                                        let oom_response = monitor.create_oom_response(&oom_error);
+                                        let _ = task.response_tx.send(Ok(oom_response));
+
+                                        // Dispose and recreate isolate
+                                        warn!("Worker {} disposing isolate due to OOM", id);
+                                        match NanoIsolate::new() {
+                                            Ok(new_isolate) => {
+                                                context_manager = ContextManager::new(new_isolate);
+                                                if let Err(e) = context_manager.create_initial_context() {
+                                                    error!("Worker {} failed to create new context after OOM: {}", id, e);
+                                                    break;
+                                                }
+                                                monitor.reset();
+                                                info!("Worker {} created fresh isolate after OOM", id);
+                                            }
+                                            Err(e) => {
+                                                error!("Worker {} failed to create replacement isolate: {}", id, e);
+                                                break;
+                                            }
+                                        }
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            // Reset context before each request
+                            match context_manager.reset_context() {
+                                Ok(elapsed) => {
+                                    let ms = elapsed.as_secs_f64() * 1000.0;
+                                    debug!("SliverWorker {} context reset took {:.2}ms", id, ms);
+                                }
+                                Err(e) => {
+                                    error!("SliverWorker {} context reset failed: {}", id, e);
+                                    let _ = task.response_tx.send(Err(anyhow!("Context reset failed")));
+                                    continue;
+                                }
+                            }
+
+                            // Create handler context
+                            let handler_ctx = HandlerContext {
+                                entrypoint: task.entrypoint,
+                                request: task.request,
+                            };
+
+                            // Execute handler
+                            let result = execute_with_context_manager(&mut context_manager, &handler_ctx);
+
+                            // Post-request OOM check
+                            if let Some(ref monitor) = oom_monitor {
+                                let isolate_ref = context_manager.isolate_mut().isolate();
+                                if let Err(oom_error) = monitor.check(isolate_ref) {
+                                    let request_id = format!("req_{}", uuid::Uuid::new_v4());
+                                    monitor.log_oom_event(&oom_error, &request_id);
+                                    warn!("SliverWorker {} OOM detected after request", id);
+
+                                    // Dispose and recreate
+                                    match NanoIsolate::new() {
+                                        Ok(new_isolate) => {
+                                            context_manager = ContextManager::new(new_isolate);
+                                            if let Err(e) = context_manager.create_initial_context() {
+                                                error!("Worker {} failed to create new context: {}", id, e);
+                                                break;
+                                            }
+                                            monitor.reset();
+                                        }
+                                        Err(e) => {
+                                            error!("Worker {} failed to create replacement: {}", id, e);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Send response
+                            let _ = task.response_tx.send(result);
+                        }
+                        Err(_) => {
+                            debug!("SliverWorker {} channel closed, exiting", id);
+                            break;
+                        }
+                    }
+                }
+
+                info!(
+                    "SliverWorker {} shutting down (avg context reset: {:.2}ms)",
+                    id,
+                    context_manager.average_reset_time_ms()
+                );
+            });
+
+            workers.push(WorkerHandle {
+                id,
+                thread: Some(thread),
+                task_tx,
+            });
+        }
+
+        info!(
+            "SliverWorkerPool created for {} with {} workers (snapshot restored)",
+            hostname, worker_count
+        );
+
+        Self {
+            workers,
+            worker_count,
+            hostname,
+            next_worker: AtomicUsize::new(0),
+            vfs_backend,
+            unpacked_sliver,
+        }
+    }
+
+    /// Get a reference to the shared VFS backend
+    pub fn vfs_backend(&self) -> &Arc<dyn crate::vfs::VfsBackend> {
+        &self.vfs_backend
+    }
+
+    /// Get reference to unpacked sliver data
+    pub fn sliver_data(&self) -> &crate::sliver::UnpackedSliver {
+        &self.unpacked_sliver
+    }
+
+    /// Dispatch a task to a worker (round-robin)
+    pub fn dispatch(&self, task: HandlerTask) -> Result<()> {
+        let worker_idx = self.next_worker.fetch_add(1, Ordering::SeqCst) % self.worker_count;
+
+        self.workers[worker_idx]
+            .send(task)
+            .map_err(|e| anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
+    }
+
+    /// Dispatch to specific worker
+    pub fn dispatch_to(&self, worker_idx: usize, task: HandlerTask) -> Result<()> {
+        if worker_idx >= self.worker_count {
+            return Err(anyhow!(
+                "Worker index {} out of bounds (max {})",
+                worker_idx,
+                self.worker_count - 1
+            ));
+        }
+
+        self.workers[worker_idx]
+            .send(task)
+            .map_err(|e| anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
+    }
+
+    /// Gracefully shut down the worker pool
+    pub fn shutdown(mut self) -> Result<()> {
+        info!("Shutting down SliverWorkerPool for {}", self.hostname);
+
+        let mut handles: Vec<_> = self
+            .workers
+            .drain(..)
+            .map(|mut w| (w.id, w.take_thread()))
+            .collect();
+
+        for (id, handle) in handles.drain(..) {
+            if let Some(h) = handle {
+                debug!("Waiting for sliver worker {} to exit", id);
+                match h.join() {
+                    Ok(_) => debug!("SliverWorker {} exited cleanly", id),
+                    Err(_) => warn!("SliverWorker {} panicked during shutdown", id),
+                }
+            }
+        }
+
+        info!("SliverWorkerPool for {} shut down complete", self.hostname);
+        Ok(())
+    }
+
+    /// Get the number of workers in this pool
+    pub fn worker_count(&self) -> usize {
+        self.worker_count
+    }
+}
+
+impl Drop for SliverWorkerPool {
+    fn drop(&mut self) {
+        if !self.workers.is_empty() {
+            warn!(
+                "SliverWorkerPool for {} dropped without explicit shutdown - forcing cleanup",
+                self.hostname
+            );
+
+            let handles: Vec<_> = self
+                .workers
+                .drain(..)
+                .map(|mut w| w.take_thread())
+                .collect();
+
             for handle in handles {
                 if let Some(h) = handle {
                     let _ = h.join();
@@ -902,6 +1340,152 @@ function fetch(request) {
         let resp = response.unwrap();
         assert_eq!(resp.status(), 200);
 
+        pool.shutdown().expect("Shutdown failed");
+    }
+
+    #[test]
+    fn test_worker_pool_vfs_isolation() {
+        // Test that different pools have isolated VFS namespaces
+        use crate::vfs::VfsBackend;
+        
+        init_platform();
+
+        // Create two pools for different apps
+        let pool1 = WorkerPool::new("app1.example.com".to_string(), 1, 0);
+        let pool2 = WorkerPool::new("app2.example.com".to_string(), 1, 0);
+
+        // Write a file via pool1's VFS backend directly
+        // (simulating what would happen through JS execution)
+        let namespace1 = VfsNamespace::from_hostname("app1.example.com");
+        let path1 = crate::vfs::VfsPath::new(&format!("{}::secret.txt", namespace1.as_str())).unwrap();
+        
+        // Use tokio runtime to run async write
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            pool1.vfs_backend().write(&path1, b"app1-secret-data").await.unwrap();
+        });
+
+        // Verify file exists in pool1's backend
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let exists_in_pool1: bool = rt.block_on(async {
+            pool1.vfs_backend().exists(&path1).await.unwrap()
+        });
+        assert!(exists_in_pool1, "File should exist in pool1's VFS");
+
+        // Verify file does NOT exist in pool2's backend (different namespace)
+        let namespace2 = VfsNamespace::from_hostname("app2.example.com");
+        let path2 = crate::vfs::VfsPath::new(&format!("{}::secret.txt", namespace2.as_str())).unwrap();
+        
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let exists_in_pool2: bool = rt.block_on(async {
+            pool2.vfs_backend().exists(&path2).await.unwrap()
+        });
+        assert!(!exists_in_pool2, "File should NOT exist in pool2's VFS (isolated)");
+
+        // Clean up
+        pool1.shutdown().expect("Pool1 shutdown failed");
+        pool2.shutdown().expect("Pool2 shutdown failed");
+    }
+
+    // SliverWorkerPool tests
+    use crate::sliver::{pack_sliver, SliverMetadata, UnpackedSliver};
+
+    fn create_test_sliver_for_pool(hostname: &str) -> UnpackedSliver {
+        let metadata = SliverMetadata::new(hostname, "1.1.0");
+        let heap_data = vec![0xABu8; 1024];
+        let archive = pack_sliver(&metadata, &heap_data, None).unwrap();
+        crate::sliver::unpack_sliver(&archive).unwrap()
+    }
+
+    #[test]
+    fn test_sliver_worker_pool_creation() {
+        init_platform();
+        let unpacked = create_test_sliver_for_pool("sliver-test.example.com");
+        
+        let pool = SliverWorkerPool::new(
+            "sliver-test.example.com".to_string(),
+            2,
+            0,
+            unpacked,
+        );
+        
+        assert_eq!(pool.worker_count(), 2);
+        pool.shutdown().expect("Shutdown failed");
+    }
+
+    #[test]
+    fn test_sliver_worker_pool_single_worker() {
+        init_platform();
+        let unpacked = create_test_sliver_for_pool("single.example.com");
+        
+        let pool = SliverWorkerPool::new(
+            "single.example.com".to_string(),
+            1,
+            0,
+            unpacked,
+        );
+        
+        assert_eq!(pool.worker_count(), 1);
+        pool.shutdown().expect("Shutdown failed");
+    }
+
+    #[test]
+    fn test_sliver_worker_pool_dispatch() {
+        init_platform();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        // Create a simple JS handler
+        let entrypoint = create_test_handler(
+            &temp_dir,
+            "test.js",
+            r#"function fetch(request) { return { status: 200, headers: {}, body: "Sliver OK" }; }"#,
+        );
+        
+        let unpacked = create_test_sliver_for_pool("dispatch.example.com");
+        let pool = SliverWorkerPool::new(
+            "dispatch.example.com".to_string(),
+            1,
+            0,
+            unpacked,
+        );
+        
+        // Create and dispatch a task
+        let url = NanoUrl::parse("http://test/").unwrap();
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
+        
+        let (tx, rx) = oneshot::channel();
+        let task = HandlerTask::new(entrypoint, request, tx);
+        
+        pool.dispatch(task).expect("Failed to dispatch");
+        let response = rx.blocking_recv().expect("Failed to receive response");
+        
+        assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+        let resp = response.unwrap();
+        assert_eq!(resp.status(), 200);
+        
+        pool.shutdown().expect("Shutdown failed");
+    }
+
+    #[test]
+    fn test_sliver_worker_pool_accessors() {
+        init_platform();
+        let unpacked = create_test_sliver_for_pool("accessors.example.com");
+        let sliver_hostname = unpacked.metadata.hostname.clone();
+        
+        let pool = SliverWorkerPool::new(
+            "accessors.example.com".to_string(),
+            1,
+            0,
+            unpacked,
+        );
+        
+        // Test sliver_data accessor
+        let sliver_data = pool.sliver_data();
+        assert_eq!(sliver_data.metadata.hostname, sliver_hostname);
+        
+        // Test vfs_backend accessor
+        let _vfs_backend = pool.vfs_backend();
+        
         pool.shutdown().expect("Shutdown failed");
     }
 }

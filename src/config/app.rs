@@ -68,18 +68,69 @@ fn default_workers() -> usize {
     4
 }
 
+/// VFS backend type selection
+///
+/// Determines which storage backend is used for this application's
+/// virtual file system.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VfsBackendType {
+    /// In-memory storage (default, ephemeral)
+    #[default]
+    Memory,
+    /// Local filesystem persistence
+    Disk,
+    /// S3-compatible object storage (requires vfs-s3 feature)
+    S3,
+}
+
+/// Configuration for disk VFS backend
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct VfsDiskConfig {
+    /// Base directory for file storage
+    pub base_path: String,
+}
+
+/// Configuration for S3 VFS backend
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct VfsS3Config {
+    /// S3 endpoint URL (e.g., "https://s3.amazonaws.com" or "http://localhost:9000")
+    pub endpoint: String,
+    /// S3 bucket name
+    pub bucket: String,
+    /// AWS region (e.g., "us-east-1")
+    pub region: String,
+    /// Access key ID
+    pub access_key: String,
+    /// Secret access key
+    pub secret_key: String,
+    /// Optional key prefix for all objects
+    #[serde(default)]
+    pub prefix: Option<String>,
+    /// Use path-style URLs (true for MinIO, false for AWS)
+    #[serde(default)]
+    pub path_style: bool,
+}
+
 /// Application configuration for a single hosted app
 ///
 /// Defines all configuration for one application including its hostname,
 /// entry point script, environment variables, and resource limits.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AppConfig {
     /// Hostname this app responds to (e.g., "api.example.com")
     pub hostname: String,
 
-    /// Path to the entry point JavaScript file
+    /// Path to the entry point JavaScript file (required unless sliver is set)
+    #[serde(default)]
     pub entrypoint: String,
+
+    /// Path to sliver file for snapshot-based loading (alternative to entrypoint)
+    #[serde(default)]
+    pub sliver: Option<String>,
 
     /// Environment variables to inject into JS global scope (per T-05-02)
     #[serde(default)]
@@ -88,6 +139,18 @@ pub struct AppConfig {
     /// Resource limits for this app
     #[serde(default)]
     pub limits: AppLimits,
+
+    /// VFS backend type (default: memory)
+    #[serde(default)]
+    pub vfs_backend: VfsBackendType,
+
+    /// Disk backend configuration (required when vfs_backend = disk)
+    #[serde(default)]
+    pub vfs_disk: Option<VfsDiskConfig>,
+
+    /// S3 backend configuration (required when vfs_backend = s3)
+    #[serde(default)]
+    pub vfs_s3: Option<VfsS3Config>,
 }
 
 /// Server configuration section
@@ -230,30 +293,67 @@ pub fn validate_config(
         errors.add(format!("'{}' is not a valid hostname", config.hostname));
     }
 
-    // Validate entrypoint
-    if config.entrypoint.is_empty() {
-        errors.add("entrypoint cannot be empty");
-    } else if config.entrypoint.contains("..") {
-        // Path traversal prevention (per T-05-04)
-        errors.add(format!(
-            "entrypoint '{}' contains '..' which is not allowed for security",
-            config.entrypoint
-        ));
-    } else if let Some(base) = base_path {
-        let full_path = if std::path::Path::new(&config.entrypoint).is_absolute() {
-            std::path::PathBuf::from(&config.entrypoint)
-        } else {
-            base.join(&config.entrypoint)
-        };
+    // Validate entrypoint or sliver (at least one must be specified)
+    let has_entrypoint = !config.entrypoint.is_empty();
+    let has_sliver = config.sliver.is_some();
 
-        if !full_path.exists() {
+    if !has_entrypoint && !has_sliver {
+        errors.add("either entrypoint or sliver must be specified");
+    }
+
+    // Validate entrypoint if provided
+    if has_entrypoint {
+        if config.entrypoint.contains("..") {
+            // Path traversal prevention (per T-05-04)
             errors.add(format!(
-                "entrypoint '{}' not found (resolved to: {})",
-                config.entrypoint,
-                full_path.display()
+                "entrypoint '{}' contains '..' which is not allowed for security",
+                config.entrypoint
             ));
-        } else if !full_path.is_file() {
-            errors.add(format!("entrypoint '{}' is not a file", config.entrypoint));
+        } else if let Some(base) = base_path {
+            let full_path = if std::path::Path::new(&config.entrypoint).is_absolute() {
+                std::path::PathBuf::from(&config.entrypoint)
+            } else {
+                base.join(&config.entrypoint)
+            };
+
+            if !full_path.exists() {
+                errors.add(format!(
+                    "entrypoint '{}' not found (resolved to: {})",
+                    config.entrypoint,
+                    full_path.display()
+                ));
+            } else if !full_path.is_file() {
+                errors.add(format!("entrypoint '{}' is not a file", config.entrypoint));
+            }
+        }
+    }
+
+    // Validate sliver path if provided
+    if let Some(ref sliver) = config.sliver {
+        if sliver.is_empty() {
+            errors.add("sliver path cannot be empty");
+        } else if sliver.contains("..") {
+            // Path traversal prevention
+            errors.add(format!(
+                "sliver path '{}' contains '..' which is not allowed for security",
+                sliver
+            ));
+        } else if let Some(base) = base_path {
+            let full_path = if std::path::Path::new(sliver).is_absolute() {
+                std::path::PathBuf::from(sliver)
+            } else {
+                base.join(sliver)
+            };
+
+            if !full_path.exists() {
+                errors.add(format!(
+                    "sliver '{}' not found (resolved to: {})",
+                    sliver,
+                    full_path.display()
+                ));
+            } else if !full_path.is_file() {
+                errors.add(format!("sliver '{}' is not a file", sliver));
+            }
         }
     }
 
@@ -295,6 +395,44 @@ pub fn validate_config(
                 "environment variable '{}' value exceeds 64KB limit",
                 key
             ));
+        }
+    }
+
+    // Validate VFS backend configuration
+    match config.vfs_backend {
+        VfsBackendType::Memory => {
+            // Memory backend requires no additional config
+        }
+        VfsBackendType::Disk => {
+            if config.vfs_disk.is_none() {
+                errors.add("vfs_backend is 'disk' but vfs_disk configuration is missing");
+            } else {
+                let disk_config = config.vfs_disk.as_ref().unwrap();
+                if disk_config.base_path.is_empty() {
+                    errors.add("vfs_disk.base_path cannot be empty");
+                } else if disk_config.base_path.contains("..") {
+                    errors.add("vfs_disk.base_path contains '..' which is not allowed for security");
+                }
+            }
+        }
+        VfsBackendType::S3 => {
+            if config.vfs_s3.is_none() {
+                errors.add("vfs_backend is 's3' but vfs_s3 configuration is missing");
+            } else {
+                let s3_config = config.vfs_s3.as_ref().unwrap();
+                if s3_config.endpoint.is_empty() {
+                    errors.add("vfs_s3.endpoint cannot be empty");
+                }
+                if s3_config.bucket.is_empty() {
+                    errors.add("vfs_s3.bucket cannot be empty");
+                }
+                if s3_config.access_key.is_empty() {
+                    errors.add("vfs_s3.access_key cannot be empty");
+                }
+                if s3_config.secret_key.is_empty() {
+                    errors.add("vfs_s3.secret_key cannot be empty");
+                }
+            }
         }
     }
 
@@ -485,6 +623,7 @@ mod tests {
             entrypoint: "/app/index.js".to_string(),
             env_vars: Default::default(),
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -500,6 +639,7 @@ mod tests {
             entrypoint: "".to_string(),
             env_vars: Default::default(),
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -515,6 +655,7 @@ mod tests {
             entrypoint: "/app/index.js".to_string(),
             env_vars: Default::default(),
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -530,6 +671,7 @@ mod tests {
             entrypoint: "../../../etc/passwd".to_string(),
             env_vars: Default::default(),
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -552,6 +694,7 @@ mod tests {
                 timeout_secs: 30,
                 workers: 4,
             },
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -571,6 +714,7 @@ mod tests {
                 timeout_secs: 0, // too low
                 workers: 4,
             },
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -590,6 +734,7 @@ mod tests {
                 timeout_secs: 30,
                 workers: 100, // too high
             },
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -605,6 +750,7 @@ mod tests {
             entrypoint: "/app/index.js".to_string(),
             env_vars: Default::default(),
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -666,12 +812,14 @@ mod tests {
                     entrypoint: "/app1.js".to_string(),
                     env_vars: Default::default(),
                     limits: Default::default(),
+                    ..Default::default()
                 },
                 AppConfig {
                     hostname: "API.EXAMPLE.COM".to_string(), // same as above, different case
                     entrypoint: "/app2.js".to_string(),
                     env_vars: Default::default(),
                     limits: Default::default(),
+                    ..Default::default()
                 },
             ],
             server: Default::default(),
@@ -705,6 +853,7 @@ mod tests {
                 entrypoint: "/app.js".to_string(),
                 env_vars: Default::default(),
                 limits: Default::default(),
+                ..Default::default()
             });
         }
 
@@ -727,6 +876,7 @@ mod tests {
                 entrypoint: "/app.js".to_string(),
                 env_vars: Default::default(),
                 limits: Default::default(),
+                ..Default::default()
             }],
             server: Default::default(),
         };
@@ -758,11 +908,215 @@ mod tests {
             entrypoint: "/app.js".to_string(),
             env_vars,
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert!(errors.errors.iter().any(|e| e.contains("suspicious")));
+    }
+
+    #[test]
+    fn test_vfs_backend_type_default() {
+        let backend_type: VfsBackendType = Default::default();
+        assert_eq!(backend_type, VfsBackendType::Memory);
+    }
+
+    #[test]
+    fn test_vfs_backend_type_deserialization() {
+        assert_eq!(
+            serde_json::from_str::<VfsBackendType>("\"memory\"").unwrap(),
+            VfsBackendType::Memory
+        );
+        assert_eq!(
+            serde_json::from_str::<VfsBackendType>("\"disk\"").unwrap(),
+            VfsBackendType::Disk
+        );
+        assert_eq!(
+            serde_json::from_str::<VfsBackendType>("\"s3\"").unwrap(),
+            VfsBackendType::S3
+        );
+    }
+
+    #[test]
+    fn test_vfs_disk_config_deserialization() {
+        let json = r#"{"base_path": "/data/nano"}"#;
+        let config: VfsDiskConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.base_path, "/data/nano");
+    }
+
+    #[test]
+    fn test_vfs_s3_config_deserialization() {
+        let json = r#"{
+            "endpoint": "http://localhost:9000",
+            "bucket": "nano-vfs",
+            "region": "us-east-1",
+            "access_key": "minioadmin",
+            "secret_key": "minioadmin",
+            "prefix": "app1",
+            "path_style": true
+        }"#;
+        let config: VfsS3Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.endpoint, "http://localhost:9000");
+        assert_eq!(config.bucket, "nano-vfs");
+        assert_eq!(config.prefix, Some("app1".to_string()));
+        assert!(config.path_style);
+    }
+
+    #[test]
+    fn test_app_config_with_vfs_disk() {
+        let json = r#"{
+            "hostname": "api.example.com",
+            "entrypoint": "/app/index.js",
+            "vfs_backend": "disk",
+            "vfs_disk": {
+                "base_path": "/data/api"
+            }
+        }"#;
+
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.vfs_backend, VfsBackendType::Disk);
+        assert!(config.vfs_disk.is_some());
+        assert_eq!(config.vfs_disk.unwrap().base_path, "/data/api");
+    }
+
+    #[test]
+    fn test_validation_rejects_disk_without_config() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "/app.js".to_string(),
+            env_vars: Default::default(),
+            limits: Default::default(),
+            vfs_backend: VfsBackendType::Disk,
+            vfs_disk: None,
+            vfs_s3: None,
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.errors.iter().any(|e| e.contains("vfs_disk") && e.contains("missing")));
+    }
+
+    #[test]
+    fn test_validation_rejects_s3_without_config() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "/app.js".to_string(),
+            env_vars: Default::default(),
+            limits: Default::default(),
+            vfs_backend: VfsBackendType::S3,
+            vfs_disk: None,
+            vfs_s3: None,
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.errors.iter().any(|e| e.contains("vfs_s3") && e.contains("missing")));
+    }
+
+    #[test]
+    fn test_validation_rejects_disk_path_traversal() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "/app.js".to_string(),
+            env_vars: Default::default(),
+            limits: Default::default(),
+            vfs_backend: VfsBackendType::Disk,
+            vfs_disk: Some(VfsDiskConfig {
+                base_path: "../../../etc/passwd".to_string(),
+            }),
+            vfs_s3: None,
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.errors.iter().any(|e| e.contains("base_path") && e.contains("..")));
+    }
+
+    #[test]
+    fn test_validation_rejects_neither_entrypoint_nor_sliver() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "".to_string(),
+            sliver: None,
+            env_vars: Default::default(),
+            limits: Default::default(),
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.errors.iter().any(|e| e.contains("either") && e.contains("entrypoint") && e.contains("sliver")));
+    }
+
+    #[test]
+    fn test_validation_accepts_sliver_without_entrypoint() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "".to_string(),
+            sliver: Some("./app.sliver".to_string()),
+            env_vars: Default::default(),
+            limits: Default::default(),
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validation_accepts_both_entrypoint_and_sliver() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "/app.js".to_string(),
+            sliver: Some("./app.sliver".to_string()),
+            env_vars: Default::default(),
+            limits: Default::default(),
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validation_rejects_sliver_path_traversal() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "".to_string(),
+            sliver: Some("../../../etc/passwd.sliver".to_string()),
+            env_vars: Default::default(),
+            limits: Default::default(),
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.errors.iter().any(|e| e.contains("sliver") && e.contains("..")));
+    }
+
+    #[test]
+    fn test_app_config_deserialization_with_sliver() {
+        let json = r#"{
+            "hostname": "api.example.com",
+            "sliver": "./api-v1.sliver",
+            "limits": {
+                "workers": 4
+            }
+        }"#;
+
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.hostname, "api.example.com");
+        assert_eq!(config.sliver, Some("./api-v1.sliver".to_string()));
+        assert!(config.entrypoint.is_empty());
     }
 }

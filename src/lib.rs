@@ -16,6 +16,8 @@ pub mod admin;
 pub mod logging;
 pub mod signal;
 pub mod metrics;
+pub mod vfs;
+pub mod sliver;
 
 /// Library entry point for running the NANO runtime
 ///
@@ -23,10 +25,6 @@ pub mod metrics;
 /// for integration testing.
 pub fn run() -> Result<()> {
     tracing::info!("NANO runtime initialized");
-
-    // TODO: Phase 1 - Initialize V8 platform and isolate
-    // TODO: Phase 2 - Start HTTP server
-    // TODO: Phase 3 - Implement runtime APIs
-
+    // Runtime initialization is handled by the CLI
     Ok(())
 }

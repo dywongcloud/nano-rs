@@ -1,0 +1,418 @@
+//! VFS JavaScript Bindings — Nano.fs.* API
+//!
+//! This module provides JavaScript bindings for the VFS operations,
+//! exposing `Nano.fs.*` API to JavaScript code running in isolates.
+//!
+//! # API Reference
+//!
+//! ```javascript
+//! Nano.fs.readFileSync('/data/config.json');     // Returns Uint8Array
+//! Nano.fs.writeFileSync('/data/output.txt', 'Hello'); // Returns void
+//! Nano.fs.existsSync('/data/config.json');       // Returns boolean
+//! Nano.fs.deleteSync('/data/temp.txt');          // Returns void
+//! ```
+
+use std::cell::RefCell;
+use std::sync::Arc;
+
+use crate::vfs::{IsolateVfs, VfsError};
+
+// Thread-local storage for the current isolate's VFS during JS execution
+thread_local! {
+    static CURRENT_VFS: RefCell<Option<Arc<IsolateVfs>>> = RefCell::new(None);
+}
+
+/// Set the current VFS context for JS callbacks
+///
+/// This should be called before executing JS that uses Nano.fs
+pub fn set_current_vfs(vfs: Option<Arc<IsolateVfs>>) {
+    CURRENT_VFS.with(|cell| {
+        *cell.borrow_mut() = vfs;
+    });
+}
+
+/// Get the current VFS context if available
+fn with_current_vfs<F, R>(f: F) -> R
+where
+    F: FnOnce(Option<&IsolateVfs>) -> R,
+{
+    CURRENT_VFS.with(|cell| {
+        let vfs = cell.borrow();
+        f(vfs.as_ref().map(|arc| arc.as_ref()))
+    })
+}
+
+/// Bind the Nano.fs API to the V8 global scope
+///
+/// This creates the `Nano` global object with an `fs` property containing
+/// all VFS methods. Each method returns a Promise for async operations.
+pub fn bind_nano_fs(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    let global = context.global(scope);
+
+    // Create Nano object
+    let nano = v8::Object::new(scope);
+
+    // Create fs object
+    let fs = v8::Object::new(scope);
+
+    // Bind readFileSync method
+    if let Some(read_fn) = v8::Function::new(scope, nano_fs_read_file_sync) {
+        let key = v8::String::new(scope, "readFileSync").unwrap();
+        fs.set(scope, key.into(), read_fn.into());
+    }
+
+    // Bind writeFileSync method
+    if let Some(write_fn) = v8::Function::new(scope, nano_fs_write_file_sync) {
+        let key = v8::String::new(scope, "writeFileSync").unwrap();
+        fs.set(scope, key.into(), write_fn.into());
+    }
+
+    // Bind existsSync method
+    if let Some(exists_fn) = v8::Function::new(scope, nano_fs_exists_sync) {
+        let key = v8::String::new(scope, "existsSync").unwrap();
+        fs.set(scope, key.into(), exists_fn.into());
+    }
+
+    // Bind deleteSync method
+    if let Some(delete_fn) = v8::Function::new(scope, nano_fs_delete_sync) {
+        let key = v8::String::new(scope, "deleteSync").unwrap();
+        fs.set(scope, key.into(), delete_fn.into());
+    }
+
+    // Attach fs to Nano
+    let fs_key = v8::String::new(scope, "fs").unwrap();
+    nano.set(scope, fs_key.into(), fs.into());
+
+    // Attach Nano to global
+    let nano_key = v8::String::new(scope, "Nano").unwrap();
+    global.set(scope, nano_key.into(), nano.into());
+}
+
+/// Helper to extract string argument from V8 callback
+fn extract_string_arg(
+    scope: &mut v8::HandleScope,
+    args: &v8::FunctionCallbackArguments,
+    index: i32,
+) -> Option<String> {
+    if args.length() <= index {
+        return None;
+    }
+    let arg = args.get(index);
+    arg.to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+}
+
+/// Helper to extract bytes from V8 argument (string, Uint8Array, or ArrayBuffer)
+fn extract_bytes_arg(
+    scope: &mut v8::HandleScope,
+    args: &v8::FunctionCallbackArguments,
+    index: i32,
+) -> Option<Vec<u8>> {
+    if args.length() <= index {
+        return None;
+    }
+    let arg = args.get(index);
+
+    // Try string first
+    if let Some(s) = arg.to_string(scope) {
+        return Some(s.to_rust_string_lossy(scope).into_bytes());
+    }
+
+    // Try Uint8Array
+    if let Ok(uint8array) = arg.try_cast::<v8::Uint8Array>() {
+        let length = uint8array.byte_length();
+        let mut vec = Vec::with_capacity(length);
+        for i in 0..length {
+            if let Some(val) = uint8array.get_index(scope, i as u32) {
+                if let Some(int) = val.to_integer(scope) {
+                    vec.push(int.value() as u8);
+                }
+            }
+        }
+        return Some(vec);
+    }
+
+    // Try ArrayBuffer
+    if let Ok(arraybuffer) = arg.try_cast::<v8::ArrayBuffer>() {
+        let store = arraybuffer.get_backing_store();
+        let length = arraybuffer.byte_length();
+        let bytes: Vec<u8> = (0..length)
+            .filter_map(|i| store.get(i).map(|cell| cell.get()))
+            .collect();
+        return Some(bytes);
+    }
+
+    None
+}
+
+/// Convert VfsError to V8 Error object and throw it
+fn throw_vfs_error(scope: &mut v8::HandleScope, error: &VfsError) {
+    let message = format!("{}", error);
+    let message_str = v8::String::new(scope, &message).unwrap();
+    let exception = v8::Exception::error(scope, message_str);
+    
+    // Add code property to the error object
+    if let Some(error_obj) = exception.to_object(scope) {
+        let code_key = v8::String::new(scope, "code").unwrap();
+        let code_str = v8::String::new(scope, error.code()).unwrap();
+        error_obj.set(scope, code_key.into(), code_str.into());
+        
+        // Add path property if available
+        if let Some(path) = error.path() {
+            let path_key = v8::String::new(scope, "path").unwrap();
+            let path_str = v8::String::new(scope, path).unwrap();
+            error_obj.set(scope, path_key.into(), path_str.into());
+        }
+    }
+    
+    scope.throw_exception(exception);
+}
+
+/// Nano.fs.readFileSync(path) implementation
+///
+/// Returns Uint8Array containing file contents, or throws on error
+fn nano_fs_read_file_sync(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let path = match extract_string_arg(scope, &args, 0) {
+        Some(p) => p,
+        None => {
+            let msg = v8::String::new(scope, "readFileSync requires a path argument").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            scope.throw_exception(error);
+            return;
+        }
+    };
+
+    // Perform synchronous read using block_on
+    let result = with_current_vfs(|vfs_opt| {
+        if let Some(vfs) = vfs_opt {
+            // Use tokio's block_on to run the async operation synchronously
+            match tokio::runtime::Handle::try_current() {
+                Ok(rt) => rt.block_on(async { vfs.read(&path).await }),
+                Err(_) => {
+                    // No async runtime available - create one temporarily
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async { vfs.read(&path).await })
+                }
+            }
+        } else {
+            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+        }
+    });
+
+    match result {
+        Ok(bytes) => {
+            // Create Uint8Array from bytes
+            let ab = v8::ArrayBuffer::new(scope, bytes.len());
+            let store = ab.get_backing_store();
+            for (i, byte) in bytes.iter().enumerate() {
+                if let Some(cell) = store.get(i) {
+                    cell.set(*byte);
+                }
+            }
+            if let Some(uint8array) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {
+                retval.set(uint8array.into());
+            } else {
+                retval.set(ab.into());
+            }
+        }
+        Err(e) => {
+            throw_vfs_error(scope, &e);
+        }
+    }
+}
+
+/// Nano.fs.writeFileSync(path, data) implementation
+///
+/// Writes data to file, throws on error
+fn nano_fs_write_file_sync(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    let path = match extract_string_arg(scope, &args, 0) {
+        Some(p) => p,
+        None => {
+            let msg = v8::String::new(scope, "writeFileSync requires a path argument").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            scope.throw_exception(error);
+            return;
+        }
+    };
+
+    let data = match extract_bytes_arg(scope, &args, 1) {
+        Some(d) => d,
+        None => {
+            let msg = v8::String::new(scope, "writeFileSync requires data argument").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            scope.throw_exception(error);
+            return;
+        }
+    };
+
+    // Perform synchronous write
+    let result = with_current_vfs(|vfs_opt| {
+        if let Some(vfs) = vfs_opt {
+            match tokio::runtime::Handle::try_current() {
+                Ok(rt) => rt.block_on(async { vfs.write(&path, &data).await }),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async { vfs.write(&path, &data).await })
+                }
+            }
+        } else {
+            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+        }
+    });
+
+    if let Err(e) = result {
+        throw_vfs_error(scope, &e);
+    }
+}
+
+/// Nano.fs.existsSync(path) implementation
+///
+/// Returns boolean indicating if file exists
+fn nano_fs_exists_sync(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let path = match extract_string_arg(scope, &args, 0) {
+        Some(p) => p,
+        None => {
+            let msg = v8::String::new(scope, "existsSync requires a path argument").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            scope.throw_exception(error);
+            return;
+        }
+    };
+
+    // Perform synchronous check
+    let result = with_current_vfs(|vfs_opt| {
+        if let Some(vfs) = vfs_opt {
+            match tokio::runtime::Handle::try_current() {
+                Ok(rt) => rt.block_on(async { vfs.exists(&path).await }),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async { vfs.exists(&path).await })
+                }
+            }
+        } else {
+            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+        }
+    });
+
+    match result {
+        Ok(exists) => {
+            retval.set(v8::Boolean::new(scope, exists).into());
+        }
+        Err(e) => {
+            throw_vfs_error(scope, &e);
+        }
+    }
+}
+
+/// Nano.fs.deleteSync(path) implementation
+///
+/// Deletes file, throws on error
+fn nano_fs_delete_sync(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    let path = match extract_string_arg(scope, &args, 0) {
+        Some(p) => p,
+        None => {
+            let msg = v8::String::new(scope, "deleteSync requires a path argument").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            scope.throw_exception(error);
+            return;
+        }
+    };
+
+    // Perform synchronous delete
+    let result = with_current_vfs(|vfs_opt| {
+        if let Some(vfs) = vfs_opt {
+            match tokio::runtime::Handle::try_current() {
+                Ok(rt) => rt.block_on(async { vfs.delete(&path).await }),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async { vfs.delete(&path).await })
+                }
+            }
+        } else {
+            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+        }
+    });
+
+    if let Err(e) = result {
+        throw_vfs_error(scope, &e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vfs::{MemoryBackend, VfsNamespace};
+    use crate::v8::platform;
+
+    fn init_platform() {
+        platform::initialize_platform().expect("Failed to initialize V8 platform");
+    }
+
+    /// Test that Nano.fs object is created correctly
+    #[test]
+    fn test_nano_fs_binding_created() {
+        init_platform();
+
+        let vfs = Arc::new(IsolateVfs::new(
+            VfsNamespace::from_hostname("test.example.com"),
+            Arc::new(MemoryBackend::default()),
+        ));
+        set_current_vfs(Some(vfs));
+
+        let mut isolate = v8::Isolate::new(Default::default());
+        let scope = &mut v8::HandleScope::new(&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        bind_nano_fs(scope, context);
+
+        // Check Nano exists
+        let global = context.global(scope);
+        let nano_key = v8::String::new(scope, "Nano").unwrap();
+        let nano = global.get(scope, nano_key.into()).expect("Nano not found");
+        assert!(!nano.is_undefined());
+
+        // Check Nano.fs exists
+        let nano_obj = nano.to_object(scope).expect("Nano is not an object");
+        let fs_key = v8::String::new(scope, "fs").unwrap();
+        let fs = nano_obj.get(scope, fs_key.into()).expect("fs not found");
+        assert!(!fs.is_undefined());
+
+        // Check readFileSync exists
+        let fs_obj = fs.to_object(scope).expect("fs is not an object");
+        let read_key = v8::String::new(scope, "readFileSync").unwrap();
+        let read_fn = fs_obj.get(scope, read_key.into()).expect("readFileSync not found");
+        assert!(read_fn.is_function());
+
+        // Check writeFileSync exists
+        let write_key = v8::String::new(scope, "writeFileSync").unwrap();
+        let write_fn = fs_obj.get(scope, write_key.into()).expect("writeFileSync not found");
+        assert!(write_fn.is_function());
+
+        // Check existsSync exists
+        let exists_key = v8::String::new(scope, "existsSync").unwrap();
+        let exists_fn = fs_obj.get(scope, exists_key.into()).expect("existsSync not found");
+        assert!(exists_fn.is_function());
+
+        // Check deleteSync exists
+        let delete_key = v8::String::new(scope, "deleteSync").unwrap();
+        let delete_fn = fs_obj.get(scope, delete_key.into()).expect("deleteSync not found");
+        assert!(delete_fn.is_function());
+    }
+}
