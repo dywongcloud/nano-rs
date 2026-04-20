@@ -1200,18 +1200,32 @@ fn subtle_generate_key(
             crate::runtime::crypto::aes_gcm::generate_key(length, extractable, usages)
         }
         "HMAC" => {
-            // Extract hash algorithm
+            // Extract hash algorithm - can be string "SHA-256" or object {name: "SHA-256"}
             let hash_key = v8::String::new(scope, "hash").unwrap();
-            let hash = algorithm_obj
-                .get(scope, hash_key.into())
-                .and_then(|v| v.to_object(scope))
-                .and_then(|hash_obj| {
-                    let name_key = v8::String::new(scope, "name")?;
-                    hash_obj.get(scope, name_key.into())
-                        .and_then(|n| n.to_string(scope))
-                        .map(|s| s.to_rust_string_lossy(scope))
-                })
-                .and_then(|hash_name| crate::runtime::crypto::HashAlgorithm::from_name(&hash_name))
+            let hash_val = algorithm_obj.get(scope, hash_key.into());
+            
+            let hash_name = if let Some(val) = hash_val {
+                // Try as string first
+                if let Some(s) = val.to_string(scope) {
+                    s.to_rust_string_lossy(scope)
+                } else if let Some(obj) = val.to_object(scope) {
+                    // Try as object with name property
+                    if let Some(name_key) = v8::String::new(scope, "name") {
+                        obj.get(scope, name_key.into())
+                            .and_then(|n| n.to_string(scope))
+                            .map(|s| s.to_rust_string_lossy(scope))
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+            
+            let hash = crate::runtime::crypto::HashAlgorithm::from_name(&hash_name)
                 .unwrap_or(crate::runtime::crypto::HashAlgorithm::Sha256);
             
             // Extract optional length (default based on hash)
@@ -1987,6 +2001,7 @@ fn subtle_verify(
     };
     
     // Perform verification based on key algorithm
+    tracing::debug!("subtle_verify: key algorithm={:?}, usages={:?}", crypto_key.algorithm, crypto_key.usages);
     let result = match &crypto_key.algorithm {
         crate::runtime::crypto::AlgorithmIdentifier::Hmac { .. } => {
             crate::runtime::crypto::hmac::verify(&crypto_key, &data, &signature)

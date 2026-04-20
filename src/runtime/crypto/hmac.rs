@@ -210,7 +210,9 @@ pub fn verify(key: &CryptoKey, data: &[u8], signature: &[u8]) -> Result<bool, Cr
     };
     
     // Validate key has verify usage
+    tracing::debug!("hmac::verify: key usages={:?}, has Verify={}", key.usages, key.has_usage(KeyUsage::Verify));
     if !key.has_usage(KeyUsage::Verify) {
+        tracing::debug!("hmac::verify: rejecting - key lacks Verify usage");
         return Err(CryptoError::InvalidAccess);
     }
     

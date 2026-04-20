@@ -35,12 +35,12 @@ fn test_hmac_sign_verify_roundtrip() {
             const signature = crypto.subtle.sign("HMAC", key, message);
             
             // Verify signature length (32 bytes for SHA-256)
-            const correctLength = signature.length === 32;
+            const correctLength = signature.byteLength === 32;
             
             // Verify signature
             const valid = crypto.subtle.verify("HMAC", key, signature, message);
             
-            correctLength && valid
+            correctLength && valid ? "true" : "false"
         } catch (e) {
             "Error: " + e.message
         }
@@ -78,13 +78,14 @@ fn test_hmac_signature_tampering_detected() {
             const message = new TextEncoder().encode("Test message");
             const signature = crypto.subtle.sign("HMAC", key, message);
             
-            // Tamper with signature
-            signature[0] ^= 0xFF;
+            // Tamper with signature - need Uint8Array view
+            const sigView = new Uint8Array(signature);
+            sigView[0] ^= 0xFF;
             
             // Verify should return false, not throw
             const valid = crypto.subtle.verify("HMAC", key, signature, message);
             
-            valid === false
+            valid === false ? "true" : "false"
         } catch (e) {
             "Error: " + e.message
         }
@@ -163,7 +164,8 @@ fn test_hmac_different_hash_algorithms() {
             );
             const msg256 = new TextEncoder().encode("Test");
             const sig256 = crypto.subtle.sign("HMAC", key256, msg256);
-            const ok256 = sig256.length === 32 && crypto.subtle.verify("HMAC", key256, sig256, msg256);
+            const verify256 = crypto.subtle.verify("HMAC", key256, sig256, msg256);
+            const ok256 = sig256.byteLength === 32 && verify256;
             
             // SHA-384 (48 bytes)
             const key384 = crypto.subtle.generateKey(
@@ -173,7 +175,8 @@ fn test_hmac_different_hash_algorithms() {
             );
             const msg384 = new TextEncoder().encode("Test");
             const sig384 = crypto.subtle.sign("HMAC", key384, msg384);
-            const ok384 = sig384.length === 48 && crypto.subtle.verify("HMAC", key384, sig384, msg384);
+            const verify384 = crypto.subtle.verify("HMAC", key384, sig384, msg384);
+            const ok384 = sig384.byteLength === 48 && verify384;
             
             // SHA-512 (64 bytes)
             const key512 = crypto.subtle.generateKey(
@@ -183,9 +186,14 @@ fn test_hmac_different_hash_algorithms() {
             );
             const msg512 = new TextEncoder().encode("Test");
             const sig512 = crypto.subtle.sign("HMAC", key512, msg512);
-            const ok512 = sig512.length === 64 && crypto.subtle.verify("HMAC", key512, sig512, msg512);
+            const verify512 = crypto.subtle.verify("HMAC", key512, sig512, msg512);
+            const ok512 = sig512.byteLength === 64 && verify512;
             
-            ok256 && ok384 && ok512
+            const result = (ok256 && ok384 && ok512) ? "true" : 
+                          (!ok256 ? "fail256:len=" + sig256.byteLength + ",v=" + verify256 :
+                           !ok384 ? "fail384:len=" + sig384.byteLength + ",v=" + verify384 :
+                           "fail512:len=" + sig512.byteLength + ",v=" + verify512);
+            result
         } catch (e) {
             "Error: " + e.message
         }
@@ -198,6 +206,7 @@ fn test_hmac_different_hash_algorithms() {
     let result = script.run(scope).expect("Script execution failed");
     let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
     
+    eprintln!("DEBUG hash algorithms result: {}", result_str);
     assert_eq!(result_str, "true", "All HMAC hash algorithms should work");
 }
 
@@ -245,7 +254,7 @@ fn test_hmac_jwk_import_export() {
             const signature = crypto.subtle.sign("HMAC", importedKey, message);
             const valid = crypto.subtle.verify("HMAC", importedKey, signature, message);
             
-            ok1 && ok2 && ok3 && ok4 && ok5 && valid
+            (ok1 && ok2 && ok3 && ok4 && ok5 && valid) ? "true" : "false"
         } catch (e) {
             "Error: " + e.message
         }
@@ -303,7 +312,8 @@ fn test_hmac_key_usage_validation() {
     let result = script.run(scope).expect("Script execution failed");
     let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
     
-    assert!(result_str.contains("Verify blocked"), "Should enforce key usage restrictions");
+    eprintln!("DEBUG key usage result: {}", result_str);
+    assert!(result_str.contains("Verify blocked"), "Should enforce key usage restrictions, got: {}", result_str);
 }
 
 #[test]
@@ -342,7 +352,7 @@ fn test_hmac_import_from_jwk_object() {
             const signature = crypto.subtle.sign("HMAC", key, message);
             const valid = crypto.subtle.verify("HMAC", key, signature, message);
             
-            valid
+            valid ? "true" : "false"
         } catch (e) {
             "Error: " + e.message
         }
@@ -355,5 +365,6 @@ fn test_hmac_import_from_jwk_object() {
     let result = script.run(scope).expect("Script execution failed");
     let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
     
+    eprintln!("DEBUG JWK import from object result: {}", result_str);
     assert_eq!(result_str, "true", "Should import HMAC key from JWK object");
 }
