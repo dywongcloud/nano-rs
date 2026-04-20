@@ -3,7 +3,7 @@
 //! Coordinates the restoration of VFS state from slivers,
 //! selecting the appropriate backend strategy.
 
-use crate::sliver::error::{SliverError, SliverResult};
+use crate::sliver::error::SliverResult;
 use crate::sliver::unpacker::UnpackedSliver;
 use crate::vfs::IsolateVfs;
 

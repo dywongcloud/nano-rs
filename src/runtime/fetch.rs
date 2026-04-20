@@ -18,12 +18,10 @@
 //! - Header filtering removes dangerous headers
 //! - Response size limits prevent memory exhaustion
 
-use crate::http::{HttpClient, HttpClientError};
+use crate::http::HttpClient;
 use bytes::Bytes;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
-use std::time::Duration;
 
 /// Per-isolate fetch state
 ///

@@ -9,12 +9,11 @@ use axum::{
     response::Json,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
-use crate::admin::diagnostics::{DiagnosticsCollector, IsolateInfo, SystemDiagnostics};
+use crate::admin::diagnostics::{DiagnosticsCollector, IsolateInfo};
 use crate::app::registry::AppRegistry;
 
 /// Isolate information for API response

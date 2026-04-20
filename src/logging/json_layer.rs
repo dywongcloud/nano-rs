@@ -28,7 +28,7 @@ use chrono::Utc;
 use serde_json::json;
 use serde_json::Value;
 use tracing::span::Attributes;
-use tracing::{Event, Id, Level, Span, Subscriber};
+use tracing::{Event, Id, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;

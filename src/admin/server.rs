@@ -32,12 +32,11 @@
 
 use axum::{
     extract::State,
-    routing::{delete, get, patch, post},
+    routing::{get, post},
     middleware,
     Router,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -50,7 +49,6 @@ use crate::admin::handlers::{
     get_app, health_handler, list_apps, list_isolates, ready_handler, reload_app,
     scale_app, update_app,
 };
-use crate::admin::metrics::metrics_handler;
 use crate::app::registry::AppRegistry;
 use crate::metrics::MetricsRegistry;
 
@@ -396,7 +394,7 @@ async fn drain_app_handler(
 
 /// Admin metrics handler that doesn't require external state
 async fn admin_metrics_handler() -> impl axum::response::IntoResponse {
-    use crate::metrics::{MetricsRegistry, PrometheusExporter, METRICS};
+    use crate::metrics::{PrometheusExporter, METRICS};
     use axum::http::header;
     use axum::response::Response;
     

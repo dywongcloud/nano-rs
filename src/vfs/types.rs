@@ -6,7 +6,6 @@
 //! - VfsError: Error types matching Node.js semantics
 
 use std::fmt;
-use std::path::Path;
 use std::time::SystemTime;
 
 /// Maximum allowed path length (4096 bytes)

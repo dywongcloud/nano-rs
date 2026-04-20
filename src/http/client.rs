@@ -12,9 +12,9 @@
 //! - Header filtering blocks dangerous headers
 
 use bytes::Bytes;
-use hyper::{Request, Response, StatusCode, Uri};
+use hyper::{StatusCode, Uri};
 use std::time::Duration;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 /// HTTP client for outbound requests
 ///

@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration};
+use tokio::time::Duration;
 
 use crate::app::drain::RequestDrain;
 use crate::app::registry::AppRegistry;

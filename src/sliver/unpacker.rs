@@ -3,7 +3,6 @@
 //! Implements tar archive extraction for sliver snapshots.
 //! Extracts metadata, heap blob, and VFS contents from an archive.
 
-use std::io::Read;
 use tar::Archive;
 
 use crate::sliver::error::{SliverError, SliverResult};

@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use crate::vfs::types::{VfsError, VfsPath, VfsResult};
+use crate::vfs::types::{VfsPath, VfsResult};
 use crate::vfs::VfsBackend;
 
 /// A namespace for VFS isolation

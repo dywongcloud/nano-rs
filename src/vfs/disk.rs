@@ -432,7 +432,6 @@ impl VfsBackend for DiskBackend {
 }
 
 // Required for random temp file suffixes
-use rand::Rng;
 
 #[cfg(test)]
 mod tests {

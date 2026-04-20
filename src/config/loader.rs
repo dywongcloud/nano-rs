@@ -15,7 +15,6 @@
 //! - T-05-01: JSON schema validation with #[serde(deny_unknown_fields)]
 //! - T-05-03: Config file size limits (max 1MB)
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 

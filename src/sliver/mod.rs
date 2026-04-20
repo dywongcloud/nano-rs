@@ -70,8 +70,6 @@ pub use packer::pack_sliver as _pack_sliver_doc;
 #[doc(hidden)]
 pub use unpacker::unpack_sliver as _unpack_sliver_doc;
 
-use std::collections::HashMap;
-use std::io::Read;
 
 /// Walk a VFS backend and collect all entries for serialization
 ///

@@ -153,7 +153,7 @@ pub fn encrypt(
     params: &AesGcmParams,
     plaintext: &[u8],
 ) -> Result<Vec<u8>, CryptoError> {
-    use ring::aead::{self, Nonce, Aad, UnboundKey, AES_128_GCM, AES_256_GCM, SealingKey};
+    use ring::aead::{Nonce, Aad, UnboundKey, AES_128_GCM, AES_256_GCM};
     
     // Validate parameters
     params.validate()?;
@@ -220,7 +220,7 @@ pub fn decrypt(
     params: &AesGcmParams,
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, CryptoError> {
-    use ring::aead::{self, Nonce, Aad, UnboundKey, AES_128_GCM, AES_256_GCM};
+    use ring::aead::{Nonce, Aad, UnboundKey, AES_128_GCM, AES_256_GCM};
     
     // Validate parameters
     params.validate()?;

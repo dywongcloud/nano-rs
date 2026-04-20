@@ -8,10 +8,9 @@ use crate::http::NanoResponse;
 use crate::runtime::HandlerContext;
 use crate::v8::{initialize_platform, NanoIsolate};
 use crate::worker::context::ContextManager;
-use crate::worker::oom::{OomMonitor, OomMonitorBuilder};
+use crate::worker::oom::OomMonitorBuilder;
 use crate::worker::HandlerTask;
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
-use crate::sliver::UnpackedSliver;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -366,7 +365,7 @@ impl WorkerPool {
                 info!("Worker {} starting", id);
 
                 // Create OOM monitor for this worker if memory limit is configured
-                let mut oom_monitor = if memory_limit_mb > 0 {
+                let oom_monitor = if memory_limit_mb > 0 {
                     Some(
                         OomMonitorBuilder::new(format!("worker_{}_{}", worker_hostname, id))
                             .with_limit_mb(memory_limit_mb)
@@ -789,7 +788,7 @@ impl SliverWorkerPool {
                 info!("SliverWorker {} starting for {}", id, worker_hostname);
 
                 // Create OOM monitor
-                let mut oom_monitor = if memory_limit_mb > 0 {
+                let oom_monitor = if memory_limit_mb > 0 {
                     Some(
                         OomMonitorBuilder::new(format!("sliver_worker_{}_{}", worker_hostname, id))
                             .with_limit_mb(memory_limit_mb)

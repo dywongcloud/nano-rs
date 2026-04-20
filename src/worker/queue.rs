@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, TrySendError};
 use std::thread::{self, JoinHandle};
 
-use crate::http::{NanoRequest, NanoResponse};
+use crate::http::NanoResponse;
 use crate::worker::HandlerTask;
 
 /// Error types for queue operations

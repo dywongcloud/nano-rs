@@ -296,7 +296,7 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
 
 /// Handle sliver management commands
 async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
-    use nano::sliver::{pack_sliver, SliverMetadata, UnpackedSliver, unpack_sliver, validate_sliver};
+    use nano::sliver::{pack_sliver, SliverMetadata, unpack_sliver, validate_sliver};
     
     match cmd {
         cli::SliverCommand::Create(args) => {

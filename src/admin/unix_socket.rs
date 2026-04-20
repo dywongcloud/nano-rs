@@ -31,7 +31,7 @@ use axum::{
     body::Body,
     extract::{ConnectInfo, Request, State},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -41,10 +41,9 @@ use crate::admin::server::{AdminState, AdminStateAxum, create_admin_router};
 use crate::admin::auth::AdminAuth;
 use crate::admin::handlers::{
     activate_app, create_app, delete_app, disable_app, drain_app, enable_app,
-    get_app, health_handler, list_apps, list_isolates, ready_handler, reload_app,
+    get_app, list_apps, list_isolates, reload_app,
     scale_app, update_app,
 };
-use crate::admin::metrics::metrics_handler;
 
 /// Unix socket configuration
 #[derive(Debug, Clone)]
@@ -297,15 +296,13 @@ async fn mark_unix_socket_request(
 /// This creates the admin router without the API key middleware,
 /// since Unix socket access is controlled by filesystem permissions.
 pub fn create_unix_socket_router_no_auth(state: AdminState) -> axum::Router {
-    use axum::routing::{delete, get, patch, post};
+    use axum::routing::{get, post};
     use tower_http::trace::TraceLayer;
 
     use crate::admin::handlers::{
-        activate_app, create_app, delete_app, disable_app, drain_app, enable_app,
-        get_app, health_handler, list_apps, list_isolates, ready_handler, reload_app,
-        scale_app, update_app,
+        health_handler, ready_handler,
     };
-    use crate::admin::metrics::metrics_handler;
+    
 
     let state_axum = Arc::new(AdminStateAxum::new(state));
 
@@ -423,7 +420,7 @@ async fn drain_app_handler_unix(
 }
 
 async fn admin_metrics_handler_unix() -> impl axum::response::IntoResponse {
-    use crate::metrics::{MetricsRegistry, PrometheusExporter, METRICS};
+    use crate::metrics::{PrometheusExporter, METRICS};
     use axum::http::header;
     use axum::response::Response;
     

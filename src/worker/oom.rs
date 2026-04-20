@@ -35,7 +35,7 @@
 //! }
 //! ```
 
-use crate::http::{NanoHeaders, NanoResponse};
+use crate::http::NanoResponse;
 use crate::worker::limits::{HeapStatistics, MemoryLimiter, OomError};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{error, warn};

@@ -3,13 +3,11 @@
 //! Provides visibility into active isolates, worker pools, and app health.
 //! Similar to `ps` or `top` for NANO isolates.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
 use crate::app::registry::AppRegistry;
-use crate::worker::pool::WorkerPool;
 
 /// Runtime information about an active isolate
 #[derive(Debug, Clone)]

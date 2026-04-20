@@ -26,7 +26,6 @@ use axum::{
     extract::State,
     http::{header, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Serialize;
 use std::sync::Arc;

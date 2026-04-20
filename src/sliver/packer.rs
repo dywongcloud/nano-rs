@@ -3,10 +3,9 @@
 //! Implements tar archive creation for sliver snapshots.
 //! Packs metadata, heap blob, and VFS contents into a single archive.
 
-use std::io::Write;
 use tar::{Builder, Header};
 
-use crate::sliver::error::{SliverError, SliverResult};
+use crate::sliver::error::SliverResult;
 use crate::sliver::format::{HEAP_FILENAME, MANIFEST_FILENAME, METADATA_FILENAME, VFS_PREFIX};
 use crate::sliver::metadata::SliverMetadata;
 use crate::vfs::types::{VfsFile, VfsPath};

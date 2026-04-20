@@ -3,9 +3,8 @@
 //! This module provides functionality to capture all files from a VFS
 //! for inclusion in a sliver snapshot.
 
-use crate::vfs::{IsolateVfs, MemoryBackend, VfsBackend, VfsError, VfsFile, VfsPath, VfsResult};
+use crate::vfs::{IsolateVfs, VfsBackend, VfsFile, VfsPath, VfsResult};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Captured VFS state ready for serialization
 ///

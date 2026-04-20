@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::RwLock;
 
 /// Labels for a metric instance
 ///

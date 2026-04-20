@@ -8,7 +8,7 @@
 //! Note: Full V8 object creation happens in Phase 3. This module provides
 //! the serialization layer and JSON utilities.
 
-use crate::http::{NanoHeaders, NanoRequest, NanoResponse};
+use crate::http::{NanoRequest, NanoResponse};
 
 /// Serialize a NanoRequest to JSON string
 ///

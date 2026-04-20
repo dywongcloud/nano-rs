@@ -15,9 +15,8 @@
 //! - unwrapKey: Unwrap keys from transport format
 
 use crate::runtime::crypto::{
-    CryptoError, CryptoKey, AlgorithmIdentifier, HashAlgorithm, KeyUsage,
+    CryptoError, CryptoKey, KeyUsage,
 };
-use crate::runtime::crypto::crypto_key::JwkObject;
 
 /// SubtleCrypto provides the crypto.subtle API
 ///

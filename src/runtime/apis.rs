@@ -14,7 +14,6 @@
 
 use std::cell::Cell;
 use std::time::Instant;
-use std::sync::Arc;
 
 /// Thread-local storage for performance baseline timing
 thread_local! {

@@ -18,10 +18,8 @@
 //! This ensures both async boundaries and synchronous JS loops are covered.
 
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::oneshot;

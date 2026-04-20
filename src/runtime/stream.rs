@@ -7,7 +7,6 @@
 use bytes::Bytes;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 /// Resource table entry for active streams
 #[derive(Debug)]

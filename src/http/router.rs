@@ -30,8 +30,8 @@ use tokio::sync::Mutex;
 
 use crate::http::{NanoRequest, NanoResponse, NanoHeaders, NanoUrl};
 use crate::worker::{HandlerTask, QueueError, WorkQueue};
-use crate::logging::{create_request_span, NanoSpanExt};
-use crate::metrics::{MetricsRegistry, METRICS};
+use crate::logging::create_request_span;
+use crate::metrics::METRICS;
 use uuid::Uuid;
 
 /// Handler type for routed requests
