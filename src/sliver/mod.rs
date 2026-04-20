@@ -46,6 +46,7 @@
 //! - **Evolvable**: Format allows future deltas and compression
 
 // Submodules
+pub mod benchmark;
 mod error;
 mod format;
 mod metadata;
