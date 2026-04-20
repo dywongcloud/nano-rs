@@ -53,6 +53,7 @@ mod metadata;
 mod packer;
 pub mod restore;
 mod unpacker;
+pub mod validation;
 pub mod vfs_capture;
 
 // Public exports
@@ -61,6 +62,7 @@ pub use format::{SliverFormat, FORMAT_VERSION, HEAP_FILENAME, MANIFEST_FILENAME,
 pub use metadata::SliverMetadata;
 pub use packer::{pack_sliver, SliverPacker};
 pub use unpacker::{unpack_sliver, SliverUnpacker, UnpackedSliver};
+pub use validation::{validate_sliver_integrity, find_sliver_file, check_version_compatibility, CorruptionType};
 
 // Re-export for documentation only
 #[doc(hidden)]
