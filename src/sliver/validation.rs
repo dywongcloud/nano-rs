@@ -399,21 +399,10 @@ mod tests {
     }
 
     #[test]
-    fn test_check_snapshot_compatibility_same_version() {
-        let metadata = SliverMetadata {
-            format_version: "1.0".to_string(),
-            hostname: "test.example.com".to_string(),
-            name: Some("test".to_string()),
-            tag: None,
-            description: None,
-            created_at: "2026-04-20T00:00:00Z".to_string(),
-            snapshot_version: None,
-            v8_version: Some("135.0".to_string()),
-            heap_size: 1024,
-            vfs_entries: 0,
-        };
+    fn test_check_version_compatibility_same_version() {
+        let metadata = SliverMetadata::new("test.example.com", "1.1.0");
         
-        assert!(check_snapshot_compatibility(&metadata, "135.0").is_ok());
+        assert!(check_version_compatibility(&metadata, "1.1.0").is_ok());
     }
 
     #[test]
