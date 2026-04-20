@@ -23,8 +23,16 @@ enum Commands {
         /// Configuration file path
         #[arg(short, long, value_name = "FILE")]
         config: Option<PathBuf>,
+
+        /// Sliver file to run directly (conflicts with --config)
+        #[arg(long, value_name = "FILE", conflicts_with = "config")]
+        sliver: Option<PathBuf>,
+
+        /// Number of workers when using --sliver
+        #[arg(short, long, default_value = "4")]
+        workers: usize,
     },
-    
+
     /// Sliver management commands (snapshot creation and management)
     #[command(subcommand)]
     Sliver(cli::SliverCommand),
@@ -38,7 +46,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     
     match cli.command {
-        Some(Commands::Run { config: _ }) | None => {
+        Some(Commands::Run { config: _, sliver: _, workers: _ }) | None => {
             // Default behavior: run the server
             run_server().await
         }

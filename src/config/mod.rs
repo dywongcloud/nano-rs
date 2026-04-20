@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+pub mod app;
 pub mod loader;
 pub mod watcher;
 

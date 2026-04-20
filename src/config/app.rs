@@ -118,14 +118,19 @@ pub struct VfsS3Config {
 ///
 /// Defines all configuration for one application including its hostname,
 /// entry point script, environment variables, and resource limits.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AppConfig {
     /// Hostname this app responds to (e.g., "api.example.com")
     pub hostname: String,
 
-    /// Path to the entry point JavaScript file
+    /// Path to the entry point JavaScript file (required unless sliver is set)
+    #[serde(default)]
     pub entrypoint: String,
+
+    /// Path to sliver file for snapshot-based loading (alternative to entrypoint)
+    #[serde(default)]
+    pub sliver: Option<String>,
 
     /// Environment variables to inject into JS global scope (per T-05-02)
     #[serde(default)]
@@ -288,30 +293,67 @@ pub fn validate_config(
         errors.add(format!("'{}' is not a valid hostname", config.hostname));
     }
 
-    // Validate entrypoint
-    if config.entrypoint.is_empty() {
-        errors.add("entrypoint cannot be empty");
-    } else if config.entrypoint.contains("..") {
-        // Path traversal prevention (per T-05-04)
-        errors.add(format!(
-            "entrypoint '{}' contains '..' which is not allowed for security",
-            config.entrypoint
-        ));
-    } else if let Some(base) = base_path {
-        let full_path = if std::path::Path::new(&config.entrypoint).is_absolute() {
-            std::path::PathBuf::from(&config.entrypoint)
-        } else {
-            base.join(&config.entrypoint)
-        };
+    // Validate entrypoint or sliver (at least one must be specified)
+    let has_entrypoint = !config.entrypoint.is_empty();
+    let has_sliver = config.sliver.is_some();
 
-        if !full_path.exists() {
+    if !has_entrypoint && !has_sliver {
+        errors.add("either entrypoint or sliver must be specified");
+    }
+
+    // Validate entrypoint if provided
+    if has_entrypoint {
+        if config.entrypoint.contains("..") {
+            // Path traversal prevention (per T-05-04)
             errors.add(format!(
-                "entrypoint '{}' not found (resolved to: {})",
-                config.entrypoint,
-                full_path.display()
+                "entrypoint '{}' contains '..' which is not allowed for security",
+                config.entrypoint
             ));
-        } else if !full_path.is_file() {
-            errors.add(format!("entrypoint '{}' is not a file", config.entrypoint));
+        } else if let Some(base) = base_path {
+            let full_path = if std::path::Path::new(&config.entrypoint).is_absolute() {
+                std::path::PathBuf::from(&config.entrypoint)
+            } else {
+                base.join(&config.entrypoint)
+            };
+
+            if !full_path.exists() {
+                errors.add(format!(
+                    "entrypoint '{}' not found (resolved to: {})",
+                    config.entrypoint,
+                    full_path.display()
+                ));
+            } else if !full_path.is_file() {
+                errors.add(format!("entrypoint '{}' is not a file", config.entrypoint));
+            }
+        }
+    }
+
+    // Validate sliver path if provided
+    if let Some(ref sliver) = config.sliver {
+        if sliver.is_empty() {
+            errors.add("sliver path cannot be empty");
+        } else if sliver.contains("..") {
+            // Path traversal prevention
+            errors.add(format!(
+                "sliver path '{}' contains '..' which is not allowed for security",
+                sliver
+            ));
+        } else if let Some(base) = base_path {
+            let full_path = if std::path::Path::new(sliver).is_absolute() {
+                std::path::PathBuf::from(sliver)
+            } else {
+                base.join(sliver)
+            };
+
+            if !full_path.exists() {
+                errors.add(format!(
+                    "sliver '{}' not found (resolved to: {})",
+                    sliver,
+                    full_path.display()
+                ));
+            } else if !full_path.is_file() {
+                errors.add(format!("sliver '{}' is not a file", sliver));
+            }
         }
     }
 
@@ -581,6 +623,7 @@ mod tests {
             entrypoint: "/app/index.js".to_string(),
             env_vars: Default::default(),
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -596,6 +639,7 @@ mod tests {
             entrypoint: "".to_string(),
             env_vars: Default::default(),
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -611,6 +655,7 @@ mod tests {
             entrypoint: "/app/index.js".to_string(),
             env_vars: Default::default(),
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -626,6 +671,7 @@ mod tests {
             entrypoint: "../../../etc/passwd".to_string(),
             env_vars: Default::default(),
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -648,6 +694,7 @@ mod tests {
                 timeout_secs: 30,
                 workers: 4,
             },
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -667,6 +714,7 @@ mod tests {
                 timeout_secs: 0, // too low
                 workers: 4,
             },
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -686,6 +734,7 @@ mod tests {
                 timeout_secs: 30,
                 workers: 100, // too high
             },
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -701,6 +750,7 @@ mod tests {
             entrypoint: "/app/index.js".to_string(),
             env_vars: Default::default(),
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -762,12 +812,14 @@ mod tests {
                     entrypoint: "/app1.js".to_string(),
                     env_vars: Default::default(),
                     limits: Default::default(),
+                    ..Default::default()
                 },
                 AppConfig {
                     hostname: "API.EXAMPLE.COM".to_string(), // same as above, different case
                     entrypoint: "/app2.js".to_string(),
                     env_vars: Default::default(),
                     limits: Default::default(),
+                    ..Default::default()
                 },
             ],
             server: Default::default(),
@@ -801,6 +853,7 @@ mod tests {
                 entrypoint: "/app.js".to_string(),
                 env_vars: Default::default(),
                 limits: Default::default(),
+                ..Default::default()
             });
         }
 
@@ -823,6 +876,7 @@ mod tests {
                 entrypoint: "/app.js".to_string(),
                 env_vars: Default::default(),
                 limits: Default::default(),
+                ..Default::default()
             }],
             server: Default::default(),
         };
@@ -854,6 +908,7 @@ mod tests {
             entrypoint: "/app.js".to_string(),
             env_vars,
             limits: Default::default(),
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -936,6 +991,7 @@ mod tests {
             vfs_backend: VfsBackendType::Disk,
             vfs_disk: None,
             vfs_s3: None,
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -954,6 +1010,7 @@ mod tests {
             vfs_backend: VfsBackendType::S3,
             vfs_disk: None,
             vfs_s3: None,
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
@@ -974,11 +1031,92 @@ mod tests {
                 base_path: "../../../etc/passwd".to_string(),
             }),
             vfs_s3: None,
+            ..Default::default()
         };
 
         let result = validate_config(&config, None);
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert!(errors.errors.iter().any(|e| e.contains("base_path") && e.contains("..")));
+    }
+
+    #[test]
+    fn test_validation_rejects_neither_entrypoint_nor_sliver() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "".to_string(),
+            sliver: None,
+            env_vars: Default::default(),
+            limits: Default::default(),
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.errors.iter().any(|e| e.contains("either") && e.contains("entrypoint") && e.contains("sliver")));
+    }
+
+    #[test]
+    fn test_validation_accepts_sliver_without_entrypoint() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "".to_string(),
+            sliver: Some("./app.sliver".to_string()),
+            env_vars: Default::default(),
+            limits: Default::default(),
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validation_accepts_both_entrypoint_and_sliver() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "/app.js".to_string(),
+            sliver: Some("./app.sliver".to_string()),
+            env_vars: Default::default(),
+            limits: Default::default(),
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validation_rejects_sliver_path_traversal() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "".to_string(),
+            sliver: Some("../../../etc/passwd.sliver".to_string()),
+            env_vars: Default::default(),
+            limits: Default::default(),
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.errors.iter().any(|e| e.contains("sliver") && e.contains("..")));
+    }
+
+    #[test]
+    fn test_app_config_deserialization_with_sliver() {
+        let json = r#"{
+            "hostname": "api.example.com",
+            "sliver": "./api-v1.sliver",
+            "limits": {
+                "workers": 4
+            }
+        }"#;
+
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.hostname, "api.example.com");
+        assert_eq!(config.sliver, Some("./api-v1.sliver".to_string()));
+        assert!(config.entrypoint.is_empty());
     }
 }
