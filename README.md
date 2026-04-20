@@ -66,6 +66,34 @@ export default {
 
 NANO provides WinterCG-compatible APIs: `Request`, `Response`, `Headers`, `URL`, `TextEncoder`, `TextDecoder`, `console`, `crypto.subtle`.
 
+### Filesystem (VFS)
+
+Each isolate has its own ephemeral filesystem:
+
+```javascript
+// Explicit API
+const data = await Nano.fs.readFile('/data/config.json');
+await Nano.fs.writeFile('/data/output.txt', 'Hello');
+
+// Or use Node.js compatible API
+const fs = require('fs');
+fs.writeFileSync('/data/output.txt', 'Hello');
+```
+
+## Slivers (Optional)
+
+Package apps as portable snapshots for faster cold starts (~1-2ms):
+
+```bash
+# Create from running app
+nano-rs sliver create api.example.com --output api-v1.sliver
+
+# Run from sliver
+nano-rs run --sliver api-v1.sliver
+```
+
+See [SLIVER.md](SLIVER.md) for full documentation.
+
 ## Admin API
 
 HTTP admin interface on port 8889 (configurable):
@@ -80,6 +108,7 @@ Unix socket (default `/var/run/nano/control.sock`) for local access.
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Internal design and decisions
+- [SLIVER.md](SLIVER.md) — Edge snapshots and container-like deployments
 - [examples/hello.js](examples/hello.js) — Minimal example app
 
 ## Requirements

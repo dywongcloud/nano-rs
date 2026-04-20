@@ -47,11 +47,17 @@ impl RuntimeAPIs {
         Self::bind_response(scope, context);
         Self::bind_fetch(scope, context);
         Self::bind_nano_fs(scope, context);
+        Self::bind_fs_polyfill(scope, context);
     }
 
     /// Bind Nano.fs API for VFS operations
     fn bind_nano_fs(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
         crate::runtime::vfs_bindings::bind_nano_fs(scope, context);
+    }
+
+    /// Bind Node.js fs polyfill for compatibility
+    fn bind_fs_polyfill(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        crate::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
     }
 
     /// Bind fetch() API to global scope

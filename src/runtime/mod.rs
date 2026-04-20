@@ -21,6 +21,7 @@ pub mod fetch;
 pub mod stream;
 pub mod crypto;
 pub mod vfs_bindings;
+pub mod fs_polyfill;
 
 // Re-export handler types for convenience
 pub use handler::{HandlerContext, execute_handler, execute_handler_with_context};
