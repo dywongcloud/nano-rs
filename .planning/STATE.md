@@ -14,20 +14,20 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 
 **Core value:** One OS process hosts many isolated JS apps with millisecond cold starts, zero container overhead, and strong per-app isolation.
 
-**Current focus:** Phase 10 — VFS Foundation
+**Current focus:** Phase 11 — VFS Storage Backends
 
 ---
 
 ## Current Position
 
 **Milestone:** v1.1 — Isolate Snapshots & VFS  
-**Phase:** Phase 10 of 16 (VFS Foundation)  
-**Plan:** Not started  
-**Status:** Ready to plan
+**Phase:** Phase 11 of 16 (VFS Storage Backends)  
+**Plan:** 11-01 (Storage Backends Implementation)  
+**Status:** Complete
 
 **Progress:**
 ```
-[██████████░░░░░░░░░░░░░░░░░░░░░░░░] 56% (9/16 phases complete, v1.0 done)
+[███████████░░░░░░░░░░░░░░░░░░░░░░░] 62% (10/16 phases complete, v1.1 in progress)
 ```
 
 ---
@@ -66,6 +66,11 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 - **V8 SnapshotCreator:** rusty_v8 exposes `v8::SnapshotCreator` for heap serialization
 - **VFS design:** Layered approach: API → Core → Backend (memory/disk/S3)
 
+### Phase 11 Decisions
+- **S3 backend feature-gated** — rust-s3 requires Rust 1.88, made optional via `vfs-s3` feature (D-18)
+- **Atomic file writes** — DiskBackend uses write-to-temp-rename pattern for data integrity (D-19)
+- **BackendFactory pattern** — Runtime backend selection via factory (D-20)
+
 ---
 
 ## Deferred Items from v1.0
@@ -81,9 +86,10 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 
 ## Session Continuity
 
-**Last session:** 2026-04-19 — Completed v1.0 milestone, archived 9 phases  
-**Next action:** Plan Phase 10 — VFS Foundation  
-**Resume file:** None (fresh milestone start)
+**Last session:** 2026-04-19 — Completed Phase 11 Plan 01 (VFS Storage Backends)  
+**Completed:** DiskBackend, S3Backend (feature-gated), BackendFactory, config integration, WorkerPool integration
+**Next action:** Phase 12 — VFS JavaScript Bindings (Nano.fs.* API)
+**Resume file:** None
 
 ---
 
