@@ -51,6 +51,7 @@ mod format;
 mod metadata;
 mod packer;
 mod unpacker;
+pub mod vfs_capture;
 
 // Public exports
 pub use error::{SliverError, SliverResult};
