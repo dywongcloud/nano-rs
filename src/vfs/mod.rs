@@ -13,7 +13,9 @@
 //!
 //! - `MemoryBackend`: In-memory storage using DashMap (default, ephemeral)
 //! - `DiskBackend`: Filesystem-backed persistent storage
-//! - Future: S3Backend (Phase 11)
+//! - `S3Backend`: S3-compatible object storage (requires `vfs-s3` feature)
+//!
+//! To enable S3 support, build with: `cargo build --features vfs-s3`
 
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -24,11 +26,19 @@ pub mod isolate;
 pub mod memory;
 pub mod types;
 
+// S3 backend is only available with the vfs-s3 feature
+#[cfg(feature = "vfs-s3")]
+pub mod s3;
+
 pub use disk::DiskBackend;
 pub use isolate::{IsolateVfs, VfsNamespace};
 pub use memory::MemoryBackend;
 pub use security::{PathValidator, ResourceLimiter};
 pub use types::{ResourceLimits, VfsError, VfsFile, VfsPath, VfsResult};
+
+// Re-export S3 types only when feature is enabled
+#[cfg(feature = "vfs-s3")]
+pub use s3::{S3Backend, S3Config};
 
 /// Core trait for VFS storage backends
 ///
