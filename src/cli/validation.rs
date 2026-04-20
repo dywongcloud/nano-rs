@@ -4,7 +4,7 @@
 //! and suggestions for fixing common mistakes.
 
 use crate::cli::error::{CliError, CliResult, find_similar};
-use crate::sliver::metadata::SliverMetadata;
+use nano::sliver::SliverMetadata;
 use std::path::Path;
 
 /// Maximum length for sliver names

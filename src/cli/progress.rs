@@ -3,11 +3,15 @@
 //! Provides visual progress bars and spinners for long-running CLI operations.
 //! Automatically disables output for fast operations (<100ms).
 
+use crate::cli::output;
 use std::io::{self, IsTerminal, Write};
 use std::time::{Duration, Instant};
 
 /// Minimum duration before showing progress (100ms)
 const PROGRESS_THRESHOLD_MS: u128 = 100;
+
+/// Checkmark character for success indication
+const CHECK: &str = "✓";
 
 /// Progress bar for CLI operations
 pub struct ProgressBar {
@@ -130,11 +134,11 @@ impl ProgressBar {
             return Ok(());
         }
 
-        let check = if crate::output::use_color() {
-            "✓".green()
-        } else {
-            "✓".to_string()
-        };
+            let check = if output::use_color() {
+                CHECK.green()
+            } else {
+                CHECK.to_string()
+            };
 
         println!("\r{} {} {:<60}", check, message, "");
         io::stdout().flush()
@@ -183,7 +187,7 @@ impl Spinner {
     /// Finish with a message
     pub fn finish(&mut self, message: impl AsRef<str>) {
         if self.should_show {
-            let check = if crate::output::use_color() {
+        let check = if output::use_color() {
                 "✓".green()
             } else {
                 "✓".to_string()
@@ -195,7 +199,7 @@ impl Spinner {
     /// Finish with error message
     pub fn finish_error(&mut self, message: impl AsRef<str>) {
         if self.should_show {
-            let x = if crate::output::use_color() {
+            let x = if output::use_color() {
                 "✗".red()
             } else {
                 "✗".to_string()
@@ -293,7 +297,7 @@ trait ColorExt {
 
 impl ColorExt for str {
     fn green(&self) -> String {
-        if crate::output::use_color() {
+        if output::use_color() {
             format!("\x1b[32m{}\x1b[0m", self)
         } else {
             self.to_string()
@@ -301,7 +305,7 @@ impl ColorExt for str {
     }
 
     fn red(&self) -> String {
-        if crate::output::use_color() {
+        if output::use_color() {
             format!("\x1b[31m{}\x1b[0m", self)
         } else {
             self.to_string()
