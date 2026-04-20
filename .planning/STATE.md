@@ -14,20 +14,20 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 
 **Core value:** One OS process hosts many isolated JS apps with millisecond cold starts, zero container overhead, and strong per-app isolation.
 
-**Current focus:** Phase 11 — VFS Storage Backends
+**Current focus:** Phase 12 — VFS JavaScript Bindings (Complete)
 
 ---
 
 ## Current Position
 
 **Milestone:** v1.1 — Isolate Snapshots & VFS  
-**Phase:** Phase 11 of 16 (VFS Storage Backends)  
-**Plan:** 11-01 (Storage Backends Implementation)  
+**Phase:** Phase 12 of 16 (VFS JavaScript Bindings)  
+**Plan:** 12-04 (Security Tests & Integration)  
 **Status:** Complete
 
 **Progress:**
 ```
-[███████████░░░░░░░░░░░░░░░░░░░░░░░] 62% (10/16 phases complete, v1.1 in progress)
+[████████████░░░░░░░░░░░░░░░░░░░░░░] 69% (11/16 phases complete, v1.1 in progress)
 ```
 
 ---
@@ -71,6 +71,12 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 - **Atomic file writes** — DiskBackend uses write-to-temp-rename pattern for data integrity (D-19)
 - **BackendFactory pattern** — Runtime backend selection via factory (D-20)
 
+### Phase 12 Decisions
+- **Node.js fs polyfill via require() hook** — Global require('fs') returns VFS-backed polyfill (D-21)
+- **tokio block_on for sync operations** — Sync fs methods use tokio::runtime::Handle::try_current() (D-22)
+- **Uint8Array-first extraction** — Binary data extraction before string to preserve raw bytes (D-23)
+- **Block all ".." substrings** — Reject any path containing ".." for maximum security (D-24)
+
 ---
 
 ## Deferred Items from v1.0
@@ -86,9 +92,10 @@ See: .planning/PROJECT.md (updated 2026-04-19)
 
 ## Session Continuity
 
-**Last session:** 2026-04-19 — Completed Phase 11 Plan 01 (VFS Storage Backends)  
-**Completed:** DiskBackend, S3Backend (feature-gated), BackendFactory, config integration, WorkerPool integration
-**Next action:** Phase 12 — VFS JavaScript Bindings (Nano.fs.* API)
+**Last session:** 2026-04-19 — Completed Phase 12 Plans 02-04 (VFS JavaScript Bindings)  
+**Completed:** Node.js fs polyfill, error code compatibility, security tests
+**Summary:** 48 tests passing - require('fs') works, ENOENT/EINVAL errors match Node.js, path traversal blocked
+**Next action:** Phase 13 — Snapshot Integration
 **Resume file:** None
 
 ---
