@@ -60,15 +60,17 @@ pub enum ModuleType {
 /// This heuristic checks for ESM indicators:
 /// - `export default` - Common framework pattern
 /// - `export ` - Named exports
+/// - `export{` - Minified export pattern
 /// - `import ` - Static imports
 /// - `import{` - Minified import pattern
 /// - `import(` - Dynamic imports
 pub fn detect_module_type(code: &str) -> ModuleType {
     if code.contains("export default")
         || code.contains("export ")
+        || code.contains("export{")  // Minified exports
         || code.contains("import ")
-        || code.contains("import{")
-        || code.contains("import(")
+        || code.contains("import{")  // Minified imports
+        || code.contains("import(")  // Dynamic imports
     {
         ModuleType::ESM
     } else {
