@@ -48,6 +48,8 @@ impl RuntimeAPIs {
         Self::bind_fetch(scope, context);
         Self::bind_nano_fs(scope, context);
         Self::bind_fs_polyfill(scope, context);
+        Self::bind_timers(scope, context);
+        Self::bind_buffer(scope, context);
     }
 
     /// Bind Request API (text, json, arrayBuffer methods)
@@ -318,6 +320,59 @@ impl RuntimeAPIs {
         // Attach to global
         let key = v8::String::new(scope, "Headers").unwrap();
         global.set(scope, key.into(), ctor.into());
+    }
+
+    /// Bind timer APIs (setTimeout, setInterval, clearTimeout, clearInterval)
+    fn bind_timers(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        let global = context.global(scope);
+
+        // Bind setTimeout
+        if let Some(set_timeout) = v8::Function::new(scope, set_timeout_callback) {
+            let key = v8::String::new(scope, "setTimeout").unwrap();
+            global.set(scope, key.into(), set_timeout.into());
+        }
+
+        // Bind setInterval
+        if let Some(set_interval) = v8::Function::new(scope, set_interval_callback) {
+            let key = v8::String::new(scope, "setInterval").unwrap();
+            global.set(scope, key.into(), set_interval.into());
+        }
+
+        // Bind clearTimeout
+        if let Some(clear_timeout) = v8::Function::new(scope, clear_timeout_callback) {
+            let key = v8::String::new(scope, "clearTimeout").unwrap();
+            global.set(scope, key.into(), clear_timeout.into());
+        }
+
+        // Bind clearInterval
+        if let Some(clear_interval) = v8::Function::new(scope, clear_interval_callback) {
+            let key = v8::String::new(scope, "clearInterval").unwrap();
+            global.set(scope, key.into(), clear_interval.into());
+        }
+    }
+
+    /// Bind Node.js Buffer API
+    fn bind_buffer(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        let global = context.global(scope);
+
+        // Create Buffer constructor function
+        let buffer_template = v8::FunctionTemplate::new(scope, buffer_constructor);
+        let buffer_ctor = buffer_template.get_function(scope).unwrap();
+
+        // Attach static methods
+        let from_key = v8::String::new(scope, "from").unwrap();
+        if let Some(from_fn) = v8::Function::new(scope, buffer_from_callback) {
+            buffer_ctor.set(scope, from_key.into(), from_fn.into());
+        }
+
+        let alloc_key = v8::String::new(scope, "alloc").unwrap();
+        if let Some(alloc_fn) = v8::Function::new(scope, buffer_alloc_callback) {
+            buffer_ctor.set(scope, alloc_key.into(), alloc_fn.into());
+        }
+
+        // Attach to global
+        let key = v8::String::new(scope, "Buffer").unwrap();
+        global.set(scope, key.into(), buffer_ctor.into());
     }
 }
 
@@ -2034,6 +2089,177 @@ fn subtle_verify(
             scope.throw_exception(error);
         }
     }
+}
+
+/// Timer callback for setTimeout
+fn set_timeout_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    // In a real implementation, this would schedule a timer
+    // For now, we just return a dummy timer ID
+    let id = v8::Number::new(scope, 1.0);
+    retval.set(id.into());
+}
+
+/// Timer callback for setInterval
+fn set_interval_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    // Return a dummy timer ID
+    let id = v8::Number::new(scope, 2.0);
+    retval.set(id.into());
+}
+
+/// Timer callback for clearTimeout
+fn clear_timeout_callback(
+    _scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    // No-op for now
+}
+
+/// Timer callback for clearInterval
+fn clear_interval_callback(
+    _scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    // No-op for now
+}
+
+/// Buffer constructor callback
+fn buffer_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    // Get size argument
+    let size = if args.length() > 0 {
+        let arg = args.get(0);
+        if let Some(num) = arg.to_number(scope) {
+            num.value() as usize
+        } else if let Some(str) = arg.to_string(scope) {
+            str.to_rust_string_lossy(scope).len()
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    // Create Uint8Array as buffer backing
+    let buffer = v8::ArrayBuffer::new(scope, size);
+    let uint8_array = v8::Uint8Array::new(scope, buffer, 0, size).unwrap();
+    
+    retval.set(uint8_array.into());
+}
+
+/// Buffer.from() static method
+fn buffer_from_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    if args.length() == 0 {
+        let empty = v8::ArrayBuffer::new(scope, 0);
+        let arr = v8::Uint8Array::new(scope, empty, 0, 0).unwrap();
+        retval.set(arr.into());
+        return;
+    }
+
+    let arg = args.get(0);
+    
+    // Handle string input
+    if let Some(str) = arg.to_string(scope) {
+        let text = str.to_rust_string_lossy(scope);
+        let bytes = text.as_bytes();
+        let buffer = v8::ArrayBuffer::new(scope, bytes.len());
+        let store = buffer.get_backing_store();
+        for (i, byte) in bytes.iter().enumerate() {
+            if let Some(cell) = store.get(i) {
+                cell.set(*byte);
+            }
+        }
+        let arr = v8::Uint8Array::new(scope, buffer, 0, bytes.len()).unwrap();
+        retval.set(arr.into());
+        return;
+    }
+
+    // Handle array-like input
+    if let Some(obj) = arg.to_object(scope) {
+        let len_key = v8::String::new(scope, "length").unwrap();
+        if let Some(len_val) = obj.get(scope, len_key.into()) {
+            if let Some(len_num) = len_val.to_number(scope) {
+                let len = len_num.value() as usize;
+                let buffer = v8::ArrayBuffer::new(scope, len);
+                let store = buffer.get_backing_store();
+                for i in 0..len {
+                    let idx = v8::Number::new(scope, i as f64);
+                    if let Some(val) = obj.get(scope, idx.into()) {
+                        if let Some(num) = val.to_number(scope) {
+                            if let Some(cell) = store.get(i) {
+                                cell.set(num.value() as u8);
+                            }
+                        }
+                    }
+                }
+                let arr = v8::Uint8Array::new(scope, buffer, 0, len).unwrap();
+                retval.set(arr.into());
+                return;
+            }
+        }
+    }
+
+    // Default: return empty buffer
+    let empty = v8::ArrayBuffer::new(scope, 0);
+    let arr = v8::Uint8Array::new(scope, empty, 0, 0).unwrap();
+    retval.set(arr.into());
+}
+
+/// Buffer.alloc() static method
+fn buffer_alloc_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let size = if args.length() > 0 {
+        let arg = args.get(0);
+        if let Some(num) = arg.to_number(scope) {
+            num.value() as usize
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let fill_value = if args.length() > 1 {
+        let arg = args.get(1);
+        if let Some(num) = arg.to_number(scope) {
+            num.value() as u8
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let buffer = v8::ArrayBuffer::new(scope, size);
+    if fill_value != 0 {
+        let store = buffer.get_backing_store();
+        for i in 0..size {
+            if let Some(cell) = store.get(i) {
+                cell.set(fill_value);
+            }
+        }
+    }
+    let arr = v8::Uint8Array::new(scope, buffer, 0, size).unwrap();
+    retval.set(arr.into());
 }
 
 #[cfg(test)]

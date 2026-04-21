@@ -472,6 +472,11 @@ fn execute_with_context_manager(
     // Enter context scope and execute
     let context_scope = &mut v8::ContextScope::new(handle_scope, v8_context);
 
+    // Note: VFS access for Nano.fs is handled via thread-local storage in the runtime
+    // The RuntimeAPIs::bind_nano_fs creates the bindings, but actual VFS operations
+    // would need VFS context to be set. For now, the VFS bindings exist but may not
+    // have full backend support in the WorkQueue execution path.
+
     // Read the handler code
     let code = fs::read_to_string(&handler_ctx.entrypoint)
         .map_err(|e| anyhow!("Failed to read entrypoint: {}", e))?;

@@ -121,6 +121,11 @@ impl ContextManager {
         &mut self.isolate
     }
 
+    /// Get a reference to the VFS
+    pub fn vfs(&self) -> Option<&crate::vfs::IsolateVfs> {
+        Some(self.isolate.vfs())
+    }
+
     /// Clone the current Global<Context>
     ///
     /// This can be used to reopen a Local<Context> within a HandleScope.
