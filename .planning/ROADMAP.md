@@ -109,17 +109,19 @@
 ⚠️ **Post-v1.1 Evaluation Finding:** Blackbox testing revealed 7 bugs breaking core functionality including incomplete Request objects, ESM not supported, --config no-op, and sliver VFS not wired for execution.
 </blockquote>
 
-### Phase 17: Request/Response Fixes
+### Phase 17: Request/Response Fixes ✅ COMPLETE
 **Goal:** Pass full WinterCG Request (URL, headers, body) to JS; add Promise support  
 **Depends on:** v1.1 complete  
 **Requirements:** REQ-17-01, REQ-17-02, REQ-17-03  
 **Success Criteria**:
-  1. Handler receives `{method, url, headers, body}` not just method
-  2. Async handlers with `await` resolve correctly
-  3. Request body readable as text/JSON
+  1. ✅ Handler receives `{method, url, headers, body}` not just method
+  2. ✅ Async handlers with `await` resolve correctly
+  3. ✅ Request body readable as text/JSON
+  4. ✅ All HTTP methods work (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS, custom)
 **Plans:** 
-  - [ ] 17-01-PLAN.md — Request/Response fixes implementation
+  - [x] 17-01-PLAN.md — Request/Response fixes implementation (COMPLETE 2026-04-21)
 **UI hint:** no
+**Test Coverage:** 492+ unit tests, 18 integration tests (6 + 12 HTTP verb tests), 52 doc tests — all passing
 
 ### Phase 18: ESM Module System
 **Goal:** Replace Script::compile with V8 Module API for ESM support  
