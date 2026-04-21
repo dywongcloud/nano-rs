@@ -21,7 +21,7 @@ pub use client::{HttpClient, HttpClientResponse, HttpClientError};
 pub use config::ServerConfig;
 pub use headers::NanoHeaders;
 pub use router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};
-pub use server::{start_server, start_server_with_shutdown, start_server_with_state, AppStateWithShutdown};
+pub use server::{start_server, start_server_with_shutdown, start_server_with_state, start_server_with_router, AppStateWithShutdown};
 pub use types::{NanoRequest, NanoResponse};
 pub use url::{NanoUrl, NanoUrlSearchParams};
 pub use v8_bridge::{serialize_request_to_json, serialize_response_to_json};

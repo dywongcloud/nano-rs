@@ -230,6 +230,50 @@ async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
     
     tracing::info!("Created SliverWorkerPool with {} workers for {}", workers, hostname);
 
+    // Build VFS files map for static file serving
+    let mut vfs_files = std::collections::HashMap::new();
+    let mut js_entrypoint: Option<String> = None;
+    
+    for (path, file) in &worker_pool.sliver_data().vfs_entries {
+        let path_str = path.as_str().to_string();
+        let content_type = guess_content_type(&path_str);
+        vfs_files.insert(path_str.clone(), (file.content.clone(), content_type));
+        
+        // Detect JS entry points
+        if js_entrypoint.is_none() && (path_str == "app.js" || path_str == "index.js") {
+            js_entrypoint = Some(path_str);
+        }
+    }
+    
+    // Create router with VFS static file handler
+    use nano::http::router::{HandlerType, RouteTarget, VirtualHostRouter};
+    
+    let vfs_handler = HandlerType::VfsStaticFiles {
+        files: vfs_files,
+        default_file: Some("index.html".to_string()),
+    };
+    
+    let route_target = RouteTarget {
+        hostname: hostname.clone(),
+        handler_type: vfs_handler,
+    };
+    
+    let default_target = RouteTarget {
+        hostname: "default".to_string(),
+        handler_type: HandlerType::StaticResponse(
+            format!("NANO Runtime\n\nSliver: {}\nHostname: {}\n", 
+                sliver_path.display(), hostname)
+        ),
+    };
+    
+    let mut router = VirtualHostRouter::new(default_target);
+    router.register(hostname.clone(), route_target);
+    
+    tracing::info!("Router configured with {} routes for {}", router.route_count(), hostname);
+    
+    // Show JS entrypoint info
+    let entrypoint_info = js_entrypoint.as_deref().unwrap_or("none (static site only)");
+
     // Set up graceful shutdown
     let drain = nano::app::drain::RequestDrain::new();
     let (shutdown, mut shutdown_rx) = nano::signal::setup_shutdown(
@@ -252,9 +296,14 @@ async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
     println!("  Hostname:   {}", hostname);
     println!("  Address:    http://{}", socket_addr);
     println!("  Workers:    {}", workers);
+    println!("  JS Entry:   {}", entrypoint_info);
     println!("  Heap:       {} bytes", heap_size);
     println!("  VFS Files:  {}", vfs_file_count);
     println!("");
+    println!("  Static files served from VFS");
+    if js_entrypoint.is_some() {
+        println!("  JavaScript heap restored (execute via WinterCG handler)");
+    }
     println!("  Ready to accept connections...");
     println!("  Press Ctrl+C to stop");
     println!("");
@@ -263,7 +312,7 @@ async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
 
     let shutdown_state = shutdown.state().clone();
     let server_handle = tokio::spawn(async move {
-        nano::http::start_server_with_state(config, shutdown_state).await
+        nano::http::start_server_with_router(router, config, shutdown_state).await
     });
 
     // Wait for shutdown signal
@@ -509,6 +558,37 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
             
             Ok(())
         }
+    }
+}
+
+/// Guess MIME content type from file extension
+fn guess_content_type(path: &str) -> String {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    
+    match ext.as_str() {
+        "html" | "htm" => "text/html; charset=utf-8".to_string(),
+        "css" => "text/css; charset=utf-8".to_string(),
+        "js" => "application/javascript; charset=utf-8".to_string(),
+        "mjs" => "application/javascript; charset=utf-8".to_string(),
+        "json" => "application/json; charset=utf-8".to_string(),
+        "png" => "image/png".to_string(),
+        "jpg" | "jpeg" => "image/jpeg".to_string(),
+        "gif" => "image/gif".to_string(),
+        "webp" => "image/webp".to_string(),
+        "svg" => "image/svg+xml; charset=utf-8".to_string(),
+        "ico" => "image/x-icon".to_string(),
+        "txt" => "text/plain; charset=utf-8".to_string(),
+        "md" => "text/markdown; charset=utf-8".to_string(),
+        "xml" => "application/xml; charset=utf-8".to_string(),
+        "wasm" => "application/wasm".to_string(),
+        "woff2" => "font/woff2".to_string(),
+        "woff" => "font/woff".to_string(),
+        "ttf" => "font/ttf".to_string(),
+        _ => "application/octet-stream".to_string(),
     }
 }
 

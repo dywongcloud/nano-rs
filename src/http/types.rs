@@ -280,6 +280,29 @@ impl NanoResponse {
         self.headers.set(name, value);
         self
     }
+    
+    /// Add a binary body to the response
+    ///
+    /// # Arguments
+    ///
+    /// * `body` - The body content as bytes
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining
+    pub fn with_body_bytes(mut self, body: Vec<u8>) -> Self {
+        self.body = Some(Bytes::from(body));
+        self
+    }
+    
+    /// Create a 404 Not Found response
+    ///
+    /// # Returns
+    ///
+    /// A new `NanoResponse` with status 404
+    pub fn not_found() -> Self {
+        Self::new(404, NanoHeaders::default(), None)
+    }
 }
 
 #[cfg(test)]

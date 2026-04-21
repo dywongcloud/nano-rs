@@ -425,6 +425,51 @@ pub async fn start_server_with_state(
     Ok(())
 }
 
+/// Start the HTTP server with a custom router
+///
+/// This version allows passing a pre-configured VirtualHostRouter,
+/// which is useful for sliver-based serving where routes are
+/// determined by the sliver's VFS contents.
+///
+/// # Arguments
+///
+/// * `router` - The pre-configured virtual host router
+/// * `config` - Server configuration including port and host
+/// * `shutdown_state` - Shutdown state for graceful shutdown
+///
+/// # Returns
+///
+/// Returns a `Result` indicating success or failure.
+pub async fn start_server_with_router(
+    router: VirtualHostRouter,
+    config: ServerConfig,
+    shutdown_state: ShutdownState,
+) -> Result<()> {
+    let addr = config
+        .socket_addr()
+        .context("Failed to parse server address")?;
+
+    let listener = TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("Failed to bind to {}", addr))?;
+
+    tracing::info!("HTTP server listening on {} with custom router", addr);
+
+    // Create app state with the provided router
+    let app_state = AppState::new(router, 4);
+    let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
+
+    let app = create_app_with_shutdown(state);
+
+    axum::serve(listener, app)
+        .await
+        .context("Server error")?;
+
+    tracing::info!("HTTP server with custom router shut down gracefully");
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -53,6 +53,16 @@ pub enum HandlerType {
         /// Reference to hostname for looking up sliver data in registry
         hostname: String,
     },
+    /// Serve static files from VFS entries
+    ///
+    /// This handler serves files directly from the VFS entries
+    /// stored in the sliver. It's used for static sites and assets.
+    VfsStaticFiles {
+        /// Map of path -> (content, content_type)
+        files: std::collections::HashMap<String, (Vec<u8>, String)>,
+        /// Default file to serve for root path (e.g., "index.html")
+        default_file: Option<String>,
+    },
 }
 
 /// Target for a routed request
@@ -107,6 +117,48 @@ impl RouteTarget {
                 NanoResponse::ok()
                     .with_header("Content-Type", "text/plain")
                     .with_body(format!("Sliver handler: {} (snapshot restored)", entrypoint))
+            }
+            HandlerType::VfsStaticFiles { files, default_file } => {
+                // Serve static files from VFS
+                let path = _request.url().pathname();
+                
+                // Normalize path
+                let lookup_path = if path == "/" || path.is_empty() {
+                    default_file.clone().unwrap_or_else(|| "index.html".to_string())
+                } else {
+                    // Remove leading slash
+                    path.strip_prefix('/').map(|s| s.to_string()).unwrap_or_else(|| path.to_string())
+                };
+                
+                tracing::debug!("VFS lookup: '{}' (original path: '{}')", lookup_path, path);
+                
+                // Try exact match first
+                if let Some((content, content_type)) = files.get(&lookup_path) {
+                    return NanoResponse::ok()
+                        .with_header("Content-Type", content_type)
+                        .with_body_bytes(content.clone());
+                }
+                
+                // Try with index.html for directories
+                let index_path = format!("{}/index.html", lookup_path);
+                if let Some((content, content_type)) = files.get(&index_path) {
+                    return NanoResponse::ok()
+                        .with_header("Content-Type", content_type)
+                        .with_body_bytes(content.clone());
+                }
+                
+                // Try with .html extension
+                let html_path = format!("{}.html", lookup_path);
+                if let Some((content, content_type)) = files.get(&html_path) {
+                    return NanoResponse::ok()
+                        .with_header("Content-Type", content_type)
+                        .with_body_bytes(content.clone());
+                }
+                
+                // File not found
+                NanoResponse::not_found()
+                    .with_header("Content-Type", "text/plain")
+                    .with_body(format!("Not found: {}", path))
             }
         }
     }
@@ -548,12 +600,12 @@ pub async fn dispatch_to_worker_pool(
     // Look up route target
     let target = state.router.resolve(&host);
 
-    // Extract entrypoint from target
+    // Extract entrypoint from target or handle directly
     let entrypoint = match &target.handler_type {
         HandlerType::WinterCGHandler(path) => path.clone(),
         HandlerType::WinterCGSliverHandler { entrypoint: path, .. } => path.clone(),
-        HandlerType::StaticResponse(_) => {
-            // Static responses don't need worker dispatch
+        HandlerType::StaticResponse(_) | HandlerType::VfsStaticFiles { .. } => {
+            // These handler types don't need worker dispatch - serve directly
             let nano_response = target.handle(nano_request).await;
             return nano_response.to_axum_response();
         }
