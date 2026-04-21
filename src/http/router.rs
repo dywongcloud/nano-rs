@@ -160,12 +160,20 @@ impl RouteTarget {
                         .with_body_bytes(content.clone());
                 }
                 
-                // STRATEGY 2: For root path, try common index files
+                // STRATEGY 2: For root path, try JS entry points first (frameworks), then HTML
                 if is_root {
-                    let index_files = vec!["index.html", "index.htm", "app.js", "main.js"];
-                    for index_file in index_files {
-                        if let Some((content, content_type)) = files.get(index_file) {
-                            tracing::debug!("VFS hit (root fallback): '{}'", index_file);
+                    // JavaScript frameworks typically use index.js as entry point
+                    let entry_points = vec![
+                        "index.js",   // Most common JS framework entry
+                        "app.js",     // Alternative JS entry
+                        "main.js",    // Another common JS entry
+                        "server.js",  // Server-side JS entry
+                        "index.html", // Static site fallback
+                        "index.htm",  // Legacy HTML
+                    ];
+                    for entry_point in entry_points {
+                        if let Some((content, content_type)) = files.get(entry_point) {
+                            tracing::debug!("VFS hit (root entry point): '{}'", entry_point);
                             return NanoResponse::ok()
                                 .with_header("Content-Type", content_type)
                                 .with_body_bytes(content.clone());

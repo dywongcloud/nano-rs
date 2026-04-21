@@ -278,8 +278,9 @@ async fn run_from_sliver(
         let content_type = guess_content_type(&path_str);
         vfs_files.insert(path_str.clone(), (file.content.clone(), content_type));
         
-        // Detect JS entry points
-        if js_entrypoint.is_none() && (path_str == "app.js" || path_str == "index.js") {
+        // Detect JS entry points (priority order for frameworks)
+        let entry_points = ["index.js", "app.js", "main.js", "server.js"];
+        if js_entrypoint.is_none() && entry_points.contains(&path_str.as_str()) {
             js_entrypoint = Some(path_str);
         }
     }
