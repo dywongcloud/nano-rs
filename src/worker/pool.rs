@@ -1403,6 +1403,153 @@ function fetch(request) {
     }
 
     #[test]
+    fn test_full_request_object_passed() {
+        init_platform();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        // Create handler that inspects request properties
+        let entrypoint = create_test_handler(
+            &temp_dir,
+            "full_request.js",
+            r#"
+function fetch(request) {
+    const info = {
+        method: request.method,
+        url: request.url,
+        headers: request.headers,
+        hasBody: request.body !== null
+    };
+    return {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(info)
+    };
+}
+"#,
+        );
+
+        let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
+
+        // Create request with all properties
+        let url = NanoUrl::parse("http://test.example.com/api/items/123?expand=true").unwrap();
+        let mut headers = NanoHeaders::new();
+        headers.set("Content-Type", "application/json");
+        headers.set("X-Custom-Header", "custom-value");
+        let body = Some(bytes::Bytes::from(r#"{"key":"value"}"#));
+        let request = NanoRequest::new("POST".to_string(), url, headers, body);
+
+        let (tx, rx) = oneshot::channel();
+        let task = HandlerTask::new(entrypoint, request, tx);
+
+        pool.dispatch(task).expect("Failed to dispatch");
+        let response = rx.blocking_recv().expect("Failed to receive");
+
+        assert!(response.is_ok(), "Handler failed: {:?}", response.err());
+        let resp = response.unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // Verify body contains all request info
+        let body_text = String::from_utf8_lossy(resp.body().unwrap());
+        assert!(body_text.contains("POST"), "Method not found: {}", body_text);
+        assert!(body_text.contains("http://test.example.com/api/items/123"), "URL not found: {}", body_text);
+        assert!(body_text.contains("custom-value"), "Header not found: {}", body_text);
+        assert!(body_text.contains("true"), "Body flag not found: {}", body_text);
+
+        pool.shutdown().expect("Shutdown failed");
+    }
+
+    #[test]
+    fn test_async_handler_promise() {
+        init_platform();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        // Create async handler
+        let entrypoint = create_test_handler(
+            &temp_dir,
+            "async_handler.js",
+            r#"
+async function fetch(request) {
+    // Simulate async work
+    const data = await Promise.resolve({ hello: "world" });
+
+    return {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    };
+}
+"#,
+        );
+
+        let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
+
+        let url = NanoUrl::parse("http://test/").unwrap();
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
+
+        let (tx, rx) = oneshot::channel();
+        let task = HandlerTask::new(entrypoint, request, tx);
+
+        pool.dispatch(task).expect("Failed to dispatch");
+        let response = rx.blocking_recv().expect("Failed to receive");
+
+        assert!(response.is_ok(), "Async handler failed: {:?}", response.err());
+        let resp = response.unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let body_text = String::from_utf8_lossy(resp.body().unwrap());
+        assert!(body_text.contains("hello"), "Async response missing data: {}", body_text);
+        assert!(body_text.contains("world"), "Async response missing value: {}", body_text);
+
+        pool.shutdown().expect("Shutdown failed");
+    }
+
+    #[test]
+    fn test_request_body_passed() {
+        init_platform();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        // Handler that checks if body was passed (base64 encoded)
+        let entrypoint = create_test_handler(
+            &temp_dir,
+            "body_check.js",
+            r#"
+function fetch(request) {
+    // Body is base64 encoded in the request object
+    const hasBody = request.body !== null;
+    const bodyUsed = request.bodyUsed;
+
+    return {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hasBody, bodyUsed })
+    };
+}
+"#,
+        );
+
+        let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
+
+        let url = NanoUrl::parse("http://test/").unwrap();
+        let body = Some(bytes::Bytes::from("Hello from client"));
+        let request = NanoRequest::new("POST".to_string(), url, NanoHeaders::new(), body);
+
+        let (tx, rx) = oneshot::channel();
+        let task = HandlerTask::new(entrypoint, request, tx);
+
+        pool.dispatch(task).expect("Failed to dispatch");
+        let response = rx.blocking_recv().expect("Failed to receive");
+
+        assert!(response.is_ok(), "Body passing failed: {:?}", response.err());
+        let resp = response.unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let body_text = String::from_utf8_lossy(resp.body().unwrap());
+        assert!(body_text.contains("true"), "Body flags not correct: {}", body_text);
+
+        pool.shutdown().expect("Shutdown failed");
+    }
+
+    #[test]
     fn test_oom_monitor_integration() {
         // Test that worker pool with memory limit creates OOM monitors
         init_platform();
