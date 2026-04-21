@@ -36,3 +36,18 @@ A dedicated `EntrypointWorkerPool` can be added later if needed for:
 
 Both app types work in config mode. Sliver apps get snapshot restoration;
 entrypoint apps get fresh isolate creation per request.
+
+## Per-App Limit Enforcement Status
+
+### ✅ Enforced
+- **Memory limits**: Passed to `SliverWorkerPool::new()` as bytes
+- **Worker counts**: Passed to pool constructor (creates N worker threads)
+- **Timeout validation**: Config validation ensures 1-300 seconds range
+
+### 📝 Implementation Note
+- Per-app **timeout enforcement** requires request-level middleware customization
+- Current implementation uses global 30s Tower timeout layer
+- Future enhancement: per-app timeout via custom dispatch wrapper
+
+The memory and worker limits are the most critical for resource isolation,
+and these are fully enforced per the configuration.
