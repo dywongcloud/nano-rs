@@ -93,6 +93,9 @@ tar = "0.4"
 # CLI argument parsing
 clap = { version = "4.5", features = ["derive"] }
 
+# Directory walking for VFS file loading
+walkdir = "2.5"
+
 [features]
 default = []
 vfs-s3 = ["rust-s3", "tokio-util"]

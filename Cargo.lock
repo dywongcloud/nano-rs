@@ -1556,6 +1556,7 @@ dependencies = [
  "url",
  "uuid",
  "v8",
+ "walkdir",
  "webpki-roots 0.26.11",
  "zeroize",
 ]

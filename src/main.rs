@@ -354,12 +354,13 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
             let heap_data = nano::v8::create_snapshot_from_nano(isolate)?;
             tracing::info!("Created heap snapshot: {} bytes", heap_data.len());
             
-            // Capture VFS state (currently returns empty)
-            // In the future, this would capture all files from the isolate's VFS
-            let vfs_entries: Option<&[(nano::vfs::VfsPath, nano::vfs::VfsFile)]> = None;
+            // Load files from current directory into VFS entries
+            // These will be packed into the sliver archive
+            let vfs_entries = load_files_into_vfs_entries(".")
+                .context("Failed to load files into VFS entries")?;
             
-            // Pack the sliver
-            let archive_data = pack_sliver(&metadata, &heap_data, vfs_entries)?;
+            // Pack the sliver with VFS entries
+            let archive_data = pack_sliver(&metadata, &heap_data, Some(&vfs_entries))?;
             
             // Write to output file
             std::fs::write(&output, &archive_data)
@@ -469,6 +470,86 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// Load files from a directory into VFS entries for sliver creation
+///
+/// This recursively loads all files from the source directory,
+/// preserving the directory structure. Returns VFS entries that can be
+/// serialized into the sliver.
+///
+/// # Arguments
+///
+/// * `source_dir` - Directory to load files from
+///
+/// # Returns
+///
+/// A vector of (path, file) pairs representing the VFS contents
+fn load_files_into_vfs_entries(
+    source_dir: &str,
+) -> anyhow::Result<Vec<(nano::vfs::VfsPath, nano::vfs::VfsFile)>> {
+    use std::time::SystemTime;
+    
+    let mut vfs_entries = Vec::new();
+    let source_path = std::path::Path::new(source_dir);
+    
+    if !source_path.exists() {
+        tracing::warn!("Source directory does not exist: {}", source_dir);
+        return Ok(vfs_entries);
+    }
+    
+    // Walk the directory and load files
+    for entry in walkdir::WalkDir::new(source_path)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let path = entry.path();
+        let relative_path = path.strip_prefix(source_path)
+            .map_err(|e| anyhow::anyhow!("Failed to get relative path: {}", e))?;
+        
+        // Skip binary files that shouldn't be in VFS (executables, etc)
+        let file_name = path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        
+        // Skip certain files
+        if file_name.starts_with('.') || file_name.ends_with(".sliver") {
+            continue;
+        }
+        
+        // Read file content
+        let content = std::fs::read(path)
+            .with_context(|| format!("Failed to read file: {}", path.display()))?;
+        
+        let metadata = std::fs::metadata(path)
+            .with_context(|| format!("Failed to get metadata: {}", path.display()))?;
+        
+        let modified_at = metadata.modified()
+            .unwrap_or_else(|_| SystemTime::now());
+        let created_at = metadata.created()
+            .unwrap_or_else(|_| SystemTime::now());
+        
+        // Create VFS path (ensure it starts with /)
+        let vfs_path_str = format!("/{}", relative_path.to_string_lossy());
+        let vfs_path = nano::vfs::VfsPath::new(&vfs_path_str)
+            .with_context(|| format!("Invalid VFS path: {}", vfs_path_str))?;
+        
+        let vfs_file = nano::vfs::VfsFile {
+            content,
+            modified_at,
+            created_at,
+            size: metadata.len() as usize,
+        };
+        
+        tracing::debug!("Loaded file into VFS entries: {} ({} bytes)", vfs_path_str, vfs_file.content.len());
+        
+        vfs_entries.push((vfs_path, vfs_file));
+    }
+    
+    tracing::info!("Loaded {} files into VFS entries from {}", vfs_entries.len(), source_dir);
+    Ok(vfs_entries)
 }
 
 #[cfg(test)]

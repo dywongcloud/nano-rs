@@ -45,7 +45,7 @@ cleanup() {
     rm -rf "$TEST_DIR"
 }
 
-trap cleanup EXIT
+# trap cleanup EXIT
 
 # Print section header
 section() {
