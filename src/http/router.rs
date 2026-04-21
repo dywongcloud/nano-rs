@@ -144,7 +144,7 @@ impl RouteTarget {
                 };
                 
                 // Debug: log available files and lookup attempt
-                tracing::info!(
+                tracing::debug!(
                     "VFS lookup: path='{}' is_root={} -> lookup='{}' | files count={}",
                     path,
                     is_root,
@@ -154,7 +154,7 @@ impl RouteTarget {
                 
                 // STRATEGY 1: Try exact match first
                 if let Some((content, content_type)) = files.get(&lookup_path) {
-                    tracing::info!("VFS hit (exact): '{}' ({} bytes)", lookup_path, content.len());
+                    tracing::debug!("VFS hit (exact): '{}' ({} bytes)", lookup_path, content.len());
                     return NanoResponse::ok()
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
@@ -165,7 +165,7 @@ impl RouteTarget {
                     let index_files = vec!["index.html", "index.htm", "app.js", "main.js"];
                     for index_file in index_files {
                         if let Some((content, content_type)) = files.get(index_file) {
-                            tracing::info!("VFS hit (root fallback): '{}'", index_file);
+                            tracing::debug!("VFS hit (root fallback): '{}'", index_file);
                             return NanoResponse::ok()
                                 .with_header("Content-Type", content_type)
                                 .with_body_bytes(content.clone());
@@ -176,7 +176,7 @@ impl RouteTarget {
                 // STRATEGY 3: Try with /index.html suffix (for directory paths)
                 let index_path = format!("{}/index.html", lookup_path);
                 if let Some((content, content_type)) = files.get(&index_path) {
-                    tracing::info!("VFS hit (dir index): '{}'", index_path);
+                    tracing::debug!("VFS hit (dir index): '{}'", index_path);
                     return NanoResponse::ok()
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
@@ -185,31 +185,21 @@ impl RouteTarget {
                 // STRATEGY 4: Try with .html extension
                 let html_path = format!("{}.html", lookup_path);
                 if let Some((content, content_type)) = files.get(&html_path) {
-                    tracing::info!("VFS hit (.html ext): '{}'", html_path);
+                    tracing::debug!("VFS hit (.html ext): '{}'", html_path);
                     return NanoResponse::ok()
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
                 }
                 
-                // STRATEGY 5: Last resort - list available files in error
-                let available: Vec<_> = files.keys().take(10).collect();
-                tracing::warn!(
-                    "VFS miss: path='{}' lookup='{}' | Available ({} total, showing first 10): {:?}",
+                // File not found - return clean 404
+                tracing::debug!(
+                    "VFS miss: path='{}' lookup='{}' not found in {} files",
                     path,
                     lookup_path,
-                    files.len(),
-                    available
+                    files.len()
                 );
                 
                 NanoResponse::not_found()
-                    .with_header("Content-Type", "text/plain")
-                    .with_body(format!(
-                        "Not found: {}\nTried: {}\nAvailable files (first 10 of {}): {:?}",
-                        path,
-                        lookup_path,
-                        files.len(),
-                        available
-                    ))
             }
         }
     }
@@ -650,14 +640,6 @@ pub async fn dispatch_to_worker_pool(
 
     // Look up route target
     let target = state.router.resolve(&host);
-    
-    // Debug logging for routing decisions
-    tracing::debug!(
-        "Router: Host='{}' -> {:?} (routes: {:?})",
-        host,
-        target.hostname,
-        state.router.route_count()
-    );
 
     // Extract entrypoint from target or handle directly
     let entrypoint = match &target.handler_type {
