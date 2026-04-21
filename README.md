@@ -51,14 +51,51 @@ Create a `config.json`:
   "apps": [
     {
       "hostname": "api.example.com",
-      "entry_point": "./apps/api.js",
-      "workers": 4,
-      "memory_limit_mb": 128,
-      "timeout_ms": 30000
+      "entrypoint": "./apps/api.js",
+      "limits": {
+        "workers": 4,
+        "memory_mb": 128,
+        "timeout_secs": 30
+      }
     }
   ]
 }
 ```
+
+See [docs/config-mode.md](docs/config-mode.md) for complete configuration reference.
+
+### Config Mode (Multi-App Hosting)
+
+Run multiple isolated apps from a single configuration:
+
+```bash
+nano-rs run --config apps.json
+```
+
+Example `apps.json`:
+
+```json
+{
+  "apps": [
+    {
+      "hostname": "api.example.com",
+      "sliver": "./api.sliver",
+      "limits": {"memory_mb": 256, "workers": 8}
+    },
+    {
+      "hostname": "blog.example.com",
+      "entrypoint": "./blog.js",
+      "limits": {"memory_mb": 128, "workers": 4}
+    }
+  ],
+  "server": {"port": 8080, "host": "0.0.0.0"}
+}
+```
+
+Features:
+- Virtual host routing (Host header → app)
+- Per-app worker pools with isolated memory limits
+- Mix of sliver-based (~267µs cold start) and entrypoint-based apps
 
 ## JavaScript App
 
