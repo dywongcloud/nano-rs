@@ -17,19 +17,20 @@
 //!
 //! ## Example
 //!
-//! ```rust
+//! ```rust,no_run
 //! use nano::sliver::{SliverExtractor, UnpackedSliver};
 //!
-//! // After unpacking a sliver
-//! let unpacked: UnpackedSliver = /* ... */;
-//!
-//! // Extract to temp directory
-//! let temp_vfs = SliverExtractor::extract(&unpacked).unwrap();
+//! // After unpacking a sliver, extract VFS to temp directory
+//! # fn example(unpacked: UnpackedSliver) -> Result<(), Box<dyn std::error::Error>> {
+//! let temp_vfs = SliverExtractor::extract(&unpacked)?;
 //!
 //! // Get entrypoint path in temp directory
 //! let entrypoint = temp_vfs.entrypoint_path();
+//! println!("Entrypoint: {}", entrypoint.display());
 //!
 //! // Temp directory cleaned up automatically when temp_vfs is dropped
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::sliver::error::{SliverError, SliverResult};
