@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 use tokio::sync::RwLock;
 
 mod cli;
@@ -235,11 +236,11 @@ async fn run_from_sliver(
     // Store sliver info before moving unpacked
     let heap_size = unpacked.heap_data.len();
     let vfs_file_count = unpacked.vfs_entries.len();
-    
+
     // Get hostname from sliver or use override
     let sliver_hostname = unpacked.metadata.hostname.clone();
     let hostname = hostname_override.unwrap_or_else(|| sliver_hostname.clone());
-    
+
     if hostname != sliver_hostname {
         tracing::info!(
             "Overriding sliver hostname: '{}' -> '{}'",
@@ -247,15 +248,28 @@ async fn run_from_sliver(
             hostname
         );
     }
-    
+
+    // Extract VFS to temp directory for JS execution
+    // This enables sliver portability - JS is executed from temp, not CWD
+    let temp_vfs = nano::sliver::SliverExtractor::extract(&unpacked)
+        .context("Failed to extract sliver VFS to temp directory")?;
+    let temp_entrypoint = temp_vfs.entrypoint_path().to_path_buf();
+    let temp_dir_path = temp_vfs.temp_dir().to_path_buf();
+
+    tracing::info!(
+        "Extracted sliver VFS to: {} (entrypoint: {})",
+        temp_dir_path.display(),
+        temp_entrypoint.display()
+    );
+
     // Create app registry with sliver data
     let mut registry = nano::app::registry::AppRegistry::default();
     let registered_hostname = registry.register_from_sliver(&sliver_path, None)
         .with_context(|| format!("Failed to register sliver: {}", sliver_path.display()))?;
-    
+
     // Use our hostname (override or original) instead of registry's
     let _ = registered_hostname;
-    
+
     let _registry = Arc::new(RwLock::new(registry));
     tracing::info!("Sliver hostname: '{}' (expected in Host header)", hostname);
 
@@ -266,22 +280,14 @@ async fn run_from_sliver(
         0, // No memory limit for now
         unpacked,
     ));
-    
+
     tracing::info!("Created SliverWorkerPool with {} workers for {}", workers, hostname);
 
-    // Detect JS entrypoint from VFS or use default
-    let js_entrypoint = worker_pool.sliver_data()
-        .vfs_entries
-        .iter()
-        .find_map(|(path, _)| {
-            let path_str = path.as_str();
-            if ["index.js", "app.js", "main.js", "server.js"].contains(&path_str) {
-                Some(path_str.to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "index.js".to_string());
+    // Use temp entrypoint path for JS execution (not CWD)
+    let js_entrypoint = temp_entrypoint.to_string_lossy().to_string();
+
+    // Store temp_vfs in Arc<Mutex<Option<...>>> for cleanup on shutdown
+    let temp_vfs_holder = Arc::new(Mutex::new(Some(temp_vfs)));
     
     tracing::info!("JS entrypoint: {}", js_entrypoint);
 
@@ -388,10 +394,26 @@ async fn run_from_sliver(
             tracing::warn!("Worker pool still has references, Drop will handle cleanup");
         }
     }
-    
+
+    // Cleanup temp VFS directory
+    tracing::info!("Cleaning up temp VFS directory...");
+    let temp_vfs_guard = temp_vfs_holder.lock().unwrap();
+    if let Some(temp_vfs) = temp_vfs_guard.as_ref() {
+        tracing::info!("Temp VFS will be cleaned up: {}", temp_vfs.temp_dir().display());
+    }
+    // temp_vfs is dropped here (outside the lock), cleaning up the temp directory
+    drop(temp_vfs_guard);
+
+    // Explicitly take and cleanup temp_vfs
+    if let Ok(mut guard) = temp_vfs_holder.lock() {
+        if let Some(temp_vfs) = guard.take() {
+            temp_vfs.cleanup();
+        }
+    }
+
     println!("  Server stopped.");
     println!("");
-    
+
     tracing::info!("NANO Edge Runtime (sliver mode) shutdown complete");
     Ok(())
 }
