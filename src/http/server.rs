@@ -176,10 +176,15 @@ pub fn create_app_with_shutdown(state: Arc<AppStateWithShutdown>) -> Router {
         .route("/_admin/health", get(admin_health_handler))
         .route("/_admin/ready", get(ready_handler))
         .route("/_admin/metrics", get(metrics_handler))
+        // Root path - must be explicit for VFS to serve index.html
+        .route("/", any({
+            let state = app_state_clone.clone();
+            move |req| virtual_host_handler(AxumState(state), req)
+        }))
         // Catch-all for virtual hosts - use the app_state directly
         .route("/{*path}", any({
             let state = app_state_clone;
-            move |req| virtual_host_handler(AxumState(state.clone()), req)
+            move |req| virtual_host_handler(AxumState(state), req)
         }))
         // Middleware stack (applied in reverse order)
         .layer(TraceLayer::new_for_http())
