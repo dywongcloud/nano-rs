@@ -37,6 +37,11 @@ enum Commands {
         /// Use --static for local development to serve VFS files regardless of Host.
         #[arg(long)]
         static_files: bool,
+        
+        /// Override the hostname from the sliver metadata
+        /// Useful when running behind a proxy or with different DNS
+        #[arg(long, value_name = "HOST")]
+        hostname: Option<String>,
     },
 
     /// Sliver management commands (snapshot creation and management)
@@ -52,10 +57,10 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     
     match cli.command {
-        Some(Commands::Run { config, sliver, workers, static_files }) => {
+        Some(Commands::Run { config, sliver, workers, static_files, hostname }) => {
             if let Some(sliver_path) = sliver {
                 // Run from sliver file
-                run_from_sliver(sliver_path, workers, static_files).await
+                run_from_sliver(sliver_path, workers, static_files, hostname).await
             } else if let Some(config_path) = config {
                 // Run with config file
                 run_server_with_config(config_path).await
@@ -194,7 +199,13 @@ async fn run_server() -> Result<()> {
 /// * `workers` - Number of worker threads
 /// * `static_files` - If true, serve VFS to any hostname (dev mode).
 ///                    If false, only serve to exact hostname match (strict multi-tenancy).
-async fn run_from_sliver(sliver_path: PathBuf, workers: usize, static_files: bool) -> Result<()> {
+/// * `hostname_override` - Optional override for the hostname from sliver metadata
+async fn run_from_sliver(
+    sliver_path: PathBuf, 
+    workers: usize, 
+    static_files: bool,
+    hostname_override: Option<String>,
+) -> Result<()> {
     tracing::info!("Starting NANO from sliver: {}", sliver_path.display());
 
     // Validate sliver file exists
@@ -225,13 +236,28 @@ async fn run_from_sliver(sliver_path: PathBuf, workers: usize, static_files: boo
     let heap_size = unpacked.heap_data.len();
     let vfs_file_count = unpacked.vfs_entries.len();
     
+    // Get hostname from sliver or use override
+    let sliver_hostname = unpacked.metadata.hostname.clone();
+    let hostname = hostname_override.unwrap_or_else(|| sliver_hostname.clone());
+    
+    if hostname != sliver_hostname {
+        tracing::info!(
+            "Overriding sliver hostname: '{}' -> '{}'",
+            sliver_hostname,
+            hostname
+        );
+    }
+    
     // Create app registry with sliver data
     let mut registry = nano::app::registry::AppRegistry::default();
-    let hostname = registry.register_from_sliver(&sliver_path, None)
+    let registered_hostname = registry.register_from_sliver(&sliver_path, None)
         .with_context(|| format!("Failed to register sliver: {}", sliver_path.display()))?;
     
+    // Use our hostname (override or original) instead of registry's
+    let _ = registered_hostname;
+    
     let _registry = Arc::new(RwLock::new(registry));
-    tracing::info!("Registered sliver-based app: {}", hostname);
+    tracing::info!("Sliver hostname: '{}' (expected in Host header)", hostname);
 
     // Create SliverWorkerPool
     let worker_pool = nano::worker::pool::SliverWorkerPool::new(

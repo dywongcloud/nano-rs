@@ -606,6 +606,14 @@ pub async fn dispatch_to_worker_pool(
 
     // Look up route target
     let target = state.router.resolve(&host);
+    
+    // Debug logging for routing decisions
+    tracing::debug!(
+        "Router: Host='{}' -> {:?} (routes: {:?})",
+        host,
+        target.hostname,
+        state.router.route_count()
+    );
 
     // Extract entrypoint from target or handle directly
     let entrypoint = match &target.handler_type {
