@@ -397,24 +397,138 @@ async fn run_from_sliver(
 }
 
 /// Run server with configuration file
+///
+/// Loads configuration from JSON file, creates worker pools per app,
+/// and starts the HTTP server with virtual host routing.
+///
+/// # Arguments
+///
+/// * `config_path` - Path to the JSON configuration file
+///
+/// # Config Mode Features
+///
+/// - Multiple apps with virtual host routing
+/// - Per-app worker pools with resource limits
+/// - Server port/host from config (not hardcoded)
+/// - Sliver-based app support
+///
+/// Note: Entrypoint-only apps use basic WorkQueue dispatch.
+/// Full EntrypointWorkerPool can be added in Phase 19.2 if needed.
 async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
     tracing::info!("Starting NANO with config: {}", config_path.display());
-    
+
     // Load and validate config
     let config = nano::config::load_config(&config_path)
         .with_context(|| format!("Failed to load config: {}", config_path.display()))?;
-    
+
     tracing::info!("Loaded configuration with {} app(s)", config.apps.len());
-    
+
     // Check for sliver-based apps in config
     let has_sliver_apps = config.apps.iter().any(|app| app.sliver.is_some());
+    let has_entrypoint_apps = config.apps.iter().any(|app| app.sliver.is_none() && !app.entrypoint.is_empty());
+
     if has_sliver_apps {
         tracing::info!("Configuration contains sliver-based apps");
     }
-    
-    // For now, fall back to regular server startup
-    // Full integration would create appropriate worker pools per app type
-    run_server().await
+    if has_entrypoint_apps {
+        tracing::info!("Configuration contains entrypoint-based apps");
+    }
+
+    // Initialize V8 platform (once per process)
+    nano::v8::platform::initialize_platform()
+        .context("Failed to initialize V8 platform")?;
+    tracing::info!("V8 platform initialized");
+
+    // Create app registry from config
+    let registry = Arc::new(tokio::sync::RwLock::new(
+        nano::app::registry::AppRegistry::from_config(config.clone())
+    ));
+    tracing::info!("Created AppRegistry");
+
+    // Set up graceful shutdown
+    let drain = nano::app::drain::RequestDrain::new();
+    let (shutdown, mut shutdown_rx) = nano::signal::setup_shutdown(
+        nano::signal::ShutdownConfig::default(),
+        drain,
+    );
+    tracing::info!("Graceful shutdown initialized");
+
+    // Convert server config section to ServerConfig
+    let server_bind_config = nano::http::ServerConfig::from(config.server.clone());
+    let addr = server_bind_config.socket_addr()
+        .context("Failed to parse server address")?;
+
+    tracing::info!("Starting HTTP server on {}", addr);
+
+    // Print startup banner
+    println!("");
+    println!("╔════════════════════════════════════════════════════════════╗");
+    println!("║          NANO Edge Runtime - Config Mode (Multi-App)        ║");
+    println!("╚════════════════════════════════════════════════════════════╝");
+    println!("");
+    println!("  Config:     {}", config_path.display());
+    println!("  Address:    http://{}", addr);
+    println!("  Apps:       {}", config.apps.len());
+    println!("");
+
+    // Display app information
+    for app in &config.apps {
+        let app_type = if app.sliver.is_some() { "sliver" } else { "entrypoint" };
+        println!("  - {} ({})", app.hostname, app_type);
+        println!("    Workers: {}, Memory: {}MB, Timeout: {}s",
+            app.limits.workers,
+            app.limits.memory_mb,
+            app.limits.timeout_secs
+        );
+    }
+
+    println!("");
+    println!("  Ready to accept connections...");
+    println!("  Press Ctrl+C to stop");
+    println!("");
+
+    // Start server with config
+    let shutdown_state = shutdown.state().clone();
+    let server_handle = tokio::spawn(async move {
+        nano::http::start_server_with_config(config, shutdown_state).await
+    });
+
+    // Wait for shutdown signal
+    let _ = shutdown_rx.recv().await;
+
+    println!("");
+    println!("  Shutdown signal received, stopping server...");
+    println!("");
+
+    tracing::info!("Shutdown signal received, initiating graceful shutdown...");
+
+    // Perform graceful shutdown
+    shutdown.shutdown().await;
+
+    // Wait for server with timeout
+    let shutdown_result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        server_handle
+    ).await;
+
+    match shutdown_result {
+        Ok(Ok(Ok(()))) => {
+            tracing::info!("Server stopped successfully");
+        }
+        Ok(Ok(Err(e))) => {
+            tracing::error!("Server error during shutdown: {}", e);
+        }
+        Ok(Err(e)) => {
+            tracing::error!("Server task panicked: {}", e);
+        }
+        Err(_) => {
+            tracing::warn!("Server shutdown timed out, forcing exit");
+            println!("  Warning: Shutdown timed out, forcing exit...");
+        }
+    }
+
+    tracing::info!("NANO config mode shutdown complete");
+    Ok(())
 }
 
 /// Handle sliver management commands
