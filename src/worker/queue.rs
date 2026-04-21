@@ -539,15 +539,45 @@ fn execute_with_context_manager(
             let method_val = v8::String::new(context_scope, handler_ctx.request.method()).unwrap();
             let _ = init_obj.set(context_scope, method_key.into(), method_val.into());
             
-            // Set headers
+            // Set headers using Headers constructor for proper Headers instance
             let headers_key = v8::String::new(context_scope, "headers").unwrap();
-            let headers_obj = v8::Object::new(context_scope);
-            handler_ctx.request.headers().for_each(|name, value| {
-                let name_key = v8::String::new(context_scope, name).unwrap();
-                let value_str = v8::String::new(context_scope, value).unwrap();
-                let _ = headers_obj.set(context_scope, name_key.into(), value_str.into());
-            });
-            let _ = init_obj.set(context_scope, headers_key.into(), headers_obj.into());
+            let headers_ctor_key = v8::String::new(context_scope, "Headers").unwrap();
+            let headers_obj = if let Some(headers_ctor) = global.get(context_scope, headers_ctor_key.into()) {
+                if headers_ctor.is_function() {
+                    // Create Headers instance
+                    let headers_fn = headers_ctor.cast::<v8::Function>();
+                    headers_fn.new_instance(context_scope, &[])
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            // Populate headers using Headers.set() method
+            if let Some(headers_instance) = headers_obj {
+                let set_key = v8::String::new(context_scope, "set").unwrap();
+                if let Some(set_fn) = headers_instance.get(context_scope, set_key.into()) {
+                    if set_fn.is_function() {
+                        let set_method = set_fn.cast::<v8::Function>();
+                        handler_ctx.request.headers().for_each(|name, value| {
+                            let name_key = v8::String::new(context_scope, name).unwrap();
+                            let value_str = v8::String::new(context_scope, value).unwrap();
+                            let _ = set_method.call(context_scope, headers_instance.into(), &[name_key.into(), value_str.into()]);
+                        });
+                    }
+                }
+                let _ = init_obj.set(context_scope, headers_key.into(), headers_instance.into());
+            } else {
+                // Fallback: create plain headers object if Headers constructor not available
+                let plain_headers = v8::Object::new(context_scope);
+                handler_ctx.request.headers().for_each(|name, value| {
+                    let name_key = v8::String::new(context_scope, name).unwrap();
+                    let value_str = v8::String::new(context_scope, value).unwrap();
+                    let _ = plain_headers.set(context_scope, name_key.into(), value_str.into());
+                });
+                let _ = init_obj.set(context_scope, headers_key.into(), plain_headers.into());
+            }
             
             // Set body if present (as base64 string)
             if let Some(body) = handler_ctx.request.body() {

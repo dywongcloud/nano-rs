@@ -300,6 +300,48 @@ impl RuntimeAPIs {
     fn bind_url(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
+        // Create URLSearchParams constructor first (needed by URL)
+        let usp_template = v8::FunctionTemplate::new(scope, url_search_params_constructor);
+        let usp_ctor = usp_template.get_function(scope).unwrap();
+        
+        // Add prototype methods to URLSearchParams
+        if let Some(usp_obj) = usp_ctor.to_object(scope) {
+            let proto_key = v8::String::new(scope, "prototype").unwrap();
+            if let Some(proto) = usp_obj.get(scope, proto_key.into()) {
+                if let Some(proto_obj) = proto.to_object(scope) {
+                    // Bind get method
+                    if let Some(get_fn) = v8::Function::new(scope, usp_get_callback) {
+                        let get_key = v8::String::new(scope, "get").unwrap();
+                        proto_obj.set(scope, get_key.into(), get_fn.into());
+                    }
+                    // Bind set method
+                    if let Some(set_fn) = v8::Function::new(scope, usp_set_callback) {
+                        let set_key = v8::String::new(scope, "set").unwrap();
+                        proto_obj.set(scope, set_key.into(), set_fn.into());
+                    }
+                    // Bind has method
+                    if let Some(has_fn) = v8::Function::new(scope, usp_has_callback) {
+                        let has_key = v8::String::new(scope, "has").unwrap();
+                        proto_obj.set(scope, has_key.into(), has_fn.into());
+                    }
+                    // Bind delete method
+                    if let Some(delete_fn) = v8::Function::new(scope, usp_delete_callback) {
+                        let delete_key = v8::String::new(scope, "delete").unwrap();
+                        proto_obj.set(scope, delete_key.into(), delete_fn.into());
+                    }
+                    // Bind toString method
+                    if let Some(tostring_fn) = v8::Function::new(scope, usp_tostring_callback) {
+                        let tostring_key = v8::String::new(scope, "toString").unwrap();
+                        proto_obj.set(scope, tostring_key.into(), tostring_fn.into());
+                    }
+                }
+            }
+        }
+        
+        // Attach URLSearchParams to global
+        let usp_key = v8::String::new(scope, "URLSearchParams").unwrap();
+        global.set(scope, usp_key.into(), usp_ctor.into());
+
         // Create URL constructor
         let template = v8::FunctionTemplate::new(scope, url_constructor);
         let ctor = template.get_function(scope).unwrap();
@@ -946,6 +988,7 @@ fn url_constructor(
     mut retval: v8::ReturnValue,
 ) {
     let this = args.this();
+    let global = scope.get_current_context().global(scope);
 
     // Get the URL string argument
     let url_string = if args.length() > 0 {
@@ -1020,7 +1063,239 @@ fn url_constructor(
     let hash_val = v8::String::new(scope, &hash).unwrap();
     this.set(scope, hash_key.into(), hash_val.into());
 
+    // Set searchParams property with URLSearchParams instance
+    let search_params_key = v8::String::new(scope, "searchParams").unwrap();
+    let search_params_ctor_key = v8::String::new(scope, "URLSearchParams").unwrap();
+    if let Some(usp_ctor) = global.get(scope, search_params_ctor_key.into()) {
+        if usp_ctor.is_function() {
+            let usp_fn = usp_ctor.cast::<v8::Function>();
+            // Pass the query string (without ?) to URLSearchParams constructor
+            let query_str = parsed.query().unwrap_or("");
+            let query_val = v8::String::new(scope, query_str).unwrap();
+            if let Some(search_params) = usp_fn.new_instance(scope, &[query_val.into()]) {
+                this.set(scope, search_params_key.into(), search_params.into());
+            }
+        }
+    }
+
     retval.set(this.into());
+}
+
+/// URLSearchParams constructor implementation
+fn url_search_params_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    // Initialize internal params store as a Map
+    let params_key = v8::String::new(scope, "__params__").unwrap();
+    let params_map = v8::Map::new(scope);
+    this.set(scope, params_key.into(), params_map.into());
+
+    // Parse init argument if provided
+    if args.length() > 0 {
+        let init = args.get(0);
+        if let Some(init_str) = init.to_string(scope) {
+            let query_string = init_str.to_rust_string_lossy(scope);
+            // Parse query string like "foo=bar&baz=qux"
+            for pair in query_string.split('&') {
+                if let Some(eq_pos) = pair.find('=') {
+                    let key = &pair[..eq_pos];
+                    let value = &pair[eq_pos + 1..];
+                    let key_val = v8::String::new(scope, key).unwrap();
+                    let value_val = v8::String::new(scope, value).unwrap();
+                    params_map.set(scope, key_val.into(), value_val.into());
+                } else if !pair.is_empty() {
+                    let key_val = v8::String::new(scope, pair).unwrap();
+                    let empty_val = v8::String::new(scope, "").unwrap();
+                    params_map.set(scope, key_val.into(), empty_val.into());
+                }
+            }
+        }
+    }
+
+    retval.set(this.into());
+}
+
+/// URLSearchParams.get() callback
+fn usp_get_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    if args.length() < 1 {
+        retval.set_null();
+        return;
+    }
+
+    let name_key = args.get(0);
+    let name = name_key.to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+
+    let params_key = v8::String::new(scope, "__params__").unwrap();
+    if let Some(params_val) = this.get(scope, params_key.into()) {
+        if let Some(params_map) = params_val.to_object(scope) {
+            if let Some(value) = params_map.get(scope, name_key) {
+                if value.is_null() || value.is_undefined() {
+                    retval.set_null();
+                } else {
+                    retval.set(value);
+                }
+                return;
+            }
+        }
+    }
+
+    retval.set_null();
+}
+
+/// URLSearchParams.set() callback
+fn usp_set_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    if args.length() < 2 {
+        retval.set_undefined();
+        return;
+    }
+
+    let name_key = args.get(0);
+    let value_key = args.get(1);
+
+    let params_key = v8::String::new(scope, "__params__").unwrap();
+    if let Some(params_val) = this.get(scope, params_key.into()) {
+        if let Some(params_map) = params_val.to_object(scope) {
+            params_map.set(scope, name_key, value_key);
+        }
+    }
+
+    retval.set_undefined();
+}
+
+/// URLSearchParams.has() callback
+fn usp_has_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    if args.length() < 1 {
+        retval.set(v8::Boolean::new(scope, false).into());
+        return;
+    }
+
+    let name_key = args.get(0);
+    let name_str = name_key.to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+
+    let params_key = v8::String::new(scope, "__params__").unwrap();
+    let has_key = v8::String::new(scope, "has").unwrap();
+    
+    if let Some(params_val) = this.get(scope, params_key.into()) {
+        if let Some(params_map) = params_val.to_object(scope) {
+            if let Some(has_fn) = params_map.get(scope, has_key.into()) {
+                if has_fn.is_function() {
+                    let has_func = has_fn.cast::<v8::Function>();
+                    if let Some(result) = has_func.call(scope, params_val, &[name_key]) {
+                        retval.set(result);
+                        return;
+                    }
+                }
+            }
+            // Fallback: check if key exists directly in the map object
+            let name_key_local = v8::String::new(scope, &name_str).unwrap();
+            if let Some(val) = params_map.get(scope, name_key_local.into()) {
+                if !val.is_null() && !val.is_undefined() {
+                    retval.set(v8::Boolean::new(scope, true).into());
+                    return;
+                }
+            }
+        }
+    }
+
+    retval.set(v8::Boolean::new(scope, false).into());
+}
+
+/// URLSearchParams.delete() callback
+fn usp_delete_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    if args.length() < 1 {
+        retval.set_undefined();
+        return;
+    }
+
+    let name_key = args.get(0);
+    let name_str = name_key.to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+
+    let params_key = v8::String::new(scope, "__params__").unwrap();
+    let delete_key = v8::String::new(scope, "delete").unwrap();
+    
+    if let Some(params_val) = this.get(scope, params_key.into()) {
+        if let Some(params_map) = params_val.to_object(scope) {
+            if let Some(delete_fn) = params_map.get(scope, delete_key.into()) {
+                if delete_fn.is_function() {
+                    let delete_func = delete_fn.cast::<v8::Function>();
+                    let _ = delete_func.call(scope, params_val, &[name_key]);
+                }
+            }
+            // Also try to delete directly as fallback
+            let name_key_local = v8::String::new(scope, &name_str).unwrap();
+            let _ = params_map.delete(scope, name_key_local.into());
+        }
+    }
+
+    retval.set_undefined();
+}
+
+/// URLSearchParams.toString() callback
+fn usp_tostring_callback(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = _args.this();
+
+    let params_key = v8::String::new(scope, "__params__").unwrap();
+    let entries_key = v8::String::new(scope, "entries").unwrap();
+    
+    if let Some(params_val) = this.get(scope, params_key.into()) {
+        if let Some(params_map) = params_val.to_object(scope) {
+            // Get entries from the Map
+            if let Some(entries_fn) = params_map.get(scope, entries_key.into()) {
+                if entries_fn.is_function() {
+                    let entries_func = entries_fn.cast::<v8::Function>();
+                    if let Some(_iterator) = entries_func.call(scope, params_val, &[]) {
+                        // Note: Full implementation would iterate the iterator
+                        // and build query string from entries
+                        // For now, return empty string as basic implementation
+                        let result = v8::String::new(scope, "").unwrap();
+                        retval.set(result.into());
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    let empty = v8::String::new(scope, "").unwrap();
+    retval.set(empty.into());
 }
 
 /// Headers constructor implementation (simplified v1)
