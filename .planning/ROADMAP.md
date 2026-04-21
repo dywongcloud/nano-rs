@@ -101,11 +101,119 @@
 
 ---
 
+## v1.2 Remediation 🚧
+
+**Milestone Goal:** Fix 7 critical bugs from blackbox evaluation + documentation
+
+<blockquote>
+⚠️ **Post-v1.1 Evaluation Finding:** Blackbox testing revealed 7 bugs breaking core functionality including incomplete Request objects, ESM not supported, --config no-op, and sliver VFS not wired for execution.
+</blockquote>
+
+### Phase 17: Request/Response Fixes
+**Goal:** Pass full WinterCG Request (URL, headers, body) to JS; add Promise support  
+**Depends on:** v1.1 complete  
+**Requirements:** REQ-17-01, REQ-17-02, REQ-17-03  
+**Success Criteria**:
+  1. Handler receives `{method, url, headers, body}` not just method
+  2. Async handlers with `await` resolve correctly
+  3. Request body readable as text/JSON
+**Plans:** TBD  
+**UI hint:** no
+
+### Phase 18: ESM Module System
+**Goal:** Replace Script::compile with V8 Module API for ESM support  
+**Depends on:** Phase 17  
+**Requirements:** REQ-18-01, REQ-18-02  
+**Success Criteria**:
+  1. `export default { fetch }` compiles and runs
+  2. Relative imports work within sliver VFS
+  3. Hono.js and Next.js ESM bundles execute
+**Plans:** TBD  
+**UI hint:** no
+
+### Phase 19: Config Mode Implementation
+**Goal:** Actually implement `--config` workflow + port/host config  
+**Depends on:** Phase 18  
+**Requirements:** REQ-19-01, REQ-19-02  
+**Success Criteria**:
+  1. `nano-rs run --config config.json` loads and serves apps
+  2. Port and host from config applied to server bind
+  3. Multiple apps in config served with virtual host routing
+**Plans:** TBD  
+**UI hint:** no
+
+### Phase 20: Sliver VFS Integration
+**Goal:** Execute JS from packed sliver VFS, not OS filesystem  
+**Depends on:** Phase 19  
+**Requirements:** REQ-20-01, REQ-20-02  
+**Success Criteria**:
+  1. Sliver runs from any directory (portable)
+  2. JS entrypoint read from vfs/ in sliver, not CWD
+  3. No source files required to run sliver
+**Plans:** TBD  
+**UI hint:** no
+
+### Phase 21: Documentation & Architecture
+**Goal:** Fix cold start claims, document compatibility accurately  
+**Depends on:** Phase 20  
+**Requirements:** REQ-21-01, REQ-21-02, REQ-21-03  
+**Success Criteria**:
+  1. Cold start metrics distinguish process boot (~60ms) from request latency (~267µs)
+  2. Node.js compatibility matrix published (~5% accurate)
+  3. Per-worker state isolation documented with guidance
+**Plans:** TBD  
+**UI hint:** no
+
+**Full details:** [REMEDIATION-v1.2.md](./REMEDIATION-v1.2.md)
+
+---
+
 ## v2.0 Advanced Features 📋
 
 **Milestone Goal:** WebSockets, advanced crypto, compression, inter-isolate messaging
 
-### Phase 17: WebSocket Server
+### Phase 22: WebSocket Server
+**Goal:** RFC 6455 WebSocket upgrade handling  
+**Depends on:** v1.2 complete  
+**Requirements:** WS-01, WS-02, WS-03  
+**Success Criteria** (what must be TRUE):
+  1. HTTP server supports WebSocket upgrade
+  2. JS can handle WebSocket connections
+  3. Per-isolate connection limits enforced
+**Plans**: TBD  
+**UI hint**: no
+
+### Phase 23: Advanced Crypto
+**Goal:** RSA and ECDSA operations  
+**Depends on:** Phase 22  
+**Requirements:** CRYPT-05, CRYPT-06, CRYPT-07  
+**Success Criteria** (what must be TRUE):
+  1. RSA key generation and import/export
+  2. ECDSA sign/verify operations
+  3. RSA-OAEP encrypt/decrypt
+**Plans**: TBD  
+**UI hint**: no
+
+### Phase 24: Compression Streams
+**Goal:** CompressionStream and DecompressionStream  
+**Depends on:** Phase 23  
+**Requirements:** COMP-01, COMP-02  
+**Success Criteria** (what must be TRUE):
+  1. CompressionStream with deflate
+  2. DecompressionStream with inflate
+  3. Works with fetch() Response/Request bodies
+**Plans**: TBD  
+**UI hint**: no
+
+### Phase 25: Inter-Isolate Messaging
+**Goal:** PostMessage API between isolates  
+**Depends on:** Phase 24  
+**Requirements:** MSG-01, MSG-02  
+**Success Criteria** (what must be TRUE):
+  1. JS can postMessage to other isolates
+  2. Broadcast channels for app groups
+  3. Message serialization preserves types
+**Plans**: TBD
 **Goal:** RFC 6455 WebSocket upgrade handling  
 **Depends on:** v1.1 complete  
 **Requirements:** WS-01, WS-02, WS-03  

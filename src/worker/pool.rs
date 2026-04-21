@@ -5,6 +5,7 @@
 //! and responses are returned via oneshot channels.
 
 use crate::http::NanoResponse;
+use crate::http::v8_bridge::serialize_request_to_json;
 use crate::runtime::HandlerContext;
 use crate::v8::{initialize_platform, NanoIsolate};
 use crate::worker::context::ContextManager;
@@ -81,16 +82,57 @@ fn execute_handler_code(
 
     let fetch_fn = fetch_val.cast::<v8::Function>();
 
-    // Create request object
-    let request_json = format!("{{\"method\":\"{}\"}}", handler_ctx.request.method());
+    // Create request object using full WinterCG serialization
+    let request_json = serialize_request_to_json(&handler_ctx.request);
     let request_str = v8::String::new(scope, &request_json)
-        .ok_or_else(|| anyhow!("Failed to create request string"))?;
+        .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
 
-    // Call fetch function
-    let result = fetch_fn.call(scope, global.into(), &[request_str.into()]);
+    // Parse JSON to create proper JS object
+    let json_key = v8::String::new(scope, "JSON").unwrap();
+    let json_val = global.get(scope, json_key.into())
+        .ok_or_else(|| anyhow!("JSON not found"))?;
+    let json_obj = json_val.to_object(scope)
+        .ok_or_else(|| anyhow!("JSON is not an object"))?;
+    let parse_key = v8::String::new(scope, "parse").unwrap();
+    let parse_fn = json_obj.get(scope, parse_key.into())
+        .ok_or_else(|| anyhow!("JSON.parse not found"))?
+        .cast::<v8::Function>();
+
+    let js_request = parse_fn.call(scope, json_val.into(), &[request_str.into()])
+        .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
+
+    // Call fetch function with parsed JS object
+    let result = fetch_fn.call(scope, global.into(), &[js_request.into()]);
+
+    // Perform microtask checkpoint to resolve any Promises
+    scope.perform_microtask_checkpoint();
+
+    // Check if result is a Promise and resolve if needed
+    let resolved = if let Some(response) = result {
+        if response.is_promise() {
+            let promise = response.cast::<v8::Promise>();
+            match promise.state() {
+                v8::PromiseState::Fulfilled => Some(promise.result(scope)),
+                v8::PromiseState::Rejected => {
+                    let error = promise.result(scope);
+                    let error_str = error.to_string(scope)
+                        .map(|s| s.to_rust_string_lossy(scope))
+                        .unwrap_or_else(|| "Promise rejected".to_string());
+                    return Err(anyhow!("Promise rejected: {}", error_str));
+                }
+                v8::PromiseState::Pending => {
+                    return Err(anyhow!("Promise still pending - async execution not fully supported"));
+                }
+            }
+        } else {
+            Some(response)
+        }
+    } else {
+        None
+    };
 
     // Extract response
-    match result {
+    match resolved {
         Some(response) => extract_js_response(scope, response),
         None => Err(anyhow!("Handler returned None")),
     }
@@ -131,16 +173,57 @@ fn execute_handler_in_context(
 
     let fetch_fn = fetch_val.cast::<v8::Function>();
 
-    // Create a simple request object
-    let request_json = format!("{{\"method\":\"{}\"}}", handler_ctx.request.method());
+    // Create request object using full WinterCG serialization
+    let request_json = serialize_request_to_json(&handler_ctx.request);
     let request_str = v8::String::new(context_scope, &request_json)
-        .ok_or_else(|| anyhow!("Failed to create request string"))?;
+        .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
 
-    // Call fetch function
-    let result = fetch_fn.call(context_scope, global.into(), &[request_str.into()]);
+    // Parse JSON to create proper JS object
+    let json_key = v8::String::new(context_scope, "JSON").unwrap();
+    let json_val = global.get(context_scope, json_key.into())
+        .ok_or_else(|| anyhow!("JSON not found"))?;
+    let json_obj = json_val.to_object(context_scope)
+        .ok_or_else(|| anyhow!("JSON is not an object"))?;
+    let parse_key = v8::String::new(context_scope, "parse").unwrap();
+    let parse_fn = json_obj.get(context_scope, parse_key.into())
+        .ok_or_else(|| anyhow!("JSON.parse not found"))?
+        .cast::<v8::Function>();
+
+    let js_request = parse_fn.call(context_scope, json_val.into(), &[request_str.into()])
+        .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
+
+    // Call fetch function with parsed JS object
+    let result = fetch_fn.call(context_scope, global.into(), &[js_request.into()]);
+
+    // Perform microtask checkpoint to resolve any Promises
+    context_scope.perform_microtask_checkpoint();
+
+    // Check if result is a Promise and resolve if needed
+    let resolved = if let Some(response) = result {
+        if response.is_promise() {
+            let promise = response.cast::<v8::Promise>();
+            match promise.state() {
+                v8::PromiseState::Fulfilled => Some(promise.result(context_scope)),
+                v8::PromiseState::Rejected => {
+                    let error = promise.result(context_scope);
+                    let error_str = error.to_string(context_scope)
+                        .map(|s| s.to_rust_string_lossy(context_scope))
+                        .unwrap_or_else(|| "Promise rejected".to_string());
+                    return Err(anyhow!("Promise rejected: {}", error_str));
+                }
+                v8::PromiseState::Pending => {
+                    return Err(anyhow!("Promise still pending - async execution not fully supported"));
+                }
+            }
+        } else {
+            Some(response)
+        }
+    } else {
+        None
+    };
 
     // Extract response from result
-    match result {
+    match resolved {
         Some(response) => extract_js_response(context_scope, response),
         None => Err(anyhow!("Handler returned None")),
     }
