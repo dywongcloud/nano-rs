@@ -457,6 +457,10 @@ fn execute_with_context_manager(
     // Clone the Global<Context> (cheap - just a handle reference)
     let global_ctx = context_manager.clone_context();
 
+    // Get VFS reference BEFORE the mutable borrow for isolate access
+    // The VFS is stored in thread-local storage so VFS bindings can access it
+    let vfs_opt = context_manager.vfs().cloned();
+
     // Now get the isolate pointer - this borrows context_manager mutably
     let isolate = context_manager.isolate_mut().isolate();
 
@@ -472,10 +476,12 @@ fn execute_with_context_manager(
     // Enter context scope and execute
     let context_scope = &mut v8::ContextScope::new(handle_scope, v8_context);
 
-    // Note: VFS access for Nano.fs is handled via thread-local storage in the runtime
-    // The RuntimeAPIs::bind_nano_fs creates the bindings, but actual VFS operations
-    // would need VFS context to be set. For now, the VFS bindings exist but may not
-    // have full backend support in the WorkQueue execution path.
+    // Set up VFS context for Nano.fs and require('fs') operations
+    if let Some(vfs) = vfs_opt {
+        let vfs_arc = std::sync::Arc::new(vfs);
+        crate::runtime::vfs_bindings::set_current_vfs(Some(vfs_arc.clone()));
+        crate::runtime::fs_polyfill::set_current_vfs(Some(vfs_arc));
+    }
 
     // Read the handler code
     let code = fs::read_to_string(&handler_ctx.entrypoint)
