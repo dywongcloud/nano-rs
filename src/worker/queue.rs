@@ -515,7 +515,7 @@ fn execute_with_context_manager(
     let request_str = v8::String::new(context_scope, &request_json)
         .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
     
-    // Parse JSON to create proper JS object
+    // Parse JSON to create JS object
     let json_key = v8::String::new(context_scope, "JSON").unwrap();
     let json_val = global.get(context_scope, json_key.into())
         .ok_or_else(|| anyhow!("JSON not found"))?;
@@ -528,11 +528,33 @@ fn execute_with_context_manager(
         .ok_or_else(|| anyhow!("JSON.parse is not a function"))?
         .cast::<v8::Function>();
     
-    let request_obj = parse_fn.call(context_scope, json_val.into(), &[request_str.into()])
+    let parsed_obj = parse_fn.call(context_scope, json_val.into(), &[request_str.into()])
         .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
+    
+    // Add Request prototype methods to the parsed object
+    // This makes the plain object have text(), json(), arrayBuffer() methods
+    let request_obj = if let Some(obj) = parsed_obj.to_object(context_scope) {
+        // Try to set prototype to Request.prototype if available
+        let request_key = v8::String::new(context_scope, "Request").unwrap();
+        if let Some(request_ctor) = global.get(context_scope, request_key.into()) {
+            if let Some(req_obj) = request_ctor.to_object(context_scope) {
+                let prototype_key = v8::String::new(context_scope, "prototype").unwrap();
+                if let Some(prototype) = req_obj.get(context_scope, prototype_key.into()) {
+                    if !prototype.is_null() && !prototype.is_undefined() {
+                        // Set the object's prototype
+                        let set_proto_key = v8::String::new(context_scope, "__proto__").unwrap();
+                        let _ = obj.set(context_scope, set_proto_key.into(), prototype.into());
+                    }
+                }
+            }
+        }
+        obj
+    } else {
+        return Err(anyhow!("Failed to convert parsed JSON to object"));
+    };
 
-    // Call fetch function with parsed request object
-    let result = fetch_fn.call(context_scope, global.into(), &[request_obj]);
+    // Call fetch function with request object
+    let result = fetch_fn.call(context_scope, global.into(), &[request_obj.into()]);
 
     // Handle promise if needed
     if let Some(result_val) = result {
