@@ -194,7 +194,26 @@ impl WorkerPool {
                     tracing::error!("Worker {} failed to create context: {}", id, e);
                     return;
                 }
-                tracing::info!("Worker {} initialized with V8 context", id);
+                
+                // Inject runtime APIs into the context
+                // First clone the context handle (cheap - just a reference)
+                let global_ctx = match context_manager.clone_context() {
+                    Some(g) => g,
+                    None => {
+                        tracing::error!("Worker {} failed to get context for API binding", id);
+                        return;
+                    }
+                };
+                
+                // Now get isolate and create scopes
+                {
+                    let handle_scope = &mut v8::HandleScope::new(context_manager.isolate_mut().isolate());
+                    let local_ctx = v8::Local::new(handle_scope, &global_ctx);
+                    let context_scope = &mut v8::ContextScope::new(handle_scope, local_ctx);
+                    crate::runtime::apis::RuntimeAPIs::bind_all(context_scope, local_ctx);
+                }
+                
+                tracing::info!("Worker {} initialized with V8 context and runtime APIs", id);
 
                 // Worker loop - blocks on channel receive
                 loop {
