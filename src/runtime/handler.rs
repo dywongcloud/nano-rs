@@ -310,7 +310,7 @@ fn execute_in_v8(
 }
 
 /// Extract a NanoResponse from a V8 JavaScript Response object
-fn extract_js_response(
+pub fn extract_js_response(
     scope: &mut v8::ContextScope<v8::HandleScope>,
     js_response: v8::Local<v8::Value>,
 ) -> Result<NanoResponse> {

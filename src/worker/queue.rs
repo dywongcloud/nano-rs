@@ -20,10 +20,18 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, TrySendError};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
-use crate::http::NanoResponse;
+use crate::http::{NanoHeaders, NanoResponse};
+use crate::http::v8_bridge::serialize_request_to_json;
+use crate::runtime::HandlerContext;
+use crate::v8::initialize_platform;
+use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use crate::worker::HandlerTask;
+use crate::worker::context::ContextManager;
+
+use anyhow::anyhow;
 
 /// Error types for queue operations
 #[derive(Debug, Clone, PartialEq)]
@@ -153,26 +161,58 @@ impl WorkerPool {
             // Create bounded MPSC channel (256 slots per POOL-02)
             let (task_tx, task_rx) = sync_channel::<HandlerTask>(channel_capacity);
 
-            // Spawn worker thread
+            // Spawn worker thread with V8 execution
             let hostname_thread = hostname_owned.clone();
             let thread = thread::spawn(move || {
                 tracing::info!("Worker {} started for {}", id, hostname_thread);
+
+                // Initialize V8 platform for this thread
+                if let Err(e) = initialize_platform() {
+                    tracing::error!("Worker {} failed to initialize V8: {}", id, e);
+                    return;
+                }
+
+                // Create VFS for this worker
+                let vfs_backend = Arc::new(MemoryBackend::new());
+                let vfs = IsolateVfs::new(
+                    VfsNamespace::from_hostname(&hostname_thread),
+                    vfs_backend,
+                );
+
+                // Create isolate with VFS in this thread
+                let isolate = match crate::v8::NanoIsolate::new_with_vfs(vfs) {
+                    Ok(isol) => isol,
+                    Err(e) => {
+                        tracing::error!("Worker {} failed to create isolate: {}", id, e);
+                        return;
+                    }
+                };
+
+                // Create context manager for this worker
+                let mut context_manager = ContextManager::new(isolate);
+                if let Err(e) = context_manager.create_initial_context() {
+                    tracing::error!("Worker {} failed to create context: {}", id, e);
+                    return;
+                }
+                tracing::info!("Worker {} initialized with V8 context", id);
 
                 // Worker loop - blocks on channel receive
                 loop {
                     match task_rx.recv() {
                         Ok(task) => {
-                            // Execute the handler task
-                            tracing::debug!("Worker {} received task", id);
+                            // Execute the JavaScript handler
+                            tracing::debug!("Worker {} executing task for {}", id, task.entrypoint);
 
-                            // For now, return a simple response
-                            // In full implementation, this would call the JS handler
-                            let response = NanoResponse::ok()
-                                .with_header("Content-Type", "text/plain")
-                                .with_body(format!("Handler executed: {}", task.entrypoint));
+                            let handler_ctx = HandlerContext {
+                                entrypoint: task.entrypoint.clone(),
+                                request: task.request,
+                            };
+
+                            // Execute handler using context manager
+                            let response = execute_with_context_manager(&mut context_manager, &handler_ctx);
 
                             // Send response back
-                            let _ = task.response_tx.send(Ok(response));
+                            let _ = task.response_tx.send(response);
                         }
                         Err(_) => {
                             // Channel closed, exit gracefully
@@ -382,6 +422,128 @@ pub fn hash_hostname(hostname: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     lowercase.hash(&mut hasher);
     hasher.finish()
+}
+
+/// Execute a handler within a specific V8 context
+///
+/// This function properly manages V8 scope lifecycle to avoid "active scope" errors.
+fn execute_with_context_manager(
+    context_manager: &mut ContextManager,
+    handler_ctx: &HandlerContext,
+) -> anyhow::Result<NanoResponse> {
+    use crate::runtime::apis::RuntimeAPIs;
+    use crate::v8::module::{is_esm_module, transform_module_code};
+    use std::fs;
+
+    // Clone the Global<Context> (cheap - just a handle reference)
+    let global_ctx = context_manager.clone_context();
+
+    // Now get the isolate pointer - this borrows context_manager mutably
+    let isolate = context_manager.isolate_mut().isolate();
+
+    // Create fresh HandleScope
+    let handle_scope = &mut v8::HandleScope::new(isolate);
+
+    // Reopen Local<Context> from Global within the new scope
+    let v8_context = match global_ctx {
+        Some(g) => v8::Local::new(handle_scope, &g),
+        None => return Err(anyhow!("No context available")),
+    };
+
+    // Enter context scope and execute
+    let context_scope = &mut v8::ContextScope::new(handle_scope, v8_context);
+
+    // Read the handler code
+    let code = fs::read_to_string(&handler_ctx.entrypoint)
+        .map_err(|e| anyhow!("Failed to read entrypoint: {}", e))?;
+
+    // Transform ES6 module syntax if this is an ESM module
+    let transformed_code = if is_esm_module(&code) {
+        transform_module_code(&code)
+    } else {
+        code
+    };
+
+    // Compile and run script to define fetch function
+    let code_str = v8::String::new(context_scope, &transformed_code)
+        .ok_or_else(|| anyhow!("Failed to create code string"))?;
+    let script = v8::Script::compile(context_scope, code_str, None)
+        .ok_or_else(|| anyhow!("Script compilation failed"))?;
+    script.run(context_scope);
+
+    // Get global and look for fetch function
+    let global = v8_context.global(context_scope);
+    let fetch_key = v8::String::new(context_scope, "fetch").unwrap();
+    let fetch_val = match global.get(context_scope, fetch_key.into()) {
+        Some(val) => val,
+        None => {
+            return Ok(NanoResponse::ok()
+                .with_header("Content-Type", "text/plain")
+                .with_body("Handler executed (no fetch function defined)"));
+        }
+    };
+
+    if !fetch_val.is_function() {
+        return Ok(NanoResponse::ok()
+            .with_header("Content-Type", "text/plain")
+            .with_body("Handler executed (fetch is not a function)"));
+    }
+
+    let fetch_fn = fetch_val.cast::<v8::Function>();
+
+    // Create request object using full WinterCG serialization
+    let request_json = serialize_request_to_json(&handler_ctx.request);
+    let request_str = v8::String::new(context_scope, &request_json)
+        .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
+    
+    // Parse JSON to create proper JS object
+    let json_key = v8::String::new(context_scope, "JSON").unwrap();
+    let json_val = global.get(context_scope, json_key.into())
+        .ok_or_else(|| anyhow!("JSON not found"))?;
+    let json_obj = json_val.to_object(context_scope)
+        .ok_or_else(|| anyhow!("JSON is not an object"))?;
+    let parse_key = v8::String::new(context_scope, "parse").unwrap();
+    let parse_fn = json_obj.get(context_scope, parse_key.into())
+        .ok_or_else(|| anyhow!("JSON.parse not found"))?
+        .to_object(context_scope)
+        .ok_or_else(|| anyhow!("JSON.parse is not a function"))?
+        .cast::<v8::Function>();
+    
+    let request_obj = parse_fn.call(context_scope, json_val.into(), &[request_str.into()])
+        .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
+
+    // Call fetch function with parsed request object
+    let result = fetch_fn.call(context_scope, global.into(), &[request_obj]);
+
+    // Handle promise if needed
+    if let Some(result_val) = result {
+        // Check if it's a promise
+        if result_val.is_promise() {
+            let promise = result_val.cast::<v8::Promise>();
+            // Run microtasks to settle promise
+            context_scope.perform_microtask_checkpoint();
+
+            match promise.state() {
+                v8::PromiseState::Fulfilled => {
+                    let response_val = promise.result(context_scope);
+                    return crate::runtime::handler::extract_js_response(context_scope, response_val);
+                }
+                v8::PromiseState::Rejected => {
+                    let error = promise.result(context_scope);
+                    let error_str = error.to_rust_string_lossy(context_scope);
+                    return Ok(NanoResponse::new(500, NanoHeaders::new(), Some(format!("Promise rejected: {}", error_str).into())));
+                }
+                v8::PromiseState::Pending => {
+                    return Ok(NanoResponse::new(500, NanoHeaders::new(), Some("Promise still pending".into())));
+                }
+            }
+        } else {
+            // Direct response (not a promise)
+            return crate::runtime::handler::extract_js_response(context_scope, result_val);
+        }
+    }
+
+    Ok(NanoResponse::new(500, NanoHeaders::new(), Some("Handler returned no result".into())))
 }
 
 #[cfg(test)]
