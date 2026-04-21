@@ -65,9 +65,301 @@ impl Default for StreamResourceTable {
 }
 
 /// Bind ReadableStream and related APIs to the global scope
-pub fn bind_streams(_scope: &mut v8::HandleScope, _context: v8::Local<v8::Context>) {
-    // TODO: Implement ReadableStream binding in Task 3
-    tracing::debug!("ReadableStream binding placeholder - Task 3");
+pub fn bind_streams(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    let global = context.global(scope);
+
+    // Create ReadableStream constructor
+    let rs_template = v8::FunctionTemplate::new(scope, readable_stream_constructor);
+    let rs_ctor = rs_template.get_function(scope).unwrap();
+    
+    // Add getReader method to prototype
+    if let Some(rs_obj) = rs_ctor.to_object(scope) {
+        let proto_key = v8::String::new(scope, "prototype").unwrap();
+        if let Some(proto) = rs_obj.get(scope, proto_key.into()) {
+            if let Some(proto_obj) = proto.to_object(scope) {
+                if let Some(get_reader_fn) = v8::Function::new(scope, readable_stream_get_reader) {
+                    let get_reader_key = v8::String::new(scope, "getReader").unwrap();
+                    proto_obj.set(scope, get_reader_key.into(), get_reader_fn.into());
+                }
+            }
+        }
+    }
+    
+    let rs_key = v8::String::new(scope, "ReadableStream").unwrap();
+    global.set(scope, rs_key.into(), rs_ctor.into());
+
+    // Create ReadableStreamDefaultReader constructor
+    let reader_template = v8::FunctionTemplate::new(scope, readable_stream_default_reader_constructor);
+    let reader_ctor = reader_template.get_function(scope).unwrap();
+    
+    // Add read method to prototype
+    if let Some(reader_obj) = reader_ctor.to_object(scope) {
+        let proto_key = v8::String::new(scope, "prototype").unwrap();
+        if let Some(proto) = reader_obj.get(scope, proto_key.into()) {
+            if let Some(proto_obj) = proto.to_object(scope) {
+                if let Some(read_fn) = v8::Function::new(scope, reader_read_callback) {
+                    let read_key = v8::String::new(scope, "read").unwrap();
+                    proto_obj.set(scope, read_key.into(), read_fn.into());
+                }
+                if let Some(release_fn) = v8::Function::new(scope, reader_release_lock_callback) {
+                    let release_key = v8::String::new(scope, "releaseLock").unwrap();
+                    proto_obj.set(scope, release_key.into(), release_fn.into());
+                }
+            }
+        }
+    }
+    
+    let reader_key = v8::String::new(scope, "ReadableStreamDefaultReader").unwrap();
+    global.set(scope, reader_key.into(), reader_ctor.into());
+
+    // Create WritableStream constructor
+    let ws_template = v8::FunctionTemplate::new(scope, writable_stream_constructor);
+    let ws_ctor = ws_template.get_function(scope).unwrap();
+    
+    // Add getWriter method to prototype
+    if let Some(ws_obj) = ws_ctor.to_object(scope) {
+        let proto_key = v8::String::new(scope, "prototype").unwrap();
+        if let Some(proto) = ws_obj.get(scope, proto_key.into()) {
+            if let Some(proto_obj) = proto.to_object(scope) {
+                if let Some(get_writer_fn) = v8::Function::new(scope, writable_stream_get_writer) {
+                    let get_writer_key = v8::String::new(scope, "getWriter").unwrap();
+                    proto_obj.set(scope, get_writer_key.into(), get_writer_fn.into());
+                }
+            }
+        }
+    }
+    
+    let ws_key = v8::String::new(scope, "WritableStream").unwrap();
+    global.set(scope, ws_key.into(), ws_ctor.into());
+
+    // Create WritableStreamDefaultWriter constructor
+    let writer_template = v8::FunctionTemplate::new(scope, writable_stream_default_writer_constructor);
+    let writer_ctor = writer_template.get_function(scope).unwrap();
+    
+    // Add write and close methods to prototype
+    if let Some(writer_obj) = writer_ctor.to_object(scope) {
+        let proto_key = v8::String::new(scope, "prototype").unwrap();
+        if let Some(proto) = writer_obj.get(scope, proto_key.into()) {
+            if let Some(proto_obj) = proto.to_object(scope) {
+                if let Some(write_fn) = v8::Function::new(scope, writer_write_callback) {
+                    let write_key = v8::String::new(scope, "write").unwrap();
+                    proto_obj.set(scope, write_key.into(), write_fn.into());
+                }
+                if let Some(close_fn) = v8::Function::new(scope, writer_close_callback) {
+                    let close_key = v8::String::new(scope, "close").unwrap();
+                    proto_obj.set(scope, close_key.into(), close_fn.into());
+                }
+                if let Some(release_fn) = v8::Function::new(scope, writer_release_lock_callback) {
+                    let release_key = v8::String::new(scope, "releaseLock").unwrap();
+                    proto_obj.set(scope, release_key.into(), release_fn.into());
+                }
+            }
+        }
+    }
+    
+    let writer_key = v8::String::new(scope, "WritableStreamDefaultWriter").unwrap();
+    global.set(scope, writer_key.into(), writer_ctor.into());
+
+    tracing::debug!("Streams API bindings initialized");
+}
+
+// ============== ReadableStream JavaScript Bindings ==============
+
+fn readable_stream_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    
+    // Store underlying source if provided
+    if args.length() > 0 {
+        let source = args.get(0);
+        let source_key = v8::String::new(scope, "__source").unwrap();
+        this.set(scope, source_key.into(), source.into());
+    }
+    
+    // Initialize state
+    let state_key = v8::String::new(scope, "__state").unwrap();
+    let state_val = v8::String::new(scope, "readable").unwrap();
+    this.set(scope, state_key.into(), state_val.into());
+    
+    retval.set(this.into());
+}
+
+fn readable_stream_get_reader(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    let global = scope.get_current_context().global(scope);
+    
+    // Create reader instance
+    let reader_key = v8::String::new(scope, "ReadableStreamDefaultReader").unwrap();
+    if let Some(reader_ctor) = global.get(scope, reader_key.into()) {
+        if let Some(reader_fn) = reader_ctor.to_object(scope) {
+            if let Some(reader_func) = reader_fn.cast::<v8::Function>().new_instance(scope, &[this.into()]) {
+                retval.set(reader_func.into());
+                return;
+            }
+        }
+    }
+    
+    retval.set(v8::null(scope).into());
+}
+
+fn readable_stream_default_reader_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    
+    // Store reference to stream
+    if args.length() > 0 {
+        let stream = args.get(0);
+        let stream_key = v8::String::new(scope, "__stream").unwrap();
+        this.set(scope, stream_key.into(), stream.into());
+    }
+    
+    retval.set(this.into());
+}
+
+fn reader_read_callback(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    // Return { done: true, value: undefined } for basic implementation
+    let result = v8::Object::new(scope);
+    let done_key = v8::String::new(scope, "done").unwrap();
+    let value_key = v8::String::new(scope, "value").unwrap();
+    let true_val = v8::Boolean::new(scope, true);
+    let undefined_val = v8::undefined(scope);
+    
+    result.set(scope, done_key.into(), true_val.into());
+    result.set(scope, value_key.into(), undefined_val.into());
+    
+    retval.set(result.into());
+}
+
+fn reader_release_lock_callback(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    retval.set(v8::undefined(scope).into());
+}
+
+// ============== WritableStream JavaScript Bindings ==============
+
+fn writable_stream_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    
+    // Store underlying sink if provided
+    if args.length() > 0 {
+        let sink = args.get(0);
+        let sink_key = v8::String::new(scope, "__sink").unwrap();
+        this.set(scope, sink_key.into(), sink.into());
+    }
+    
+    retval.set(this.into());
+}
+
+fn writable_stream_get_writer(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    let global = scope.get_current_context().global(scope);
+    
+    // Create writer instance
+    let writer_key = v8::String::new(scope, "WritableStreamDefaultWriter").unwrap();
+    if let Some(writer_ctor) = global.get(scope, writer_key.into()) {
+        if let Some(writer_fn) = writer_ctor.to_object(scope) {
+            if let Some(writer_func) = writer_fn.cast::<v8::Function>().new_instance(scope, &[this.into()]) {
+                retval.set(writer_func.into());
+                return;
+            }
+        }
+    }
+    
+    retval.set(v8::null(scope).into());
+}
+
+fn writable_stream_default_writer_constructor(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    
+    // Store reference to stream
+    if args.length() > 0 {
+        let stream = args.get(0);
+        let stream_key = v8::String::new(scope, "__stream").unwrap();
+        this.set(scope, stream_key.into(), stream.into());
+    }
+    
+    retval.set(this.into());
+}
+
+fn writer_write_callback(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    // Return Promise.resolve() for basic implementation
+    let global = scope.get_current_context().global(scope);
+    let promise_key = v8::String::new(scope, "Promise").unwrap();
+    let undefined_val = v8::undefined(scope);
+    
+    if let Some(promise_ctor) = global.get(scope, promise_key.into()) {
+        if let Some(promise_fn) = promise_ctor.to_object(scope) {
+            if let Some(promise_func) = promise_fn.cast::<v8::Function>().new_instance(scope, &[undefined_val.into()]) {
+                retval.set(promise_func.into());
+                return;
+            }
+        }
+    }
+    
+    retval.set(undefined_val.into());
+}
+
+fn writer_close_callback(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    // Return Promise.resolve() for basic implementation
+    let global = scope.get_current_context().global(scope);
+    let promise_key = v8::String::new(scope, "Promise").unwrap();
+    let undefined_val = v8::undefined(scope);
+    
+    if let Some(promise_ctor) = global.get(scope, promise_key.into()) {
+        if let Some(promise_fn) = promise_ctor.to_object(scope) {
+            if let Some(promise_func) = promise_fn.cast::<v8::Function>().new_instance(scope, &[undefined_val.into()]) {
+                retval.set(promise_func.into());
+                return;
+            }
+        }
+    }
+    
+    retval.set(undefined_val.into());
+}
+
+fn writer_release_lock_callback(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    retval.set(v8::undefined(scope).into());
 }
 
 /// UnderlyingSink trait for Rust-side data consumption

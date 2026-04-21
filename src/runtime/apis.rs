@@ -50,6 +50,12 @@ impl RuntimeAPIs {
         Self::bind_fs_polyfill(scope, context);
         Self::bind_timers(scope, context);
         Self::bind_buffer(scope, context);
+        Self::bind_streams(scope, context);
+    }
+
+    /// Bind Streams API (ReadableStream, WritableStream)
+    fn bind_streams(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        crate::runtime::stream::bind_streams(scope, context);
     }
 
     /// Bind Request API (text, json, arrayBuffer methods)
