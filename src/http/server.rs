@@ -24,6 +24,8 @@ use tower_http::{
 };
 
 use crate::admin::metrics::metrics_handler;
+use crate::app::registry::AppRegistry;
+use crate::config::NanoConfig;
 use crate::http::config::ServerConfig;
 use crate::http::router::{virtual_host_handler, AppState, HandlerType, RouteTarget, VirtualHostRouter};
 use crate::signal::ShutdownState;
@@ -542,6 +544,101 @@ pub async fn start_server_with_sliver_pool(
         .context("Server error")?;
 
     tracing::info!("Sliver JS server shut down gracefully");
+
+    Ok(())
+}
+
+/// Start HTTP server with configuration from NanoConfig
+///
+/// This function creates an AppRegistry from the config, builds a VirtualHostRouter
+/// for all configured apps, and starts the HTTP server with the configured port and host.
+///
+/// # Arguments
+///
+/// * `nano_config` - The loaded NanoConfig with apps and server settings
+/// * `shutdown_state` - Shutdown state for graceful shutdown coordination
+///
+/// # Returns
+///
+/// Returns a `Result` indicating success or failure.
+///
+/// # Config Mode Features
+///
+/// - Supports sliver-based apps (snapshot-restored isolates)
+/// - Virtual host routing based on hostname in config
+/// - Per-app limits configured via the limits section
+/// - Server bind address from config (not hardcoded)
+pub async fn start_server_with_config(
+    nano_config: NanoConfig,
+    shutdown_state: ShutdownState,
+) -> Result<()> {
+    // Create AppRegistry from config
+    let registry = AppRegistry::from_config(nano_config.clone());
+    tracing::info!("Created AppRegistry with {} app(s)", registry.count());
+
+    // Build VirtualHostRouter from config apps
+    let default_target = RouteTarget {
+        hostname: "default".to_string(),
+        handler_type: HandlerType::StaticResponse(
+            "NANO Runtime - No app configured for this host".to_string(),
+        ),
+    };
+    let mut router = VirtualHostRouter::new(default_target);
+
+    // Register routes for each app in config
+    for app in &nano_config.apps {
+        let target = if let Some(ref sliver_path) = app.sliver {
+            // Sliver-based app
+            RouteTarget {
+                hostname: app.hostname.clone(),
+                handler_type: HandlerType::WinterCGSliverHandler {
+                    hostname: app.hostname.clone(),
+                    entrypoint: app.entrypoint.clone(),
+                },
+            }
+        } else {
+            // Entrypoint-based app
+            RouteTarget {
+                hostname: app.hostname.clone(),
+                handler_type: HandlerType::WinterCGHandler(app.entrypoint.clone()),
+            }
+        };
+        router.register(app.hostname.clone(), target);
+        tracing::info!(
+            "Registered app '{}' with {} handler",
+            app.hostname,
+            if app.sliver.is_some() { "sliver" } else { "entrypoint" }
+        );
+    }
+
+    tracing::info!(
+        "Virtual host router initialized with {} routes",
+        router.route_count()
+    );
+
+    // Create app state with the router
+    let app_state = AppState::new(router, 4);
+    let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
+
+    // Convert server config and bind
+    let server_config = ServerConfig::from(nano_config.server);
+    let addr = server_config
+        .socket_addr()
+        .context("Failed to parse server address")?;
+
+    let listener = TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("Failed to bind to {}", addr))?;
+
+    tracing::info!("Config-mode HTTP server listening on {}", addr);
+
+    let app = create_app_with_shutdown(state);
+
+    axum::serve(listener, app)
+        .await
+        .context("Server error")?;
+
+    tracing::info!("Config-mode server shut down gracefully");
 
     Ok(())
 }
