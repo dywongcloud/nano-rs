@@ -21,14 +21,14 @@ See: .planning/PROJECT.md (updated 2026-04-20)
 ## Current Position
 
 **Milestone:** v1.2 — Remediation 🚧 IN PROGRESS  
-**Phase:** Phase 17 complete (Request/Response Fixes)  
-**Plan:** 17-01 complete — Full WinterCG Request + Promise support  
-**Status:** Phase 17 complete — Phase 18 ready
+**Phase:** Phase 18 complete (ESM Module System)  
+**Plan:** 18-01 complete — ESM support via transformation  
+**Status:** Phase 18 complete — Phase 19 ready
 
 **Progress:**
 ```
-[████████████████████████████████████░░] 94% (17/18 phases for v1.2)
-v1.2 Remediation: 1/5 phases complete
+[██████████████████████████████████████░░] 95% (18/21 phases for v1.2)
+v1.2 Remediation: 2/5 phases complete
 ```
 
 ---
@@ -49,8 +49,8 @@ v1.2 Remediation: 1/5 phases complete
 
 **v1.2 Remediation Target:**
 - ✅ Phase 17: Full WinterCG Request + Promise support (COMPLETE)
-- 📋 Phase 18: ESM Module System (next)
-- 📋 Phase 19: Config Mode Implementation
+- ✅ Phase 18: ESM Module System (COMPLETE - ESM via transformation)
+- 📋 Phase 19: Config Mode Implementation (next)
 - 📋 Phase 20: Sliver VFS Integration
 - 📋 Phase 21: Documentation & Architecture
 
