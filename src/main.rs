@@ -245,31 +245,35 @@ async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
         }
     }
     
-    // Create router with VFS static file handler
+    // Create router with VFS static file handler as DEFAULT
+    // This ensures all hostnames (localhost, 0.0.0.0, etc.) get VFS files
     use nano::http::router::{HandlerType, RouteTarget, VirtualHostRouter};
     
-    let vfs_handler = HandlerType::VfsStaticFiles {
-        files: vfs_files,
-        default_file: Some("index.html".to_string()),
-    };
+    // Clone files for the specific hostname registration
+    let vfs_files_for_host = vfs_files.clone();
     
-    let route_target = RouteTarget {
-        hostname: hostname.clone(),
-        handler_type: vfs_handler,
-    };
-    
+    // Make VFS the default handler - catches all hostnames including localhost
     let default_target = RouteTarget {
         hostname: "default".to_string(),
-        handler_type: HandlerType::StaticResponse(
-            format!("NANO Runtime\n\nSliver: {}\nHostname: {}\n", 
-                sliver_path.display(), hostname)
-        ),
+        handler_type: HandlerType::VfsStaticFiles {
+            files: vfs_files,
+            default_file: Some("index.html".to_string()),
+        },
     };
     
     let mut router = VirtualHostRouter::new(default_target);
+    
+    // Also register for the specific hostname (exact match)
+    let route_target = RouteTarget {
+        hostname: hostname.clone(),
+        handler_type: HandlerType::VfsStaticFiles {
+            files: vfs_files_for_host,
+            default_file: Some("index.html".to_string()),
+        },
+    };
     router.register(hostname.clone(), route_target);
     
-    tracing::info!("Router configured with {} routes for {}", router.route_count(), hostname);
+    tracing::info!("Router configured with {} routes for {} (VFS as default)", router.route_count(), hostname);
     
     // Show JS entrypoint info
     let entrypoint_info = js_entrypoint.as_deref().unwrap_or("none (static site only)");
