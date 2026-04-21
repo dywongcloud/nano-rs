@@ -12,6 +12,7 @@
 
 pub mod context;
 pub mod isolate;
+pub mod module;
 pub mod platform;
 pub mod script;
 pub mod snapshot;
@@ -19,6 +20,7 @@ pub mod snapshot;
 // Re-export key functions and types for convenience
 pub use context::create_context;
 pub use isolate::NanoIsolate;
+pub use module::{execute_esm_or_script, is_esm_module, ModuleLoader, ModuleType};
 pub use platform::{initialize_platform, is_initialized, shutdown_platform};
 pub use script::execute_script;
 pub use snapshot::{create_snapshot, create_snapshot_from_nano, restore_from_snapshot, SnapshotBuilder, SnapshotError};
