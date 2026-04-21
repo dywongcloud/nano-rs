@@ -55,13 +55,18 @@ pub fn execute_handler_with_context(
     context: HandlerContext,
 ) -> Result<NanoResponse> {
     use crate::runtime::vfs_bindings;
+    use crate::v8::module::{is_esm_module, transform_module_code};
     
     // Read the entrypoint file
     let code = fs::read_to_string(&context.entrypoint)
         .map_err(|e| anyhow!("Failed to read entrypoint '{}': {}", context.entrypoint, e))?;
 
-    // Transform ES6 module syntax
-    let transformed_code = transform_module_code(&code);
+    // Transform ES6 module syntax only if this is an ESM module
+    let transformed_code = if is_esm_module(&code) {
+        transform_module_code(&code)
+    } else {
+        code
+    };
 
     // Set up VFS context for Nano.fs API (must be before HandleScope borrows isolate)
     let vfs_ref = std::sync::Arc::new(isolate.vfs().clone());
@@ -150,24 +155,6 @@ pub fn execute_handler_with_context(
     }
 }
 
-/// Transform ES6 module syntax to be compatible with V8 Script execution
-/// 
-/// Converts `export default { fetch: ... }` to `var __nano_export = { ... };`
-/// and extracts the fetch function to global scope.
-fn transform_module_code(code: &str) -> String {
-    // Check if this looks like ES6 module syntax with export default
-    if code.contains("export default") {
-        // Replace export default with var declaration
-        let transformed = code.replace("export default", "var __nano_handler =");
-        
-        // Add code to extract fetch to global scope at the end
-        format!("{}\n\n// Extract fetch from exported handler\nif (typeof __nano_handler === 'object' && __nano_handler.fetch) {{\n    var fetch = __nano_handler.fetch;\n}}", transformed)
-    } else {
-        // No transformation needed
-        code.to_string()
-    }
-}
-
 /// Internal function to execute handler in V8
 fn execute_in_v8(
     isolate: &mut crate::v8::NanoIsolate,
@@ -176,9 +163,14 @@ fn execute_in_v8(
 ) -> Result<NanoResponse> {
     use crate::runtime::apis::RuntimeAPIs;
     use crate::runtime::vfs_bindings;
+    use crate::v8::module::{is_esm_module, transform_module_code};
     
-    // Transform ES6 module syntax to V8-compatible code
-    let transformed_code = transform_module_code(code);
+    // Transform ES6 module syntax to V8-compatible code if needed
+    let transformed_code = if is_esm_module(code) {
+        transform_module_code(code)
+    } else {
+        code.to_string()
+    };
 
     // Create HandleScope for the isolate
     // Set up VFS context for Nano.fs API (must be before HandleScope borrows isolate)
