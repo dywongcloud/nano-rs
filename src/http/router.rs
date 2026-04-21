@@ -94,9 +94,16 @@ impl RouteTarget {
     pub async fn handle(&self, _request: NanoRequest) -> NanoResponse {
         match &self.handler_type {
             HandlerType::StaticResponse(response) => {
-                NanoResponse::ok()
-                    .with_header("Content-Type", "text/plain")
-                    .with_body(response.clone())
+                if response.is_empty() {
+                    // Empty response means "not found" - return HTTP 404
+                    NanoResponse::not_found()
+                        .with_header("Content-Type", "text/plain")
+                        .with_body("Not Found")
+                } else {
+                    NanoResponse::ok()
+                        .with_header("Content-Type", "text/plain")
+                        .with_body(response.clone())
+                }
             }
             HandlerType::WinterCGHandler(_path) => {
                 // Phase 3: Execute JavaScript handler

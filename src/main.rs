@@ -31,6 +31,12 @@ enum Commands {
         /// Number of workers when using --sliver
         #[arg(short, long, default_value = "4")]
         workers: usize,
+        
+        /// Serve static files to any hostname (disables strict multi-tenancy)
+        /// By default, NANO returns 404 for requests with wrong Host header.
+        /// Use --static for local development to serve VFS files regardless of Host.
+        #[arg(long)]
+        static_files: bool,
     },
 
     /// Sliver management commands (snapshot creation and management)
@@ -46,10 +52,10 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     
     match cli.command {
-        Some(Commands::Run { config, sliver, workers }) => {
+        Some(Commands::Run { config, sliver, workers, static_files }) => {
             if let Some(sliver_path) = sliver {
                 // Run from sliver file
-                run_from_sliver(sliver_path, workers).await
+                run_from_sliver(sliver_path, workers, static_files).await
             } else if let Some(config_path) = config {
                 // Run with config file
                 run_server_with_config(config_path).await
@@ -181,7 +187,14 @@ async fn run_server() -> Result<()> {
 ///
 /// Loads the sliver, extracts the hostname and snapshot, creates a
 /// SliverWorkerPool, and starts the HTTP server.
-async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
+/// 
+/// # Arguments
+/// 
+/// * `sliver_path` - Path to the sliver file
+/// * `workers` - Number of worker threads
+/// * `static_files` - If true, serve VFS to any hostname (dev mode).
+///                    If false, only serve to exact hostname match (strict multi-tenancy).
+async fn run_from_sliver(sliver_path: PathBuf, workers: usize, static_files: bool) -> Result<()> {
     tracing::info!("Starting NANO from sliver: {}", sliver_path.display());
 
     // Validate sliver file exists
@@ -245,33 +258,58 @@ async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
         }
     }
     
-    // Create router with VFS static file handler as DEFAULT
-    // This ensures all hostnames (localhost, 0.0.0.0, etc.) get VFS files
+    // Create router based on mode (strict multi-tenancy vs permissive static files)
     use nano::http::router::{HandlerType, RouteTarget, VirtualHostRouter};
     
-    // Clone files for the specific hostname registration
-    let vfs_files_for_host = vfs_files.clone();
-    
-    // Make VFS the default handler - catches all hostnames including localhost
-    let default_target = RouteTarget {
-        hostname: "default".to_string(),
-        handler_type: HandlerType::VfsStaticFiles {
-            files: vfs_files,
-            default_file: Some("index.html".to_string()),
-        },
+    let router = if static_files {
+        // PERMISSIVE MODE (--static flag): Serve VFS to ANY hostname
+        // Good for local development
+        tracing::info!("Static file mode: serving VFS to any hostname");
+        
+        let default_target = RouteTarget {
+            hostname: "default".to_string(),
+            handler_type: HandlerType::VfsStaticFiles {
+                files: vfs_files.clone(),
+                default_file: Some("index.html".to_string()),
+            },
+        };
+        
+        let mut router = VirtualHostRouter::new(default_target);
+        
+        // Also register for the specific hostname
+        let route_target = RouteTarget {
+            hostname: hostname.clone(),
+            handler_type: HandlerType::VfsStaticFiles {
+                files: vfs_files,
+                default_file: Some("index.html".to_string()),
+            },
+        };
+        router.register(hostname.clone(), route_target);
+        router
+    } else {
+        // STRICT MODE (default): Return 404 for wrong hostname
+        // Good for edge functions and multi-tenant production
+        tracing::info!("Strict multi-tenancy mode: hostname must match '{}'", hostname);
+        
+        // Default returns HTTP 404
+        let default_target = RouteTarget {
+            hostname: "default".to_string(),
+            handler_type: HandlerType::StaticResponse(String::new()), // Empty body
+        };
+        
+        let mut router = VirtualHostRouter::new(default_target);
+        
+        // Only the exact hostname gets VFS access
+        let route_target = RouteTarget {
+            hostname: hostname.clone(),
+            handler_type: HandlerType::VfsStaticFiles {
+                files: vfs_files,
+                default_file: Some("index.html".to_string()),
+            },
+        };
+        router.register(hostname.clone(), route_target);
+        router
     };
-    
-    let mut router = VirtualHostRouter::new(default_target);
-    
-    // Also register for the specific hostname (exact match)
-    let route_target = RouteTarget {
-        hostname: hostname.clone(),
-        handler_type: HandlerType::VfsStaticFiles {
-            files: vfs_files_for_host,
-            default_file: Some("index.html".to_string()),
-        },
-    };
-    router.register(hostname.clone(), route_target);
     
     tracing::info!("Router configured with {} routes for {} (VFS as default)", router.route_count(), hostname);
     
@@ -293,7 +331,11 @@ async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
     // Print startup banner to console (not just tracing)
     println!("");
     println!("╔════════════════════════════════════════════════════════════╗");
-    println!("║              NANO Edge Runtime - Sliver Mode               ║");
+    if static_files {
+        println!("║         NANO Edge Runtime - Sliver Mode (Static)          ║");
+    } else {
+        println!("║       NANO Edge Runtime - Sliver Mode (Multi-Tenant)       ║");
+    }
     println!("╚════════════════════════════════════════════════════════════╝");
     println!("");
     println!("  Sliver:     {}", sliver_path.display());
@@ -303,8 +345,18 @@ async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
     println!("  JS Entry:   {}", entrypoint_info);
     println!("  Heap:       {} bytes", heap_size);
     println!("  VFS Files:  {}", vfs_file_count);
+    if static_files {
+        println!("  Mode:       Permissive (--static) - VFS to any host");
+    } else {
+        println!("  Mode:       Strict - 404 for wrong Host header");
+    }
     println!("");
-    println!("  Static files served from VFS");
+    if static_files {
+        println!("  Static files served to ANY hostname");
+    } else {
+        println!("  Static files served ONLY to '{}'", hostname);
+        println!("  Wrong Host header → HTTP 404");
+    }
     if js_entrypoint.is_some() {
         println!("  JavaScript heap restored (execute via WinterCG handler)");
     }
