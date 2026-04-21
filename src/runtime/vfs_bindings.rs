@@ -61,9 +61,21 @@ pub fn bind_nano_fs(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>
         fs.set(scope, key.into(), read_fn.into());
     }
 
+    // Bind readFile (async) method
+    if let Some(read_fn) = v8::Function::new(scope, nano_fs_read_file) {
+        let key = v8::String::new(scope, "readFile").unwrap();
+        fs.set(scope, key.into(), read_fn.into());
+    }
+
     // Bind writeFileSync method
     if let Some(write_fn) = v8::Function::new(scope, nano_fs_write_file_sync) {
         let key = v8::String::new(scope, "writeFileSync").unwrap();
+        fs.set(scope, key.into(), write_fn.into());
+    }
+
+    // Bind writeFile (async) method
+    if let Some(write_fn) = v8::Function::new(scope, nano_fs_write_file) {
+        let key = v8::String::new(scope, "writeFile").unwrap();
         fs.set(scope, key.into(), write_fn.into());
     }
 
@@ -351,6 +363,158 @@ fn nano_fs_delete_sync(
 
     if let Err(e) = result {
         throw_vfs_error(scope, &e);
+    }
+}
+
+/// Nano.fs.readFile(path) implementation - async version
+///
+/// Returns a Promise that resolves to Uint8Array containing file contents
+fn nano_fs_read_file(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let path = match extract_string_arg(scope, &args, 0) {
+        Some(p) => p,
+        None => {
+            let msg = v8::String::new(scope, "readFile requires a path argument").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            scope.throw_exception(error);
+            return;
+        }
+    };
+
+    // Perform read synchronously
+    let result = with_current_vfs(|vfs_opt| {
+        if let Some(vfs) = vfs_opt {
+            match tokio::runtime::Handle::try_current() {
+                Ok(rt) => rt.block_on(async { vfs.read(&path).await }),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async { vfs.read(&path).await })
+                }
+            }
+        } else {
+            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+        }
+    });
+
+    match result {
+        Ok(bytes) => {
+            // Create Uint8Array from bytes
+            let ab = v8::ArrayBuffer::new(scope, bytes.len());
+            let store = ab.get_backing_store();
+            for (i, byte) in bytes.iter().enumerate() {
+                if let Some(cell) = store.get(i) {
+                    cell.set(*byte);
+                }
+            }
+            let data: v8::Local<v8::Value> = if let Some(uint8array) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {
+                uint8array.into()
+            } else {
+                ab.into()
+            };
+
+            // Return resolved Promise: Promise.resolve(data)
+            let global = scope.get_current_context().global(scope);
+            let promise_key = v8::String::new(scope, "Promise").unwrap();
+            let resolve_key = v8::String::new(scope, "resolve").unwrap();
+            
+            if let Some(promise_ctor) = global.get(scope, promise_key.into()) {
+                if let Some(promise_obj) = promise_ctor.to_object(scope) {
+                    if let Some(resolve_fn) = promise_obj.get(scope, resolve_key.into()) {
+                        if resolve_fn.is_function() {
+                            let resolve = resolve_fn.cast::<v8::Function>();
+                            if let Some(resolved_promise) = resolve.call(scope, promise_ctor, &[data]) {
+                                retval.set(resolved_promise);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Fallback: return the data directly
+            retval.set(data);
+        }
+        Err(e) => {
+            throw_vfs_error(scope, &e);
+        }
+    }
+}
+
+/// Nano.fs.writeFile(path, data) implementation - async version
+///
+/// Returns a Promise that resolves when write completes
+fn nano_fs_write_file(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let path = match extract_string_arg(scope, &args, 0) {
+        Some(p) => p,
+        None => {
+            let msg = v8::String::new(scope, "writeFile requires a path argument").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            scope.throw_exception(error);
+            return;
+        }
+    };
+
+    let data = match extract_bytes_arg(scope, &args, 1) {
+        Some(d) => d,
+        None => {
+            let msg = v8::String::new(scope, "writeFile requires data argument").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            scope.throw_exception(error);
+            return;
+        }
+    };
+
+    // Perform write synchronously
+    let result = with_current_vfs(|vfs_opt| {
+        if let Some(vfs) = vfs_opt {
+            match tokio::runtime::Handle::try_current() {
+                Ok(rt) => rt.block_on(async { vfs.write(&path, &data).await }),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async { vfs.write(&path, &data).await })
+                }
+            }
+        } else {
+            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+        }
+    });
+
+    // Return Promise.resolve() on success or throw on error
+    match result {
+        Ok(()) => {
+            // Return Promise.resolve()
+            let global = scope.get_current_context().global(scope);
+            let promise_key = v8::String::new(scope, "Promise").unwrap();
+            let resolve_key = v8::String::new(scope, "resolve").unwrap();
+            
+            if let Some(promise_ctor) = global.get(scope, promise_key.into()) {
+                if let Some(promise_obj) = promise_ctor.to_object(scope) {
+                    if let Some(resolve_fn) = promise_obj.get(scope, resolve_key.into()) {
+                        if resolve_fn.is_function() {
+                            let resolve = resolve_fn.cast::<v8::Function>();
+                            let undefined_val = v8::undefined(scope);
+                            if let Some(resolved_promise) = resolve.call(scope, promise_ctor, &[undefined_val.into()]) {
+                                retval.set(resolved_promise);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Fallback: return undefined
+            retval.set_undefined();
+        }
+        Err(e) => {
+            throw_vfs_error(scope, &e);
+        }
     }
 }
 
