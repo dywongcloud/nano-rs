@@ -515,55 +515,73 @@ fn execute_with_context_manager(
 
     let fetch_fn = fetch_val.cast::<v8::Function>();
 
-    // Create request object with all WinterCG properties
-    let request_obj = v8::Object::new(context_scope);
-    
-    // Set method
-    let method_key = v8::String::new(context_scope, "method").unwrap();
-    let method_val = v8::String::new(context_scope, handler_ctx.request.method()).unwrap();
-    let _ = request_obj.set(context_scope, method_key.into(), method_val.into());
-    
-    // Set URL
-    let url_key = v8::String::new(context_scope, "url").unwrap();
-    let url_val = v8::String::new(context_scope, &handler_ctx.request.url_string()).unwrap();
-    let _ = request_obj.set(context_scope, url_key.into(), url_val.into());
-    
-    // Set headers object
-    let headers_key = v8::String::new(context_scope, "headers").unwrap();
-    let headers_obj = v8::Object::new(context_scope);
-    handler_ctx.request.headers().for_each(|name, value| {
-        let name_key = v8::String::new(context_scope, name).unwrap();
-        let value_str = v8::String::new(context_scope, value).unwrap();
-        let _ = headers_obj.set(context_scope, name_key.into(), value_str.into());
-    });
-    let _ = request_obj.set(context_scope, headers_key.into(), headers_obj.into());
-    
-    // Set body (base64 encoded) and bodyUsed flag
-    if let Some(body) = handler_ctx.request.body() {
-        let body_key = v8::String::new(context_scope, "body").unwrap();
-        let base64_body = base64::encode(body);
-        let body_val = v8::String::new(context_scope, &base64_body).unwrap();
-        let _ = request_obj.set(context_scope, body_key.into(), body_val.into());
-        
-        let body_used_key = v8::String::new(context_scope, "bodyUsed").unwrap();
-        let body_used_val = v8::Boolean::new(context_scope, false);
-        let _ = request_obj.set(context_scope, body_used_key.into(), body_used_val.into());
+    // Create Request instance using the Request constructor
+    // This ensures the request has Request.prototype methods (text, json, arrayBuffer)
+    let request_key = v8::String::new(context_scope, "Request").unwrap();
+    let request_obj = if let Some(request_ctor) = global.get(context_scope, request_key.into()) {
+        if request_ctor.is_function() {
+            let request_fn = request_ctor.cast::<v8::Function>();
+            
+            // Create URL string
+            let url_str = v8::String::new(context_scope, &handler_ctx.request.url_string()).unwrap();
+            
+            // Create init object with method, headers, and body
+            let init_obj = v8::Object::new(context_scope);
+            
+            // Set method
+            let method_key = v8::String::new(context_scope, "method").unwrap();
+            let method_val = v8::String::new(context_scope, handler_ctx.request.method()).unwrap();
+            let _ = init_obj.set(context_scope, method_key.into(), method_val.into());
+            
+            // Set headers
+            let headers_key = v8::String::new(context_scope, "headers").unwrap();
+            let headers_obj = v8::Object::new(context_scope);
+            handler_ctx.request.headers().for_each(|name, value| {
+                let name_key = v8::String::new(context_scope, name).unwrap();
+                let value_str = v8::String::new(context_scope, value).unwrap();
+                let _ = headers_obj.set(context_scope, name_key.into(), value_str.into());
+            });
+            let _ = init_obj.set(context_scope, headers_key.into(), headers_obj.into());
+            
+            // Set body if present (as base64 string)
+            if let Some(body) = handler_ctx.request.body() {
+                let body_key = v8::String::new(context_scope, "body").unwrap();
+                let base64_body = base64::encode(body);
+                let body_val = v8::String::new(context_scope, &base64_body).unwrap();
+                let _ = init_obj.set(context_scope, body_key.into(), body_val.into());
+            }
+            
+            // Create Request instance
+            let request_instance = request_fn.new_instance(context_scope, &[url_str.into(), init_obj.into()]);
+            request_instance.map(|i| i.into())
+        } else {
+            None
+        }
     } else {
-        let body_key = v8::String::new(context_scope, "body").unwrap();
-        let null_val = v8::null(context_scope);
-        let _ = request_obj.set(context_scope, body_key.into(), null_val.into());
-        
-        let body_used_key = v8::String::new(context_scope, "bodyUsed").unwrap();
-        let body_used_val = v8::Boolean::new(context_scope, false);
-        let _ = request_obj.set(context_scope, body_used_key.into(), body_used_val.into());
-    }
+        None
+    };
     
-    // Note: Request body reading methods (text(), json(), arrayBuffer()) 
-    // are available through Request.prototype which is bound via RuntimeAPIs::bind_all()
-    // The body property contains base64-encoded data that these methods decode
+    // Fallback: create plain object if Request constructor not available
+    let request_value = match request_obj {
+        Some(obj) => obj,
+        None => {
+            // Create plain object as fallback
+            let obj = v8::Object::new(context_scope);
+            
+            let method_key = v8::String::new(context_scope, "method").unwrap();
+            let method_val = v8::String::new(context_scope, handler_ctx.request.method()).unwrap();
+            let _ = obj.set(context_scope, method_key.into(), method_val.into());
+            
+            let url_key = v8::String::new(context_scope, "url").unwrap();
+            let url_val = v8::String::new(context_scope, &handler_ctx.request.url_string()).unwrap();
+            let _ = obj.set(context_scope, url_key.into(), url_val.into());
+            
+            obj.into()
+        }
+    };
 
     // Call fetch function with request object
-    let result = fetch_fn.call(context_scope, global.into(), &[request_obj.into()]);
+    let result = fetch_fn.call(context_scope, global.into(), &[request_value]);
 
     // Handle promise if needed
     if let Some(result_val) = result {
