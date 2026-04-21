@@ -515,48 +515,52 @@ fn execute_with_context_manager(
 
     let fetch_fn = fetch_val.cast::<v8::Function>();
 
-    // Create request object using full WinterCG serialization
-    let request_json = serialize_request_to_json(&handler_ctx.request);
-    let request_str = v8::String::new(context_scope, &request_json)
-        .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
+    // Create request object with all WinterCG properties
+    let request_obj = v8::Object::new(context_scope);
     
-    // Parse JSON to create JS object
-    let json_key = v8::String::new(context_scope, "JSON").unwrap();
-    let json_val = global.get(context_scope, json_key.into())
-        .ok_or_else(|| anyhow!("JSON not found"))?;
-    let json_obj = json_val.to_object(context_scope)
-        .ok_or_else(|| anyhow!("JSON is not an object"))?;
-    let parse_key = v8::String::new(context_scope, "parse").unwrap();
-    let parse_fn = json_obj.get(context_scope, parse_key.into())
-        .ok_or_else(|| anyhow!("JSON.parse not found"))?
-        .to_object(context_scope)
-        .ok_or_else(|| anyhow!("JSON.parse is not a function"))?
-        .cast::<v8::Function>();
+    // Set method
+    let method_key = v8::String::new(context_scope, "method").unwrap();
+    let method_val = v8::String::new(context_scope, handler_ctx.request.method()).unwrap();
+    let _ = request_obj.set(context_scope, method_key.into(), method_val.into());
     
-    let parsed_obj = parse_fn.call(context_scope, json_val.into(), &[request_str.into()])
-        .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
+    // Set URL
+    let url_key = v8::String::new(context_scope, "url").unwrap();
+    let url_val = v8::String::new(context_scope, &handler_ctx.request.url_string()).unwrap();
+    let _ = request_obj.set(context_scope, url_key.into(), url_val.into());
     
-    // Add Request prototype methods to the parsed object
-    // This makes the plain object have text(), json(), arrayBuffer() methods
-    let request_obj = if let Some(obj) = parsed_obj.to_object(context_scope) {
-        // Try to set prototype to Request.prototype if available
-        let request_key = v8::String::new(context_scope, "Request").unwrap();
-        if let Some(request_ctor) = global.get(context_scope, request_key.into()) {
-            if let Some(req_obj) = request_ctor.to_object(context_scope) {
-                let prototype_key = v8::String::new(context_scope, "prototype").unwrap();
-                if let Some(prototype) = req_obj.get(context_scope, prototype_key.into()) {
-                    if !prototype.is_null() && !prototype.is_undefined() {
-                        // Set the object's prototype
-                        let set_proto_key = v8::String::new(context_scope, "__proto__").unwrap();
-                        let _ = obj.set(context_scope, set_proto_key.into(), prototype.into());
-                    }
-                }
-            }
-        }
-        obj
+    // Set headers object
+    let headers_key = v8::String::new(context_scope, "headers").unwrap();
+    let headers_obj = v8::Object::new(context_scope);
+    handler_ctx.request.headers().for_each(|name, value| {
+        let name_key = v8::String::new(context_scope, name).unwrap();
+        let value_str = v8::String::new(context_scope, value).unwrap();
+        let _ = headers_obj.set(context_scope, name_key.into(), value_str.into());
+    });
+    let _ = request_obj.set(context_scope, headers_key.into(), headers_obj.into());
+    
+    // Set body (base64 encoded) and bodyUsed flag
+    if let Some(body) = handler_ctx.request.body() {
+        let body_key = v8::String::new(context_scope, "body").unwrap();
+        let base64_body = base64::encode(body);
+        let body_val = v8::String::new(context_scope, &base64_body).unwrap();
+        let _ = request_obj.set(context_scope, body_key.into(), body_val.into());
+        
+        let body_used_key = v8::String::new(context_scope, "bodyUsed").unwrap();
+        let body_used_val = v8::Boolean::new(context_scope, false);
+        let _ = request_obj.set(context_scope, body_used_key.into(), body_used_val.into());
     } else {
-        return Err(anyhow!("Failed to convert parsed JSON to object"));
-    };
+        let body_key = v8::String::new(context_scope, "body").unwrap();
+        let null_val = v8::null(context_scope);
+        let _ = request_obj.set(context_scope, body_key.into(), null_val.into());
+        
+        let body_used_key = v8::String::new(context_scope, "bodyUsed").unwrap();
+        let body_used_val = v8::Boolean::new(context_scope, false);
+        let _ = request_obj.set(context_scope, body_used_key.into(), body_used_val.into());
+    }
+    
+    // Note: Request body reading methods (text(), json(), arrayBuffer()) 
+    // are available through Request.prototype which is bound via RuntimeAPIs::bind_all()
+    // The body property contains base64-encoded data that these methods decode
 
     // Call fetch function with request object
     let result = fetch_fn.call(context_scope, global.into(), &[request_obj.into()]);
