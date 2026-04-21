@@ -208,6 +208,10 @@ async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
         unpacked.vfs_entries.len()
     );
 
+    // Store sliver info before moving unpacked
+    let heap_size = unpacked.heap_data.len();
+    let vfs_file_count = unpacked.vfs_entries.len();
+    
     // Create app registry with sliver data
     let mut registry = nano::app::registry::AppRegistry::default();
     let hostname = registry.register_from_sliver(&sliver_path, None)
@@ -234,11 +238,28 @@ async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
     );
     tracing::info!("Graceful shutdown initialized");
 
-    // Start HTTP server with the sliver app
-    // Note: This is a simplified version - in full implementation,
-    // the server would be integrated with the SliverWorkerPool for request dispatch
+    // Get server address
     let config = nano::http::ServerConfig::default();
-    tracing::info!("Starting HTTP server on {} for sliver app {}", config.socket_addr()?, hostname);
+    let socket_addr = config.socket_addr()?;
+    
+    // Print startup banner to console (not just tracing)
+    println!("");
+    println!("╔════════════════════════════════════════════════════════════╗");
+    println!("║              NANO Edge Runtime - Sliver Mode               ║");
+    println!("╚════════════════════════════════════════════════════════════╝");
+    println!("");
+    println!("  Sliver:     {}", sliver_path.display());
+    println!("  Hostname:   {}", hostname);
+    println!("  Address:    http://{}", socket_addr);
+    println!("  Workers:    {}", workers);
+    println!("  Heap:       {} bytes", heap_size);
+    println!("  VFS Files:  {}", vfs_file_count);
+    println!("");
+    println!("  Ready to accept connections...");
+    println!("  Press Ctrl+C to stop");
+    println!("");
+    
+    tracing::info!("Starting HTTP server on {} for sliver app {}", socket_addr, hostname);
 
     let shutdown_state = shutdown.state().clone();
     let server_handle = tokio::spawn(async move {
@@ -246,29 +267,48 @@ async fn run_from_sliver(sliver_path: PathBuf, workers: usize) -> Result<()> {
     });
 
     // Wait for shutdown signal
-    tracing::info!("Waiting for shutdown signal (Ctrl+C or SIGTERM)...");
     let _ = shutdown_rx.recv().await;
+    
+    println!("");
+    println!("  Shutdown signal received, stopping server...");
+    println!("");
+    
     tracing::info!("Shutdown signal received, initiating graceful shutdown...");
 
-    // Perform graceful shutdown
+    // Signal server to stop first
     shutdown.shutdown().await;
 
-    // Shut down worker pool
-    tracing::info!("Shutting down SliverWorkerPool...");
-    worker_pool.shutdown().expect("Failed to shutdown worker pool");
-
-    // Wait for server
-    match server_handle.await {
-        Ok(result) => {
-            if let Err(e) = result {
-                tracing::error!("Server error during shutdown: {}", e);
-            }
+    // Wait for server with timeout
+    let shutdown_result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        server_handle
+    ).await;
+    
+    match shutdown_result {
+        Ok(Ok(Ok(()))) => {
+            tracing::info!("Server stopped successfully");
         }
-        Err(e) => {
+        Ok(Ok(Err(e))) => {
+            tracing::error!("Server error during shutdown: {}", e);
+        }
+        Ok(Err(e)) => {
             tracing::error!("Server task panicked: {}", e);
+        }
+        Err(_) => {
+            tracing::warn!("Server shutdown timed out, forcing exit");
+            println!("  Warning: Shutdown timed out, forcing exit...");
         }
     }
 
+    // Shut down worker pool
+    tracing::info!("Shutting down SliverWorkerPool...");
+    if let Err(e) = worker_pool.shutdown() {
+        tracing::error!("Failed to shutdown worker pool: {}", e);
+    }
+    
+    println!("  Server stopped.");
+    println!("");
+    
     tracing::info!("NANO Edge Runtime (sliver mode) shutdown complete");
     Ok(())
 }

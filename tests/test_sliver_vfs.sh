@@ -40,7 +40,7 @@ APP_HOSTNAME="site.example.com"
 # Cleanup function
 cleanup() {
     echo -e "${BLUE}[CLEANUP]${NC} Removing test directory: $TEST_DIR"
-    rm -rf "$TEST_DIR"
+    # rm -rf "$TEST_DIR"
 }
 
 trap cleanup EXIT
