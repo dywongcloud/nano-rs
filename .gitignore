@@ -46,3 +46,5 @@ Thumbs.db
 
 # GSD/planning (kept locally, not committed)
 .planning/
+# Added by goreleaser init:
+.intentionally-empty-file.o
