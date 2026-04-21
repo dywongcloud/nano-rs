@@ -152,16 +152,21 @@
 **UI hint:** no
 **Bugs Fixed:** #3 (--config no-op), #5 (Port Config Ignored)
 
-### Phase 20: Sliver VFS Integration
+### Phase 20: Sliver VFS Integration ✅ COMPLETE
 **Goal:** Execute JS from packed sliver VFS, not OS filesystem  
 **Depends on:** Phase 19  
-**Requirements:** REQ-20-01, REQ-20-02  
+**Requirements:** REQ-20-01, REQ-20-02, REQ-20-03  
 **Success Criteria**:
-  1. Sliver runs from any directory (portable)
-  2. JS entrypoint read from vfs/ in sliver, not CWD
-  3. No source files required to run sliver
-**Plans:** TBD  
+  1. ✅ Sliver runs from any directory (portable) - Bug #6 fixed
+  2. ✅ JS entrypoint read from sliver VFS, not CWD
+  3. ✅ No source files required to run sliver
+  4. ✅ Temp directories cleaned up on shutdown
+  5. ✅ 12 new tests, 511+ total tests passing
+**Plans:** 
+  - [x] 20-01-PLAN.md — Sliver VFS integration (COMPLETE 2026-04-21)
 **UI hint:** no
+**Bug Fixed:** #6 (VFS Not Used for JS)
+**Approach:** Temp directory extraction with RAII cleanup
 
 ### Phase 21: Documentation & Architecture
 **Goal:** Fix cold start claims, document compatibility accurately  

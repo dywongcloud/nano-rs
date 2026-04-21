@@ -21,14 +21,14 @@ See: .planning/PROJECT.md (updated 2026-04-20)
 ## Current Position
 
 **Milestone:** v1.2 — Remediation 🚧 IN PROGRESS  
-**Phase:** Phase 19 complete (Config Mode Implementation)  
-**Plan:** 19-01 complete — Config mode fully functional  
-**Status:** Phase 19 complete — Phase 20 ready
+**Phase:** Phase 20 complete (Sliver VFS Integration)  
+**Plan:** 20-01 complete — Sliver VFS fully integrated  
+**Status:** Phase 20 complete — Phase 21 ready
 
 **Progress:**
 ```
-[████████████████████████████████████████░░] 96% (19/21 phases for v1.2)
-v1.2 Remediation: 3/5 phases complete
+[██████████████████████████████████████████░░] 98% (20/21 phases for v1.2)
+v1.2 Remediation: 4/5 phases complete
 ```
 
 ---
@@ -51,8 +51,8 @@ v1.2 Remediation: 3/5 phases complete
 - ✅ Phase 17: Full WinterCG Request + Promise support (COMPLETE)
 - ✅ Phase 18: ESM Module System (COMPLETE - ESM via transformation)
 - ✅ Phase 19: Config Mode Implementation (COMPLETE - --config flag works)
-- 📋 Phase 20: Sliver VFS Integration (next)
-- 📋 Phase 21: Documentation & Architecture
+- ✅ Phase 20: Sliver VFS Integration (COMPLETE - slivers now portable)
+- 📋 Phase 21: Documentation & Architecture (final phase)
 
 **v2.0 Target:**
 - WebSocket support for real-time apps
