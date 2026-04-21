@@ -52,18 +52,29 @@ fn execute_with_context_manager(
 }
 
 /// Execute the actual handler code within an established context scope
+/// Execute the actual handler code within an established context scope
 fn execute_handler_code(
     scope: &mut v8::ContextScope<v8::HandleScope>,
     v8_context: v8::Local<v8::Context>,
     handler_ctx: &HandlerContext,
 ) -> Result<NanoResponse> {
+    use crate::v8::module::{is_esm_module, transform_module_code};
+
     // Read the handler code
     let code = fs::read_to_string(&handler_ctx.entrypoint)
         .map_err(|e| anyhow!("Failed to read entrypoint: {}", e))?;
 
+    // Transform ES6 module syntax if this is an ESM module
+    // This converts `export default { fetch }` to a global fetch function
+    let transformed_code = if is_esm_module(&code) {
+        transform_module_code(&code)
+    } else {
+        code
+    };
+
     // Compile and run script to define fetch function
-    let code_str =
-        v8::String::new(scope, &code).ok_or_else(|| anyhow!("Failed to create code string"))?;
+    let code_str = v8::String::new(scope, &transformed_code)
+        .ok_or_else(|| anyhow!("Failed to create code string"))?;
     let script = v8::Script::compile(scope, code_str, None)
         .ok_or_else(|| anyhow!("Script compilation failed"))?;
     script.run(scope);

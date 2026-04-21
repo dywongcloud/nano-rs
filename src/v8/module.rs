@@ -336,7 +336,7 @@ pub fn execute_classic_script<'a>(
 ///
 /// Converts `export default { fetch: ... }` to `var __nano_handler = { ... };`
 /// and extracts the fetch function to global scope.
-fn transform_module_code(code: &str) -> String {
+pub fn transform_module_code(code: &str) -> String {
     // Check if this looks like ES6 module syntax with export default
     if code.contains("export default") {
         // Replace export default with var declaration
