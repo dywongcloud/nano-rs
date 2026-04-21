@@ -48,6 +48,7 @@
 // Submodules
 pub mod benchmark;
 mod error;
+pub mod extractor;
 mod format;
 mod metadata;
 mod packer;
@@ -58,6 +59,7 @@ pub mod vfs_capture;
 
 // Public exports
 pub use error::{SliverError, SliverResult};
+pub use extractor::{SliverExtractor, TempVfsManager};
 pub use format::{SliverFormat, FORMAT_VERSION, HEAP_FILENAME, MANIFEST_FILENAME, METADATA_FILENAME, VFS_PREFIX, SLIVER_EXTENSION};
 pub use metadata::SliverMetadata;
 pub use packer::{pack_sliver, SliverPacker};
