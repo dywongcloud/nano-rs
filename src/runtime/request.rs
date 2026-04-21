@@ -84,12 +84,13 @@ fn request_constructor_callback(
     let url_val = v8::String::new(scope, &url).unwrap();
     instance.set(scope, url_key.into(), url_val.into());
     
-    // Set method property from init object or default to GET
-    let method = if args.length() > 1 {
+    // Extract properties from init object
+    let (method, body_val) = if args.length() > 1 {
         let init = args.get(1);
         if let Some(obj) = init.to_object(scope) {
+            // Get method
             let method_key = v8::String::new(scope, "method").unwrap();
-            if let Some(method_val) = obj.get(scope, method_key.into()) {
+            let method = if let Some(method_val) = obj.get(scope, method_key.into()) {
                 if let Some(s) = method_val.to_string(scope) {
                     s.to_rust_string_lossy(scope)
                 } else {
@@ -97,17 +98,23 @@ fn request_constructor_callback(
                 }
             } else {
                 "GET".to_string()
-            }
+            };
+            
+            // Get body
+            let body_key = v8::String::new(scope, "body").unwrap();
+            let body_val = obj.get(scope, body_key.into());
+            
+            (method, body_val)
         } else {
-            "GET".to_string()
+            ("GET".to_string(), None)
         }
     } else {
-        "GET".to_string()
+        ("GET".to_string(), None)
     };
     
     let method_key = v8::String::new(scope, "method").unwrap();
-    let method_val = v8::String::new(scope, &method).unwrap();
-    instance.set(scope, method_key.into(), method_val.into());
+    let method_val_str = v8::String::new(scope, &method).unwrap();
+    instance.set(scope, method_key.into(), method_val_str.into());
     
     // Set headers property
     let headers_key = v8::String::new(scope, "headers").unwrap();
@@ -116,8 +123,12 @@ fn request_constructor_callback(
     
     // Set body and bodyUsed
     let body_key = v8::String::new(scope, "body").unwrap();
-    let null_val = v8::null(scope);
-    instance.set(scope, body_key.into(), null_val.into());
+    if let Some(body) = body_val {
+        instance.set(scope, body_key.into(), body.into());
+    } else {
+        let null_val = v8::null(scope);
+        instance.set(scope, body_key.into(), null_val.into());
+    }
     
     let body_used_key = v8::String::new(scope, "bodyUsed").unwrap();
     let body_used_val = v8::Boolean::new(scope, false);
