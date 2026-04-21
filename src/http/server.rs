@@ -475,6 +475,77 @@ pub async fn start_server_with_router(
     Ok(())
 }
 
+/// Start the HTTP server for sliver-based JavaScript execution
+///
+/// This server routes ALL requests to the SliverWorkerPool for JS execution,
+/// enabling full WinterCG-compatible request handling from heap snapshots.
+///
+/// # Arguments
+///
+/// * `worker_pool` - The SliverWorkerPool containing snapshot-restored isolates
+/// * `entrypoint` - The JS entrypoint file (e.g., "index.js") to execute
+/// * `config` - Server configuration including port and host
+/// * `_shutdown_state` - Shutdown state (used for graceful shutdown coordination)
+///
+/// # Returns
+///
+/// Returns a `Result` indicating success or failure.
+pub async fn start_server_with_sliver_pool(
+    worker_pool: Arc<crate::worker::SliverWorkerPool>,
+    entrypoint: String,
+    config: ServerConfig,
+    _shutdown_state: ShutdownState,
+) -> Result<()> {
+    use axum::routing::{any, get};
+    use crate::http::sliver_handler::{sliver_js_handler, SliverHandlerState};
+    
+    let addr = config
+        .socket_addr()
+        .context("Failed to parse server address")?;
+
+    let listener = TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("Failed to bind to {}", addr))?;
+
+    tracing::info!(
+        "HTTP server listening on {} with sliver JS execution (entrypoint: {})",
+        addr,
+        entrypoint
+    );
+
+    // Create sliver handler state
+    let handler_state = SliverHandlerState {
+        worker_pool,
+        entrypoint,
+    };
+
+    // Build router with sliver JS execution
+    let app = Router::new()
+        // Health check endpoints
+        .route("/health", get(health_handler))
+        .route("/_admin/health", get(admin_health_handler))
+        // ALL requests go to JS execution (WinterCG style)
+        .route("/", any({
+            let state = handler_state.clone();
+            move |req| sliver_js_handler(axum::extract::State(state.clone()), req)
+        }))
+        .route("/{*path}", any({
+            let state = handler_state;
+            move |req| sliver_js_handler(axum::extract::State(state), req)
+        }))
+        .layer(TraceLayer::new_for_http())
+        .layer(TimeoutLayer::new(Duration::from_secs(30)))
+        .layer(CompressionLayer::new());
+
+    axum::serve(listener, app)
+        .await
+        .context("Server error")?;
+
+    tracing::info!("Sliver JS server shut down gracefully");
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

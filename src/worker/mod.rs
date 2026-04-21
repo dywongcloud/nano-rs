@@ -36,7 +36,7 @@ pub mod queue;
 pub use context::ContextManager;
 pub use limits::{HeapStatistics, MemoryLimiter, OomError};
 pub use oom::{OomMonitor, OomMonitorBuilder};
-pub use pool::{WorkerHandle, WorkerPool};
+pub use pool::{SliverWorkerPool, WorkerHandle, WorkerPool};
 pub use queue::{hash_hostname, QueueError, QueueStats, StatsSnapshot, WorkQueue};
 
 use crate::http::{NanoRequest, NanoResponse};

@@ -260,88 +260,30 @@ async fn run_from_sliver(
     tracing::info!("Sliver hostname: '{}' (expected in Host header)", hostname);
 
     // Create SliverWorkerPool
-    let worker_pool = nano::worker::pool::SliverWorkerPool::new(
+    let worker_pool = Arc::new(nano::worker::pool::SliverWorkerPool::new(
         hostname.clone(),
         workers,
         0, // No memory limit for now
         unpacked,
-    );
+    ));
     
     tracing::info!("Created SliverWorkerPool with {} workers for {}", workers, hostname);
 
-    // Build VFS files map for static file serving
-    let mut vfs_files = std::collections::HashMap::new();
-    let mut js_entrypoint: Option<String> = None;
+    // Detect JS entrypoint from VFS or use default
+    let js_entrypoint = worker_pool.sliver_data()
+        .vfs_entries
+        .iter()
+        .find_map(|(path, _)| {
+            let path_str = path.as_str();
+            if ["index.js", "app.js", "main.js", "server.js"].contains(&path_str) {
+                Some(path_str.to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "index.js".to_string());
     
-    for (path, file) in &worker_pool.sliver_data().vfs_entries {
-        let path_str = path.as_str().to_string();
-        let content_type = guess_content_type(&path_str);
-        vfs_files.insert(path_str.clone(), (file.content.clone(), content_type));
-        
-        // Detect JS entry points (priority order for frameworks)
-        let entry_points = ["index.js", "app.js", "main.js", "server.js"];
-        if js_entrypoint.is_none() && entry_points.contains(&path_str.as_str()) {
-            js_entrypoint = Some(path_str);
-        }
-    }
-    
-    // Create router based on mode (strict multi-tenancy vs permissive static files)
-    use nano::http::router::{HandlerType, RouteTarget, VirtualHostRouter};
-    
-    let router = if static_files {
-        // PERMISSIVE MODE (--static flag): Serve VFS to ANY hostname
-        // Good for local development
-        tracing::info!("Static file mode: serving VFS to any hostname");
-        
-        let default_target = RouteTarget {
-            hostname: "default".to_string(),
-            handler_type: HandlerType::VfsStaticFiles {
-                files: vfs_files.clone(),
-                default_file: Some("index.html".to_string()),
-            },
-        };
-        
-        let mut router = VirtualHostRouter::new(default_target);
-        
-        // Also register for the specific hostname
-        let route_target = RouteTarget {
-            hostname: hostname.clone(),
-            handler_type: HandlerType::VfsStaticFiles {
-                files: vfs_files,
-                default_file: Some("index.html".to_string()),
-            },
-        };
-        router.register(hostname.clone(), route_target);
-        router
-    } else {
-        // STRICT MODE (default): Return 404 for wrong hostname
-        // Good for edge functions and multi-tenant production
-        tracing::info!("Strict multi-tenancy mode: hostname must match '{}'", hostname);
-        
-        // Default returns HTTP 404
-        let default_target = RouteTarget {
-            hostname: "default".to_string(),
-            handler_type: HandlerType::StaticResponse(String::new()), // Empty body
-        };
-        
-        let mut router = VirtualHostRouter::new(default_target);
-        
-        // Only the exact hostname gets VFS access
-        let route_target = RouteTarget {
-            hostname: hostname.clone(),
-            handler_type: HandlerType::VfsStaticFiles {
-                files: vfs_files,
-                default_file: Some("index.html".to_string()),
-            },
-        };
-        router.register(hostname.clone(), route_target);
-        router
-    };
-    
-    tracing::info!("Router configured with {} routes for {} (VFS as default)", router.route_count(), hostname);
-    
-    // Show JS entrypoint info
-    let entrypoint_info = js_entrypoint.as_deref().unwrap_or("none (static site only)");
+    tracing::info!("JS entrypoint: {}", js_entrypoint);
 
     // Set up graceful shutdown
     let drain = nano::app::drain::RequestDrain::new();
@@ -369,7 +311,7 @@ async fn run_from_sliver(
     println!("  Hostname:   {}", hostname);
     println!("  Address:    http://{}", socket_addr);
     println!("  Workers:    {}", workers);
-    println!("  JS Entry:   {}", entrypoint_info);
+    println!("  JS Entry:   {}", js_entrypoint);
     println!("  Heap:       {} bytes", heap_size);
     println!("  VFS Files:  {}", vfs_file_count);
     if static_files {
@@ -378,15 +320,8 @@ async fn run_from_sliver(
         println!("  Mode:       Strict - 404 for wrong Host header");
     }
     println!("");
-    if static_files {
-        println!("  Static files served to ANY hostname");
-    } else {
-        println!("  Static files served ONLY to '{}'", hostname);
-        println!("  Wrong Host header → HTTP 404");
-    }
-    if js_entrypoint.is_some() {
-        println!("  JavaScript heap restored (execute via WinterCG handler)");
-    }
+    println!("  JavaScript heap restored (execute via WinterCG handler)");
+    println!("  Entrypoint: {}", js_entrypoint);
     println!("  Ready to accept connections...");
     println!("  Press Ctrl+C to stop");
     println!("");
@@ -394,8 +329,15 @@ async fn run_from_sliver(
     tracing::info!("Starting HTTP server on {} for sliver app {}", socket_addr, hostname);
 
     let shutdown_state = shutdown.state().clone();
+    // Clone the Arc for the server task - we'll keep one reference for shutdown
+    let worker_pool_clone = Arc::clone(&worker_pool);
     let server_handle = tokio::spawn(async move {
-        nano::http::start_server_with_router(router, config, shutdown_state).await
+        nano::http::start_server_with_sliver_pool(
+            worker_pool_clone,
+            js_entrypoint,
+            config,
+            shutdown_state,
+        ).await
     });
 
     // Wait for shutdown signal
@@ -433,9 +375,18 @@ async fn run_from_sliver(
     }
 
     // Shut down worker pool
+    // At this point, the server_handle has completed, so we should be the only
+    // Arc holder. Try to unwrap and shut down explicitly.
     tracing::info!("Shutting down SliverWorkerPool...");
-    if let Err(e) = worker_pool.shutdown() {
-        tracing::error!("Failed to shutdown worker pool: {}", e);
+    match Arc::try_unwrap(worker_pool) {
+        Ok(pool) => {
+            if let Err(e) = pool.shutdown() {
+                tracing::error!("Failed to shutdown worker pool: {}", e);
+            }
+        }
+        Err(_) => {
+            tracing::warn!("Worker pool still has references, Drop will handle cleanup");
+        }
     }
     
     println!("  Server stopped.");

@@ -176,16 +176,30 @@ fn extract_js_response(
 
     if let Some(headers_val) = obj.get(scope, headers_key.into()) {
         if let Some(headers_obj) = headers_val.to_object(scope) {
-            if let Some(names) = headers_obj.get_own_property_names(scope, Default::default()) {
+            // Headers may be stored internally in __headers__ property (for Headers class instances)
+            // or directly on the object (for plain objects used by Response)
+            let internal_headers_key = v8::String::new(scope, "__headers__").unwrap();
+            let headers_source = headers_obj.get(scope, internal_headers_key.into())
+                .and_then(|v| v.to_object(scope))
+                .unwrap_or(headers_obj);
+
+            if let Some(names) = headers_source.get_own_property_names(scope, Default::default()) {
                 let len = names.length();
                 for i in 0..len {
                     if let Some(key) = names.get_index(scope, i) {
                         if let Some(key_str) = key.to_string(scope) {
                             let key_name = key_str.to_rust_string_lossy(scope);
-                            if let Some(value) = headers_obj.get(scope, key.into()) {
-                                if let Some(value_str) = value.to_string(scope) {
-                                    let value_string = value_str.to_rust_string_lossy(scope);
-                                    nano_headers.set(&key_name, &value_string);
+                            // Skip internal properties and methods (functions)
+                            if key_name.starts_with("__") || key_name == "set" || key_name == "get" || key_name == "forEach" {
+                                continue;
+                            }
+                            if let Some(value) = headers_source.get(scope, key.into()) {
+                                // Only include string values (not functions)
+                                if !value.is_function() {
+                                    if let Some(value_str) = value.to_string(scope) {
+                                        let value_string = value_str.to_rust_string_lossy(scope);
+                                        nano_headers.set(&key_name, &value_string);
+                                    }
                                 }
                             }
                         }
