@@ -7,27 +7,123 @@
 use anyhow::Result;
 use base64::Engine;
 
-/// Binds Request prototype methods (text, json, arrayBuffer) to the V8 context
+/// Binds Request constructor and prototype methods to the V8 context
 pub fn bind_request_api(
     scope: &mut v8::ContextScope<v8::HandleScope>,
     context: v8::Local<v8::Context>,
 ) {
     let global = context.global(scope);
+    
+    // Create Request constructor if it doesn't exist
     let request_key = v8::String::new(scope, "Request").unwrap();
+    let request_ctor = if let Some(existing) = global.get(scope, request_key.into()) {
+        if existing.is_function() {
+            existing
+        } else {
+            // Create new Request constructor
+            let ctor = v8::Function::new(scope, request_constructor_callback).unwrap();
+            global.set(scope, request_key.into(), ctor.into());
+            ctor.into()
+        }
+    } else {
+        // Create Request constructor
+        let ctor = v8::Function::new(scope, request_constructor_callback).unwrap();
+        global.set(scope, request_key.into(), ctor.into());
+        ctor.into()
+    };
 
-    // If Request exists, add methods to prototype
-    if let Some(request_ctor) = global.get(scope, request_key.into()) {
-        if let Some(request_obj) = request_ctor.to_object(scope) {
-            let prototype_key = v8::String::new(scope, "prototype").unwrap();
-            if let Some(prototype) = request_obj.get(scope, prototype_key.into()) {
-                if let Some(proto_obj) = prototype.to_object(scope) {
-                    bind_request_method(scope, proto_obj, "text", request_text_callback);
-                    bind_request_method(scope, proto_obj, "json", request_json_callback);
-                    bind_request_method(scope, proto_obj, "arrayBuffer", request_arraybuffer_callback);
-                }
+    // Add methods to Request.prototype
+    if let Some(request_obj) = request_ctor.to_object(scope) {
+        let prototype_key = v8::String::new(scope, "prototype").unwrap();
+        // Get or create prototype
+        let prototype = if let Some(existing_proto) = request_obj.get(scope, prototype_key.into()) {
+            if existing_proto.is_object() || existing_proto.is_function() {
+                existing_proto
+            } else {
+                let new_proto = v8::Object::new(scope);
+                request_obj.set(scope, prototype_key.into(), new_proto.into());
+                new_proto.into()
             }
+        } else {
+            let new_proto = v8::Object::new(scope);
+            request_obj.set(scope, prototype_key.into(), new_proto.into());
+            new_proto.into()
+        };
+        
+        if let Some(proto_obj) = prototype.to_object(scope) {
+            bind_request_method(scope, proto_obj, "text", request_text_callback);
+            bind_request_method(scope, proto_obj, "json", request_json_callback);
+            bind_request_method(scope, proto_obj, "arrayBuffer", request_arraybuffer_callback);
         }
     }
+}
+
+/// Request constructor callback - creates a new Request instance
+fn request_constructor_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    // Create new Request instance object
+    let instance = v8::Object::new(scope);
+    
+    // Extract URL from first argument
+    let url = if args.length() > 0 {
+        let arg = args.get(0);
+        if let Some(s) = arg.to_string(scope) {
+            s.to_rust_string_lossy(scope)
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+    
+    // Set url property
+    let url_key = v8::String::new(scope, "url").unwrap();
+    let url_val = v8::String::new(scope, &url).unwrap();
+    instance.set(scope, url_key.into(), url_val.into());
+    
+    // Set method property from init object or default to GET
+    let method = if args.length() > 1 {
+        let init = args.get(1);
+        if let Some(obj) = init.to_object(scope) {
+            let method_key = v8::String::new(scope, "method").unwrap();
+            if let Some(method_val) = obj.get(scope, method_key.into()) {
+                if let Some(s) = method_val.to_string(scope) {
+                    s.to_rust_string_lossy(scope)
+                } else {
+                    "GET".to_string()
+                }
+            } else {
+                "GET".to_string()
+            }
+        } else {
+            "GET".to_string()
+        }
+    } else {
+        "GET".to_string()
+    };
+    
+    let method_key = v8::String::new(scope, "method").unwrap();
+    let method_val = v8::String::new(scope, &method).unwrap();
+    instance.set(scope, method_key.into(), method_val.into());
+    
+    // Set headers property
+    let headers_key = v8::String::new(scope, "headers").unwrap();
+    let headers_obj = v8::Object::new(scope);
+    instance.set(scope, headers_key.into(), headers_obj.into());
+    
+    // Set body and bodyUsed
+    let body_key = v8::String::new(scope, "body").unwrap();
+    let null_val = v8::null(scope);
+    instance.set(scope, body_key.into(), null_val.into());
+    
+    let body_used_key = v8::String::new(scope, "bodyUsed").unwrap();
+    let body_used_val = v8::Boolean::new(scope, false);
+    instance.set(scope, body_used_key.into(), body_used_val.into());
+    
+    retval.set(instance.into());
 }
 
 fn bind_request_method(
