@@ -273,12 +273,13 @@ async fn run_from_sliver(
     let _registry = Arc::new(RwLock::new(registry));
     tracing::info!("Sliver hostname: '{}' (expected in Host header)", hostname);
 
-    // Create SliverWorkerPool
-    let worker_pool = Arc::new(nano::worker::pool::SliverWorkerPool::new(
+    // Create SliverWorkerPool with temp entrypoint for VFS-extracted JS
+    let worker_pool = Arc::new(nano::worker::pool::SliverWorkerPool::with_temp_entrypoint(
         hostname.clone(),
         workers,
         0, // No memory limit for now
         unpacked,
+        temp_entrypoint.clone(),
     ));
 
     tracing::info!("Created SliverWorkerPool with {} workers for {}", workers, hostname);
