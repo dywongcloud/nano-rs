@@ -299,6 +299,13 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
     use nano::sliver::{pack_sliver, SliverMetadata, unpack_sliver, validate_sliver};
     use cli::validation::{validate_hostname, validate_sliver_name, validate_tag};
     
+    // Initialize V8 platform if not already done (required for snapshot operations)
+    if !nano::v8::platform::is_initialized() {
+        nano::v8::platform::initialize_platform()
+            .context("Failed to initialize V8 platform for sliver command")?;
+        tracing::info!("V8 platform initialized for sliver command");
+    }
+    
     match cmd {
         cli::SliverCommand::Create(args) => {
             tracing::info!("Creating sliver for hostname: {}", args.hostname);
