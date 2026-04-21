@@ -816,6 +816,8 @@ pub struct SliverWorkerPool {
     vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
     /// Unpacked sliver data containing snapshot and VFS entries
     unpacked_sliver: crate::sliver::UnpackedSliver,
+    /// Optional temp entrypoint path for VFS-extracted JS files
+    temp_entrypoint: Option<std::path::PathBuf>,
 }
 
 impl std::fmt::Debug for SliverWorkerPool {
@@ -861,6 +863,28 @@ impl SliverWorkerPool {
             memory_limit_mb,
             Arc::new(MemoryBackend::default()),
             unpacked_sliver,
+            None,
+        )
+    }
+
+    /// Create a new sliver worker pool with a temp entrypoint path
+    ///
+    /// This variant is used when the sliver VFS has been extracted to a temp
+    /// directory, and the JS entrypoint should be read from that location.
+    pub fn with_temp_entrypoint(
+        hostname: String,
+        worker_count: usize,
+        memory_limit_mb: u32,
+        unpacked_sliver: crate::sliver::UnpackedSliver,
+        temp_entrypoint: std::path::PathBuf,
+    ) -> Self {
+        Self::with_backend(
+            hostname,
+            worker_count,
+            memory_limit_mb,
+            Arc::new(MemoryBackend::default()),
+            unpacked_sliver,
+            Some(temp_entrypoint),
         )
     }
 
@@ -871,6 +895,7 @@ impl SliverWorkerPool {
         memory_limit_mb: u32,
         vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
         unpacked_sliver: crate::sliver::UnpackedSliver,
+        temp_entrypoint: Option<std::path::PathBuf>,
     ) -> Self {
         // Ensure platform is initialized
         if !crate::v8::is_initialized() {
@@ -882,6 +907,7 @@ impl SliverWorkerPool {
         let hostname_for_workers = hostname.clone();
         let vfs_backend_for_workers = Arc::clone(&vfs_backend);
         let sliver_for_workers = unpacked_sliver.clone();
+        let temp_entrypoint_for_workers = temp_entrypoint.clone();
 
         let mut workers = Vec::with_capacity(worker_count);
 
@@ -889,6 +915,7 @@ impl SliverWorkerPool {
             let worker_hostname = hostname_for_workers.clone();
             let worker_vfs_backend = Arc::clone(&vfs_backend_for_workers);
             let worker_sliver = sliver_for_workers.clone();
+            let worker_temp_entrypoint = temp_entrypoint_for_workers.clone();
             let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
 
             // Spawn worker thread with snapshot-restored isolate
@@ -1002,9 +1029,13 @@ impl SliverWorkerPool {
                                 }
                             }
 
-                            // Create handler context
+                            // Create handler context with temp entrypoint override
+                            let entrypoint = worker_temp_entrypoint
+                                .as_ref()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|| task.entrypoint.clone());
                             let handler_ctx = HandlerContext {
-                                entrypoint: task.entrypoint,
+                                entrypoint,
                                 request: task.request,
                             };
 
@@ -1073,6 +1104,7 @@ impl SliverWorkerPool {
             next_worker: AtomicUsize::new(0),
             vfs_backend,
             unpacked_sliver,
+            temp_entrypoint,
         }
     }
 
@@ -1740,6 +1772,56 @@ function fetch(request) {
         // Test vfs_backend accessor
         let _vfs_backend = pool.vfs_backend();
         
+        pool.shutdown().expect("Shutdown failed");
+    }
+
+    #[test]
+    fn test_sliver_worker_pool_with_temp_vfs() {
+        init_platform();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        // Create a JS handler in the temp directory (simulating extracted VFS)
+        let temp_handler_code = r#"function fetch(request) { return { status: 200, headers: { "Content-Type": "text/plain" }, body: "From temp VFS" }; }"#;
+        let temp_entrypoint = temp_dir.path().join("index.js");
+        std::fs::write(&temp_entrypoint, temp_handler_code)
+            .expect("Failed to write temp handler");
+
+        // Create sliver with different handler content (should not be used)
+        let unpacked = create_test_sliver_for_pool("temp-vfs.example.com");
+
+        // Create pool with temp entrypoint
+        let pool = SliverWorkerPool::with_temp_entrypoint(
+            "temp-vfs.example.com".to_string(),
+            1,
+            0,
+            unpacked,
+            temp_entrypoint.clone(),
+        );
+
+        // Create and dispatch a task
+        let url = NanoUrl::parse("http://test/").unwrap();
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
+
+        let (tx, rx) = oneshot::channel();
+        // Note: we pass a dummy entrypoint here, it should be overridden by temp_entrypoint
+        let task = HandlerTask::new("/dummy/path.js".to_string(), request, tx);
+
+        pool.dispatch(task).expect("Failed to dispatch");
+        let response = rx.blocking_recv().expect("Failed to receive response");
+
+        assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+        let resp = response.unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // Verify the response came from temp VFS handler
+        let body = resp.body().cloned().unwrap_or_default();
+        let body_text = String::from_utf8_lossy(&body);
+        assert!(
+            body_text.contains("From temp VFS"),
+            "Expected response from temp VFS, got: {}",
+            body_text
+        );
+
         pool.shutdown().expect("Shutdown failed");
     }
 }
