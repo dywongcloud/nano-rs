@@ -44,9 +44,17 @@ impl RuntimeAPIs {
         Self::bind_headers(scope, context);
         Self::bind_url(scope, context);
         Self::bind_response(scope, context);
+        Self::bind_request(scope, context);
         Self::bind_fetch(scope, context);
         Self::bind_nano_fs(scope, context);
         Self::bind_fs_polyfill(scope, context);
+    }
+
+    /// Bind Request API (text, json, arrayBuffer methods)
+    fn bind_request(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        // Enter context scope for binding
+        let context_scope = &mut v8::ContextScope::new(scope, context);
+        crate::runtime::request::bind_request_api(context_scope, context);
     }
 
     /// Bind Nano.fs API for VFS operations
