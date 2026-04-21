@@ -129,53 +129,87 @@ impl RouteTarget {
                 // Serve static files from VFS
                 let path = _request.url().pathname();
                 
-                // Normalize path
-                let lookup_path = if path == "/" || path.is_empty() {
-                    default_file.clone().unwrap_or_else(|| "index.html".to_string())
+                // Special handling for root path
+                let is_root = path == "/" || path.is_empty();
+                
+                // Get the default file name
+                let default = default_file.as_deref().unwrap_or("index.html");
+                
+                // Determine lookup path
+                let lookup_path = if is_root {
+                    default.to_string()
                 } else {
                     // Remove leading slash
                     path.strip_prefix('/').map(|s| s.to_string()).unwrap_or_else(|| path.to_string())
                 };
                 
                 // Debug: log available files and lookup attempt
-                tracing::debug!(
-                    "VFS lookup: path='{}' -> lookup='{}' | Available files: {:?}",
+                tracing::info!(
+                    "VFS lookup: path='{}' is_root={} -> lookup='{}' | files count={}",
                     path,
+                    is_root,
                     lookup_path,
-                    files.keys().collect::<Vec<_>>()
+                    files.len()
                 );
                 
-                // Try exact match first
+                // STRATEGY 1: Try exact match first
                 if let Some((content, content_type)) = files.get(&lookup_path) {
-                    tracing::debug!("VFS hit: '{}' ({} bytes, {})", lookup_path, content.len(), content_type);
+                    tracing::info!("VFS hit (exact): '{}' ({} bytes)", lookup_path, content.len());
                     return NanoResponse::ok()
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
                 }
                 
-                // Try with index.html for directories
+                // STRATEGY 2: For root path, try common index files
+                if is_root {
+                    let index_files = vec!["index.html", "index.htm", "app.js", "main.js"];
+                    for index_file in index_files {
+                        if let Some((content, content_type)) = files.get(index_file) {
+                            tracing::info!("VFS hit (root fallback): '{}'", index_file);
+                            return NanoResponse::ok()
+                                .with_header("Content-Type", content_type)
+                                .with_body_bytes(content.clone());
+                        }
+                    }
+                }
+                
+                // STRATEGY 3: Try with /index.html suffix (for directory paths)
                 let index_path = format!("{}/index.html", lookup_path);
                 if let Some((content, content_type)) = files.get(&index_path) {
-                    tracing::debug!("VFS hit (index fallback): '{}'", index_path);
+                    tracing::info!("VFS hit (dir index): '{}'", index_path);
                     return NanoResponse::ok()
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
                 }
                 
-                // Try with .html extension
+                // STRATEGY 4: Try with .html extension
                 let html_path = format!("{}.html", lookup_path);
                 if let Some((content, content_type)) = files.get(&html_path) {
-                    tracing::debug!("VFS hit (.html fallback): '{}'", html_path);
+                    tracing::info!("VFS hit (.html ext): '{}'", html_path);
                     return NanoResponse::ok()
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
                 }
                 
-                // File not found
-                tracing::warn!("VFS miss: '{}' not found in {} files", lookup_path, files.len());
+                // STRATEGY 5: Last resort - list available files in error
+                let available: Vec<_> = files.keys().take(10).collect();
+                tracing::warn!(
+                    "VFS miss: path='{}' lookup='{}' | Available ({} total, showing first 10): {:?}",
+                    path,
+                    lookup_path,
+                    files.len(),
+                    available
+                );
+                
                 NanoResponse::not_found()
                     .with_header("Content-Type", "text/plain")
-                    .with_body(format!("Not found: {} (tried: {})", path, lookup_path))
+                    .with_body(format!(
+                        "Not found: {}\nTried: {}\nAvailable files (first 10 of {}): {:?}",
+                        path,
+                        lookup_path,
+                        files.len(),
+                        available
+                    ))
             }
         }
     }
