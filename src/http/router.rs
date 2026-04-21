@@ -137,10 +137,17 @@ impl RouteTarget {
                     path.strip_prefix('/').map(|s| s.to_string()).unwrap_or_else(|| path.to_string())
                 };
                 
-                tracing::debug!("VFS lookup: '{}' (original path: '{}')", lookup_path, path);
+                // Debug: log available files and lookup attempt
+                tracing::debug!(
+                    "VFS lookup: path='{}' -> lookup='{}' | Available files: {:?}",
+                    path,
+                    lookup_path,
+                    files.keys().collect::<Vec<_>>()
+                );
                 
                 // Try exact match first
                 if let Some((content, content_type)) = files.get(&lookup_path) {
+                    tracing::debug!("VFS hit: '{}' ({} bytes, {})", lookup_path, content.len(), content_type);
                     return NanoResponse::ok()
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
@@ -149,6 +156,7 @@ impl RouteTarget {
                 // Try with index.html for directories
                 let index_path = format!("{}/index.html", lookup_path);
                 if let Some((content, content_type)) = files.get(&index_path) {
+                    tracing::debug!("VFS hit (index fallback): '{}'", index_path);
                     return NanoResponse::ok()
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
@@ -157,15 +165,17 @@ impl RouteTarget {
                 // Try with .html extension
                 let html_path = format!("{}.html", lookup_path);
                 if let Some((content, content_type)) = files.get(&html_path) {
+                    tracing::debug!("VFS hit (.html fallback): '{}'", html_path);
                     return NanoResponse::ok()
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
                 }
                 
                 // File not found
+                tracing::warn!("VFS miss: '{}' not found in {} files", lookup_path, files.len());
                 NanoResponse::not_found()
                     .with_header("Content-Type", "text/plain")
-                    .with_body(format!("Not found: {}", path))
+                    .with_body(format!("Not found: {} (tried: {})", path, lookup_path))
             }
         }
     }
