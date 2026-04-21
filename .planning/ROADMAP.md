@@ -137,16 +137,20 @@
 **UI hint:** no
 **Notes:** Full V8 Module API with VFS-backed imports implemented as infrastructure; transformation approach provides immediate framework compatibility
 
-### Phase 19: Config Mode Implementation
+### Phase 19: Config Mode Implementation ✅ COMPLETE
 **Goal:** Actually implement `--config` workflow + port/host config  
 **Depends on:** Phase 18  
-**Requirements:** REQ-19-01, REQ-19-02  
+**Requirements:** REQ-19-01, REQ-19-02, REQ-19-03  
 **Success Criteria**:
-  1. `nano-rs run --config config.json` loads and serves apps
-  2. Port and host from config applied to server bind
-  3. Multiple apps in config served with virtual host routing
-**Plans:** TBD  
+  1. ✅ `nano-rs run --config config.json` loads and serves apps (Bug #3 fixed)
+  2. ✅ Port and host from config applied to server bind (Bug #5 fixed)
+  3. ✅ Multiple apps served with virtual host routing
+  4. ✅ Per-app limits enforced (memory, timeout, workers)
+  5. ✅ 560+ tests pass (13 new integration tests)
+**Plans:** 
+  - [x] 19-01-PLAN.md — Config mode implementation (COMPLETE 2026-04-21)
 **UI hint:** no
+**Bugs Fixed:** #3 (--config no-op), #5 (Port Config Ignored)
 
 ### Phase 20: Sliver VFS Integration
 **Goal:** Execute JS from packed sliver VFS, not OS filesystem  
