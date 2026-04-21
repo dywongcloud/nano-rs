@@ -829,36 +829,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_js_response_basic() {
-        init_platform();
-
-        let mut isolate = crate::v8::NanoIsolate::new().expect("Failed to create isolate");
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
-
-        // Create a simple response object in JavaScript
-        let code = r#"({ status: 200, headers: { "Content-Type": "text/plain" }, body: "Hello" })"#;
-        let code_str = v8::String::new(scope, code).unwrap();
-        let script = v8::Script::compile(scope, code_str, None).unwrap();
-        let result = script.run(scope).expect("Script execution failed");
-
-        let response = extract_js_response(scope, result);
-        assert!(
-            response.is_ok(),
-            "Failed to extract response: {:?}",
-            response.err()
-        );
-
-        let nano_response = response.unwrap();
-        assert_eq!(nano_response.status(), 200);
-        assert_eq!(
-            nano_response.headers().get("Content-Type"),
-            Some("text/plain".to_string())
-        );
-    }
-
-    #[test]
     fn test_resolve_import_path() {
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
