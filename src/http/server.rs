@@ -27,7 +27,7 @@ use crate::admin::metrics::metrics_handler;
 use crate::app::registry::AppRegistry;
 use crate::config::NanoConfig;
 use crate::http::config::ServerConfig;
-use crate::http::router::{virtual_host_handler, AppState, HandlerType, RouteTarget, VirtualHostRouter};
+use crate::http::router::{dispatch_to_worker_pool, AppState, HandlerType, RouteTarget, VirtualHostRouter};
 use crate::signal::ShutdownState;
 
 /// Health check response
@@ -178,15 +178,15 @@ pub fn create_app_with_shutdown(state: Arc<AppStateWithShutdown>) -> Router {
         .route("/_admin/health", get(admin_health_handler))
         .route("/_admin/ready", get(ready_handler))
         .route("/_admin/metrics", get(metrics_handler))
-        // Root path - must be explicit for VFS to serve index.html
+        // Root path - dispatch to worker pool for JS execution
         .route("/", any({
             let state = app_state_clone.clone();
-            move |req| virtual_host_handler(AxumState(state), req)
+            move |req| dispatch_to_worker_pool(AxumState(state), req)
         }))
-        // Catch-all for virtual hosts - use the app_state directly
+        // Catch-all for virtual hosts - dispatch to worker pool
         .route("/{*path}", any({
             let state = app_state_clone;
-            move |req| virtual_host_handler(AxumState(state), req)
+            move |req| dispatch_to_worker_pool(AxumState(state), req)
         }))
         // Middleware stack (applied in reverse order)
         .layer(TraceLayer::new_for_http())

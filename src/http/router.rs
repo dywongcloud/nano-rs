@@ -450,12 +450,15 @@ pub async fn virtual_host_handler(
 ) -> impl IntoResponse {
     // Start timing the request
     let start = std::time::Instant::now();
-    // Extract Host header from the request
+    // Extract Host header from the request and strip port if present
     let host = request
         .headers()
         .get(header::HOST)
         .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string())
+        .map(|s| {
+            // Strip port from host:port format (e.g., "localhost:9999" -> "localhost")
+            s.split(':').next().unwrap_or(s).to_string()
+        })
         .unwrap_or_else(|| "default".to_string());
 
     // Generate request ID and create span with context
@@ -574,12 +577,15 @@ pub async fn dispatch_to_worker_pool(
 ) -> impl IntoResponse {
     // Start timing the request
     let start = std::time::Instant::now();
-    // Extract Host header from the request
+    // Extract Host header from the request and strip port if present
     let host = request
         .headers()
         .get(header::HOST)
         .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string())
+        .map(|s| {
+            // Strip port from host:port format (e.g., "localhost:9999" -> "localhost")
+            s.split(':').next().unwrap_or(s).to_string()
+        })
         .unwrap_or_else(|| "default".to_string());
 
     // Generate request ID and create span with context
