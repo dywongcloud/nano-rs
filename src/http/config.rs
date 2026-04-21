@@ -145,9 +145,24 @@ impl ServerConfig {
     }
 }
 
+impl From<crate::config::ServerConfigSection> for ServerConfig {
+    /// Convert config file's ServerConfigSection to HTTP ServerConfig
+    ///
+    /// This enables config mode to use the server's port and host settings
+    /// from the JSON configuration file.
+    fn from(section: crate::config::ServerConfigSection) -> Self {
+        Self {
+            port: section.port,
+            host: section.host,
+            routes: Vec::new(), // Routes are populated separately from apps
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ServerConfigSection;
 
     #[test]
     fn test_default_config() {
@@ -191,5 +206,54 @@ mod tests {
         let cloned = config.clone();
         assert_eq!(config.port, cloned.port);
         assert_eq!(config.host, cloned.host);
+    }
+
+    #[test]
+    fn test_server_config_from_section_default() {
+        let section = ServerConfigSection::default();
+        let config = ServerConfig::from(section);
+
+        assert_eq!(config.port, 8080);
+        assert_eq!(config.host, "0.0.0.0");
+        assert!(config.routes.is_empty());
+    }
+
+    #[test]
+    fn test_server_config_from_section_custom_port() {
+        let section = ServerConfigSection {
+            port: 3000,
+            host: "0.0.0.0".to_string(),
+        };
+        let config = ServerConfig::from(section);
+
+        assert_eq!(config.port, 3000);
+        assert_eq!(config.host, "0.0.0.0");
+    }
+
+    #[test]
+    fn test_server_config_from_section_custom_host() {
+        let section = ServerConfigSection {
+            port: 8080,
+            host: "127.0.0.1".to_string(),
+        };
+        let config = ServerConfig::from(section);
+
+        assert_eq!(config.port, 8080);
+        assert_eq!(config.host, "127.0.0.1");
+    }
+
+    #[test]
+    fn test_server_config_from_section_both_custom() {
+        let section = ServerConfigSection {
+            port: 9999,
+            host: "192.168.1.1".to_string(),
+        };
+        let config = ServerConfig::from(section);
+        let addr = config.socket_addr().unwrap();
+
+        assert_eq!(config.port, 9999);
+        assert_eq!(config.host, "192.168.1.1");
+        assert_eq!(addr.port(), 9999);
+        assert!(addr.is_ipv4());
     }
 }
