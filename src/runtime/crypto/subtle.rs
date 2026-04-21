@@ -125,8 +125,27 @@ impl SubtleCrypto {
         algorithm: &str,
         data: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
-        match algorithm {
-            _ => Err(CryptoError::NotSupported),
+        let normalized = algorithm.to_uppercase();
+        match normalized.as_str() {
+            "SHA-256" | "SHA256" => {
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(data);
+                Ok(hasher.finalize().to_vec())
+            }
+            "SHA-384" | "SHA384" => {
+                use sha2::{Digest, Sha384};
+                let mut hasher = Sha384::new();
+                hasher.update(data);
+                Ok(hasher.finalize().to_vec())
+            }
+            "SHA-512" | "SHA512" => {
+                use sha2::{Digest, Sha512};
+                let mut hasher = Sha512::new();
+                hasher.update(data);
+                Ok(hasher.finalize().to_vec())
+            }
+            _ => Err(CryptoError::InvalidAlgorithm(format!("Digest algorithm: {}", algorithm))),
         }
     }
     
