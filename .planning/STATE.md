@@ -1,9 +1,9 @@
 # NANO Project State
 
 **Project:** nano-rs — Edge JavaScript Runtime  
-**Version:** v1.1 — SLIVER (Snapshots & VFS) ✅ SHIPPED  
+**Version:** v1.2 — Remediation (In Progress) 🚧  
 **Created:** 2026-04-19  
-**Updated:** 2026-04-20  
+**Updated:** 2026-04-21  
 **Mode:** YOLO (auto-approve execution)
 
 ---
@@ -14,20 +14,21 @@ See: .planning/PROJECT.md (updated 2026-04-20)
 
 **Core value:** One OS process hosts many isolated JS apps with millisecond cold starts, zero container overhead, and strong per-app isolation.
 
-**Current focus:** v1.1 shipped — planning v2.0
+**Current focus:** v1.2 Remediation — fixing 7 critical bugs from blackbox evaluation
 
 ---
 
 ## Current Position
 
-**Milestone:** v1.1 — SLIVER ✅ SHIPPED 2026-04-20  
-**Phase:** All 16 phases complete (9 v1.0 + 7 v1.1)  
-**Plan:** All plans complete  
-**Status:** COMPLETE — v1.1 milestone delivered and archived
+**Milestone:** v1.2 — Remediation 🚧 IN PROGRESS  
+**Phase:** Phase 17 complete (Request/Response Fixes)  
+**Plan:** 17-01 complete — Full WinterCG Request + Promise support  
+**Status:** Phase 17 complete — Phase 18 ready
 
 **Progress:**
 ```
-[████████████████████████████████████] 100% (16/16 phases complete, v1.1 shipped)
+[████████████████████████████████████░░] 94% (17/18 phases for v1.2)
+v1.2 Remediation: 1/5 phases complete
 ```
 
 ---
@@ -45,6 +46,13 @@ See: .planning/PROJECT.md (updated 2026-04-20)
 - Requirements satisfied: 20
 - Commits: 42 since v1.0
 - Cold start: ~267µs from sliver (3.7x better than 1-2ms target)
+
+**v1.2 Remediation Target:**
+- ✅ Phase 17: Full WinterCG Request + Promise support (COMPLETE)
+- 📋 Phase 18: ESM Module System (next)
+- 📋 Phase 19: Config Mode Implementation
+- 📋 Phase 20: Sliver VFS Integration
+- 📋 Phase 21: Documentation & Architecture
 
 **v2.0 Target:**
 - WebSocket support for real-time apps

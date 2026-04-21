@@ -117,7 +117,8 @@
   1. Handler receives `{method, url, headers, body}` not just method
   2. Async handlers with `await` resolve correctly
   3. Request body readable as text/JSON
-**Plans:** TBD  
+**Plans:** 
+  - [ ] 17-01-PLAN.md — Request/Response fixes implementation
 **UI hint:** no
 
 ### Phase 18: ESM Module System
@@ -156,12 +157,18 @@
 ### Phase 21: Documentation & Architecture
 **Goal:** Fix cold start claims, document compatibility accurately  
 **Depends on:** Phase 20  
-**Requirements:** REQ-21-01, REQ-21-02, REQ-21-03  
+**Requirements:** REQ-21-01, REQ-21-02, REQ-21-03, REQ-21-04  
 **Success Criteria**:
   1. Cold start metrics distinguish process boot (~60ms) from request latency (~267µs)
   2. Node.js compatibility matrix published (~5% accurate)
   3. Per-worker state isolation documented with guidance
-**Plans:** TBD  
+  4. Troubleshooting guide covers common issues
+  5. All docs reviewed for accuracy
+**Plans:**
+  - [ ] 21-01-PLAN.md — Fix cold start metrics and performance documentation
+  - [ ] 21-02-PLAN.md — Create Node.js compatibility matrix and migration guides
+  - [ ] 21-03-PLAN.md — Document state architecture and troubleshooting guide
+  - [ ] 21-04-PLAN.md — Finalize documentation index and cross-references
 **UI hint:** no
 
 **Full details:** [REMEDIATION-v1.2.md](./REMEDIATION-v1.2.md)
