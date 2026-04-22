@@ -1106,10 +1106,10 @@ fn url_search_params_constructor(
 ) {
     let this = args.this();
 
-    // Initialize internal params store as a Map
+    // Initialize internal params store as a plain Object (like Headers does)
     let params_key = v8::String::new(scope, "__params__").unwrap();
-    let params_map = v8::Map::new(scope);
-    this.set(scope, params_key.into(), params_map.into());
+    let params_obj = v8::Object::new(scope);
+    this.set(scope, params_key.into(), params_obj.into());
 
     // Parse init argument if provided
     if args.length() > 0 {
@@ -1123,11 +1123,11 @@ fn url_search_params_constructor(
                     let value = &pair[eq_pos + 1..];
                     let key_val = v8::String::new(scope, key).unwrap();
                     let value_val = v8::String::new(scope, value).unwrap();
-                    params_map.set(scope, key_val.into(), value_val.into());
+                    params_obj.set(scope, key_val.into(), value_val.into());
                 } else if !pair.is_empty() {
                     let key_val = v8::String::new(scope, pair).unwrap();
                     let empty_val = v8::String::new(scope, "").unwrap();
-                    params_map.set(scope, key_val.into(), empty_val.into());
+                    params_obj.set(scope, key_val.into(), empty_val.into());
                 }
             }
         }
@@ -1149,21 +1149,21 @@ fn usp_get_callback(
         return;
     }
 
-    let name_key = args.get(0);
-    let name = name_key.to_string(scope)
+    let name = args.get(0).to_string(scope)
         .map(|s| s.to_rust_string_lossy(scope))
         .unwrap_or_default();
+    
+    // Create the lookup key as a V8 string (must match how keys were stored)
+    let name_key = v8::String::new(scope, &name).unwrap();
 
     let params_key = v8::String::new(scope, "__params__").unwrap();
     if let Some(params_val) = this.get(scope, params_key.into()) {
-        if let Some(params_map) = params_val.to_object(scope) {
-            if let Some(value) = params_map.get(scope, name_key) {
-                if value.is_null() || value.is_undefined() {
-                    retval.set_null();
-                } else {
+        if let Some(params_obj) = params_val.to_object(scope) {
+            if let Some(value) = params_obj.get(scope, name_key.into()) {
+                if !value.is_null() && !value.is_undefined() {
                     retval.set(value);
+                    return;
                 }
-                return;
             }
         }
     }
@@ -1184,13 +1184,21 @@ fn usp_set_callback(
         return;
     }
 
-    let name_key = args.get(0);
-    let value_key = args.get(1);
+    let name = args.get(0).to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+    let value = args.get(1).to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+    
+    // Create string keys for consistent lookup
+    let name_key = v8::String::new(scope, &name).unwrap();
+    let value_key = v8::String::new(scope, &value).unwrap();
 
     let params_key = v8::String::new(scope, "__params__").unwrap();
     if let Some(params_val) = this.get(scope, params_key.into()) {
-        if let Some(params_map) = params_val.to_object(scope) {
-            params_map.set(scope, name_key, value_key);
+        if let Some(params_obj) = params_val.to_object(scope) {
+            params_obj.set(scope, name_key.into(), value_key.into());
         }
     }
 
@@ -1210,28 +1218,18 @@ fn usp_has_callback(
         return;
     }
 
-    let name_key = args.get(0);
-    let name_str = name_key.to_string(scope)
+    let name = args.get(0).to_string(scope)
         .map(|s| s.to_rust_string_lossy(scope))
         .unwrap_or_default();
+    
+    // Create the lookup key as a V8 string (must match how keys were stored)
+    let name_key = v8::String::new(scope, &name).unwrap();
 
     let params_key = v8::String::new(scope, "__params__").unwrap();
-    let has_key = v8::String::new(scope, "has").unwrap();
-    
     if let Some(params_val) = this.get(scope, params_key.into()) {
-        if let Some(params_map) = params_val.to_object(scope) {
-            if let Some(has_fn) = params_map.get(scope, has_key.into()) {
-                if has_fn.is_function() {
-                    let has_func = has_fn.cast::<v8::Function>();
-                    if let Some(result) = has_func.call(scope, params_val, &[name_key]) {
-                        retval.set(result);
-                        return;
-                    }
-                }
-            }
-            // Fallback: check if key exists directly in the map object
-            let name_key_local = v8::String::new(scope, &name_str).unwrap();
-            if let Some(val) = params_map.get(scope, name_key_local.into()) {
+        if let Some(params_obj) = params_val.to_object(scope) {
+            // Check if key exists directly in the object
+            if let Some(val) = params_obj.get(scope, name_key.into()) {
                 if !val.is_null() && !val.is_undefined() {
                     retval.set(v8::Boolean::new(scope, true).into());
                     return;
@@ -1256,25 +1254,18 @@ fn usp_delete_callback(
         return;
     }
 
-    let name_key = args.get(0);
-    let name_str = name_key.to_string(scope)
+    let name = args.get(0).to_string(scope)
         .map(|s| s.to_rust_string_lossy(scope))
         .unwrap_or_default();
+    
+    // Create the lookup key as a V8 string (must match how keys were stored)
+    let name_key = v8::String::new(scope, &name).unwrap();
 
     let params_key = v8::String::new(scope, "__params__").unwrap();
-    let delete_key = v8::String::new(scope, "delete").unwrap();
-    
     if let Some(params_val) = this.get(scope, params_key.into()) {
-        if let Some(params_map) = params_val.to_object(scope) {
-            if let Some(delete_fn) = params_map.get(scope, delete_key.into()) {
-                if delete_fn.is_function() {
-                    let delete_func = delete_fn.cast::<v8::Function>();
-                    let _ = delete_func.call(scope, params_val, &[name_key]);
-                }
-            }
-            // Also try to delete directly as fallback
-            let name_key_local = v8::String::new(scope, &name_str).unwrap();
-            let _ = params_map.delete(scope, name_key_local.into());
+        if let Some(params_obj) = params_val.to_object(scope) {
+            // Delete directly from the object
+            let _ = params_obj.delete(scope, name_key.into());
         }
     }
 
