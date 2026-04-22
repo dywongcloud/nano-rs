@@ -14,8 +14,16 @@
 //!
 //! This module now integrates with WinterCG types (NanoRequest/NanoResponse)
 //! to enable JavaScript handler execution in Phase 3.
+//!
+//! # Static File Serving
+//!
+//! Entrypoint type detection automatically determines how to handle entrypoints:
+//! - JavaScript files (.js, .mjs, .ts) → Execute as Workers
+//! - Static files (.html, .css, images, etc.) → Serve with correct content-type
+//! - Directories → Serve index.html with automatic content-type detection
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use axum::{
@@ -28,16 +36,85 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-use crate::http::{NanoRequest, NanoResponse, NanoHeaders, NanoUrl};
+use crate::http::{NanoRequest, NanoResponse, NanoHeaders, NanoUrl, content_type_from_ext};
 use crate::worker::{HandlerTask, QueueError, WorkQueue};
 use crate::logging::create_request_span;
 use crate::metrics::METRICS;
 use uuid::Uuid;
 
+/// Entrypoint type for automatic file type detection
+///
+/// Determines how to handle an entrypoint based on its file extension:
+/// - JavaScript files (.js, .mjs, .ts) → Execute as Workers
+/// - Static files (.html, .css, images, etc.) → Serve with correct content-type
+/// - Directories → Serve index.html with automatic content-type detection
+#[derive(Debug, Clone)]
+pub enum EntrypointType {
+    /// Path to a JavaScript file that should be executed as a Worker
+    JavaScript(String),
+    /// Path to a specific static file to serve
+    StaticFile(String),
+    /// Path to a directory (serves index.html for root path)
+    StaticDir(String),
+}
+
+/// Detect the type of entrypoint based on file extension
+///
+/// Analyzes the file path to determine whether it should be:
+/// - Executed as JavaScript (js, mjs, ts extensions)
+/// - Served as a static file (html, css, images, etc.)
+/// - Served as a directory (with index.html fallback)
+///
+/// # Arguments
+///
+/// * `path` - The file or directory path to analyze
+///
+/// # Returns
+///
+/// An `EntrypointType` indicating how the entrypoint should be handled
+///
+/// # Examples
+///
+/// ```rust
+/// use nano::http::router::detect_entrypoint_type;
+///
+/// let js = detect_entrypoint_type("./app.js");
+/// // Returns EntrypointType::JavaScript("./app.js")
+///
+/// let html = detect_entrypoint_type("./index.html");
+/// // Returns EntrypointType::StaticFile("./index.html")
+///
+/// let dir = detect_entrypoint_type("./dist");
+/// // Returns EntrypointType::StaticDir("./dist")
+/// ```
+pub fn detect_entrypoint_type(path: &str) -> EntrypointType {
+    let path_obj = Path::new(path);
+    
+    // Check if it's a directory first
+    if path_obj.is_dir() {
+        return EntrypointType::StaticDir(path.to_string());
+    }
+    
+    // Get file extension
+    let ext = path_obj
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    
+    match ext.as_str() {
+        // JavaScript files - execute as Worker
+        "js" | "mjs" | "ts" => EntrypointType::JavaScript(path.to_string()),
+        // All other files - serve statically
+        _ => EntrypointType::StaticFile(path.to_string()),
+    }
+}
+
 /// Handler type for routed requests
 ///
 /// Defines how a request should be processed based on the route configuration.
-/// Supports static responses for testing and WinterCG handlers for JS execution.
+/// Supports static responses for testing, WinterCG handlers for JS execution,
+/// and static file serving for HTML/CSS/assets.
 #[derive(Debug, Clone)]
 pub enum HandlerType {
     /// Returns a fixed response string (for testing)
@@ -62,6 +139,26 @@ pub enum HandlerType {
         files: std::collections::HashMap<String, (Vec<u8>, String)>,
         /// Default file to serve for root path (e.g., "index.html")
         default_file: Option<String>,
+    },
+    /// Serve a single static file from the filesystem
+    ///
+    /// Used for HTML entrypoints and other static files.
+    /// Files are read at request time from the filesystem.
+    StaticFile {
+        /// Path to the file on disk
+        path: String,
+        /// Content-Type header value
+        content_type: String,
+    },
+    /// Serve static files from a directory
+    ///
+    /// Used for directory entrypoints (e.g., Astro build output).
+    /// Serves index.html for root path and maps other paths to files.
+    StaticDir {
+        /// Root directory path
+        root: String,
+        /// Default file to serve for root path (e.g., "index.html")
+        default_file: String,
     },
 }
 
@@ -208,6 +305,58 @@ impl RouteTarget {
                 );
                 
                 NanoResponse::not_found()
+            }
+            HandlerType::StaticFile { path, content_type } => {
+                // Serve a single static file from the filesystem
+                tracing::debug!("Serving static file: {} (content-type: {})", path, content_type);
+                
+                match tokio::fs::read_to_string(path).await {
+                    Ok(content) => NanoResponse::ok()
+                        .with_header("Content-Type", content_type)
+                        .with_body(content),
+                    Err(e) => {
+                        tracing::warn!("Failed to read static file {}: {}", path, e);
+                        NanoResponse::not_found()
+                    }
+                }
+            }
+            HandlerType::StaticDir { root, default_file } => {
+                // Serve files from a directory
+                let path = _request.url().pathname();
+                
+                // Determine file path
+                let file_path = if path == "/" || path.is_empty() {
+                    format!("{}/{}", root, default_file)
+                } else {
+                    // Remove leading slash and construct path
+                    let clean_path = path.strip_prefix('/').unwrap_or_else(|| path.as_str());
+                    // Security: prevent path traversal
+                    if clean_path.contains("..") {
+                        tracing::warn!("Path traversal attempt blocked: {}", path);
+                        return NanoResponse::not_found();
+                    }
+                    format!("{}/{}", root, clean_path)
+                };
+                
+                tracing::debug!("Serving from directory: {} -> {}", path, file_path);
+                
+                // Determine content type from extension
+                let ext = Path::new(&file_path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                let content_type = content_type_from_ext(ext);
+                
+                // Read and serve the file
+                match tokio::fs::read(&file_path).await {
+                    Ok(bytes) => NanoResponse::ok()
+                        .with_header("Content-Type", content_type)
+                        .with_body_bytes(bytes),
+                    Err(e) => {
+                        tracing::debug!("File not found: {} (error: {})", file_path, e);
+                        NanoResponse::not_found()
+                    }
+                }
             }
         }
     }
@@ -659,7 +808,10 @@ pub async fn dispatch_to_worker_pool(
     let entrypoint = match &target.handler_type {
         HandlerType::WinterCGHandler(path) => path.clone(),
         HandlerType::WinterCGSliverHandler { entrypoint: path, .. } => path.clone(),
-        HandlerType::StaticResponse(_) | HandlerType::VfsStaticFiles { .. } => {
+        HandlerType::StaticResponse(_) 
+        | HandlerType::VfsStaticFiles { .. }
+        | HandlerType::StaticFile { .. }
+        | HandlerType::StaticDir { .. } => {
             // These handler types don't need worker dispatch - serve directly
             let nano_response = target.handle(nano_request).await;
             return nano_response.to_axum_response();

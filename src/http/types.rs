@@ -7,6 +7,11 @@
 //!
 //! - **D-05:** Hybrid body handling — buffer small bodies (<1MB) in memory, stream large bodies
 //! - **D-06:** Response objects via JSON serialization → V8 parse (not direct V8 API creation)
+//!
+//! # Content-Type Mapping
+//!
+//! Static file serving uses extension-based content-type detection.
+//! See `content_type_from_ext()` for the full mapping table.
 
 use bytes::Bytes;
 use crate::http::{NanoHeaders, NanoUrl};
@@ -384,5 +389,139 @@ mod tests {
             axum_resp.headers().get("content-type").and_then(|v| v.to_str().ok()),
             Some("text/plain")
         );
+    }
+}
+
+/// Get MIME content type from file extension
+///
+/// Maps file extensions to their corresponding MIME types for proper
+/// Content-Type headers when serving static files.
+///
+/// # Arguments
+///
+/// * `ext` - File extension (without the dot, e.g., "html", "css")
+///
+/// # Returns
+///
+/// The MIME type string for the extension, or "application/octet-stream"
+/// for unknown extensions.
+///
+/// # Examples
+///
+/// ```rust
+/// use nano::http::types::content_type_from_ext;
+///
+/// assert_eq!(content_type_from_ext("html"), "text/html; charset=utf-8");
+/// assert_eq!(content_type_from_ext("css"), "text/css; charset=utf-8");
+/// assert_eq!(content_type_from_ext("png"), "image/png");
+/// ```
+pub fn content_type_from_ext(ext: &str) -> &'static str {
+    match ext.to_lowercase().as_str() {
+        // Text formats with UTF-8 charset
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "application/javascript; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "xml" => "application/xml; charset=utf-8",
+        "txt" => "text/plain; charset=utf-8",
+        "md" => "text/markdown; charset=utf-8",
+        "svg" => "image/svg+xml; charset=utf-8",
+        
+        // Image formats (no charset needed for binary)
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
+        "bmp" => "image/bmp",
+        "tiff" | "tif" => "image/tiff",
+        "avif" => "image/avif",
+        
+        // Font formats
+        "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "eot" => "application/vnd.ms-fontobject",
+        
+        // Archive and binary formats
+        "pdf" => "application/pdf",
+        "zip" => "application/zip",
+        "gz" | "gzip" => "application/gzip",
+        "tar" => "application/x-tar",
+        "bz2" => "application/x-bzip2",
+        "7z" => "application/x-7z-compressed",
+        "rar" => "application/x-rar-compressed",
+        
+        // WebAssembly
+        "wasm" => "application/wasm",
+        
+        // Media formats
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mp3" => "audio/mpeg",
+        "ogg" => "audio/ogg",
+        "oga" => "audio/ogg",
+        "ogv" => "video/ogg",
+        "weba" => "audio/webm",
+        "opus" => "audio/opus",
+        
+        // Default for unknown extensions
+        _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod content_type_tests {
+    use super::content_type_from_ext;
+
+    #[test]
+    fn test_html_content_type() {
+        assert_eq!(content_type_from_ext("html"), "text/html; charset=utf-8");
+        assert_eq!(content_type_from_ext("htm"), "text/html; charset=utf-8");
+        assert_eq!(content_type_from_ext("HTML"), "text/html; charset=utf-8");
+    }
+
+    #[test]
+    fn test_css_content_type() {
+        assert_eq!(content_type_from_ext("css"), "text/css; charset=utf-8");
+        assert_eq!(content_type_from_ext("CSS"), "text/css; charset=utf-8");
+    }
+
+    #[test]
+    fn test_js_content_type() {
+        assert_eq!(content_type_from_ext("js"), "application/javascript; charset=utf-8");
+        assert_eq!(content_type_from_ext("mjs"), "application/javascript; charset=utf-8");
+        assert_eq!(content_type_from_ext("JS"), "application/javascript; charset=utf-8");
+    }
+
+    #[test]
+    fn test_image_content_types() {
+        assert_eq!(content_type_from_ext("png"), "image/png");
+        assert_eq!(content_type_from_ext("jpg"), "image/jpeg");
+        assert_eq!(content_type_from_ext("jpeg"), "image/jpeg");
+        assert_eq!(content_type_from_ext("gif"), "image/gif");
+        assert_eq!(content_type_from_ext("svg"), "image/svg+xml; charset=utf-8");
+        assert_eq!(content_type_from_ext("ico"), "image/x-icon");
+    }
+
+    #[test]
+    fn test_font_content_types() {
+        assert_eq!(content_type_from_ext("woff2"), "font/woff2");
+        assert_eq!(content_type_from_ext("woff"), "font/woff");
+        assert_eq!(content_type_from_ext("ttf"), "font/ttf");
+        assert_eq!(content_type_from_ext("otf"), "font/otf");
+    }
+
+    #[test]
+    fn test_json_and_xml_content_types() {
+        assert_eq!(content_type_from_ext("json"), "application/json; charset=utf-8");
+        assert_eq!(content_type_from_ext("xml"), "application/xml; charset=utf-8");
+    }
+
+    #[test]
+    fn test_unknown_extension() {
+        assert_eq!(content_type_from_ext("xyz"), "application/octet-stream");
+        assert_eq!(content_type_from_ext(""), "application/octet-stream");
     }
 }
