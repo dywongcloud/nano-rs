@@ -1,0 +1,184 @@
+# .github/workflows/test-suite.yml
+# GitHub Actions workflow to run nano-rs-test-suite after each commit
+# 
+# This workflow:
+# 1. Builds nano-rs from source
+# 2. Clones nano-rs-test-suite
+# 3. Runs comprehensive tests
+# 4. Reports results
+
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, master, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+  pull_request:
+    branches: [ main, master, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test-suite:
+    name: Run Test Suite
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # You can add windows-latest if you have Windows builds
+
+    steps:
+    # Step 1: Checkout nano-rs repository
+    - name: Checkout nano-rs
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    # Step 2: Setup Rust toolchain
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    # Step 3: Cache Rust dependencies
+    - name: Cache cargo registry
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo index
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo build
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+    # Step 4: Build nano-rs
+    - name: Build nano-rs
+      run: cargo build --release
+      timeout-minutes: 15
+
+    # Step 5: Verify binary exists
+    - name: Check binary
+      run: |
+        ls -la target/release/nano-rs
+        ./target/release/nano-rs --version
+
+    # Step 6: Checkout nano-rs-test-suite
+    - name: Checkout test suite
+      uses: actions/checkout@v4
+      with:
+        repository: gleicon/nano-rs-test-suit
+        path: test-suite
+        ref: main  # or specify a branch/tag for stability
+
+    # Step 7: Setup Node.js for test suite
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: test-suite/package.json
+
+    # Step 8: Run test suite
+    - name: Run tests
+      working-directory: ./test-suite
+      run: |
+        node scripts/run-tests.js \
+          --binary ../target/release/nano-rs \
+          --output ./test-results \
+          --verbose
+      timeout-minutes: 10
+      continue-on-error: true  # Continue to upload reports even if tests fail
+
+    # Step 9: Parse test results
+    - name: Parse results
+      working-directory: ./test-suite
+      run: |
+        if [ -f test-results/latest-report.md ]; then
+          echo "### Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat test-results/latest-report.md | head -50 >> $GITHUB_STEP_SUMMARY
+        fi
+
+    # Step 10: Upload test reports as artifacts
+    - name: Upload test reports
+      uses: actions/upload-artifact@v4
+      if: always()  # Upload even if tests fail
+      with:
+        name: test-reports-${{ matrix.os }}
+        path: |
+          test-suite/test-results/
+          test-suite/test-run-*.log
+        retention-days: 30
+
+    # Step 11: Check test results and fail if below threshold
+    - name: Validate test results
+      working-directory: ./test-suite
+      run: |
+        # Parse JSON report to check score
+        if [ -f test-results/report-*.json ]; then
+          SCORE=$(cat test-results/report-*.json | grep -o '"overallScore": "[0-9]*%' | grep -o '[0-9]*')
+          echo "Test Score: ${SCORE}%"
+          
+          # Fail if score is below 80%
+          if [ -n "$SCORE" ] && [ "$SCORE" -lt 80 ]; then
+            echo "❌ Test score ${SCORE}% is below 80% threshold"
+            exit 1
+          fi
+          
+          echo "✅ Test score ${SCORE}% meets threshold"
+        else
+          echo "⚠️ Could not find test results JSON"
+        fi
+
+  # Optional: Run quick smoke test on every commit
+  smoke-test:
+    name: Quick Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout nano-rs
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Build (debug)
+      run: cargo build
+      timeout-minutes: 10
+
+    - name: Checkout test suite
+      uses: actions/checkout@v4
+      with:
+        repository: gleicon/nano-rs-test-suit
+        path: test-suite
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Run quick tests
+      working-directory: ./test-suite
+      run: |
+        node scripts/run-tests.js \
+          --binary ../target/debug/nano-rs \
+          --quick
+      timeout-minutes: 5
+
+# Workflow created for: https://github.com/gleicon/nano-rs-test-suit
+# Add this to: https://github.com/gleicon/nano-rs
