@@ -64,8 +64,14 @@ fn request_constructor_callback(
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    // Create new Request instance object
-    let instance = v8::Object::new(scope);
+    // When called with 'new', V8 provides 'this' as a new object with the correct prototype
+    // Just use 'this' directly - it already has Request.prototype in its chain!
+    let this = args.this();
+    let instance = if let Some(obj) = this.to_object(scope) {
+        obj
+    } else {
+        v8::Object::new(scope)
+    };
     
     // Extract URL from first argument
     let url = if args.length() > 0 {
@@ -116,10 +122,36 @@ fn request_constructor_callback(
     let method_val_str = v8::String::new(scope, &method).unwrap();
     instance.set(scope, method_key.into(), method_val_str.into());
     
-    // Set headers property
+    // Set headers property - use headers from init if provided, otherwise create new
     let headers_key = v8::String::new(scope, "headers").unwrap();
-    let headers_obj = v8::Object::new(scope);
-    instance.set(scope, headers_key.into(), headers_obj.into());
+    if args.length() > 1 {
+        let init = args.get(1);
+        if let Some(obj) = init.to_object(scope) {
+            // Check if init has headers
+            if let Some(headers_val) = obj.get(scope, headers_key.into()) {
+                if !headers_val.is_null() && !headers_val.is_undefined() {
+                    // Use headers from init
+                    instance.set(scope, headers_key.into(), headers_val.into());
+                } else {
+                    // Create new plain headers object
+                    let headers_obj = v8::Object::new(scope);
+                    instance.set(scope, headers_key.into(), headers_obj.into());
+                }
+            } else {
+                // Create new plain headers object
+                let headers_obj = v8::Object::new(scope);
+                instance.set(scope, headers_key.into(), headers_obj.into());
+            }
+        } else {
+            // Create new plain headers object
+            let headers_obj = v8::Object::new(scope);
+            instance.set(scope, headers_key.into(), headers_obj.into());
+        }
+    } else {
+        // Create new plain headers object
+        let headers_obj = v8::Object::new(scope);
+        instance.set(scope, headers_key.into(), headers_obj.into());
+    }
     
     // Set body and bodyUsed
     let body_key = v8::String::new(scope, "body").unwrap();
@@ -176,6 +208,7 @@ fn request_text_callback(
     }
 
     // Return empty string if no body
+    tracing::debug!("request.text(): returning empty string");
     let empty = v8::String::new(scope, "").unwrap();
     retval.set(empty.into());
 }

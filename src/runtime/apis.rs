@@ -986,10 +986,15 @@ fn headers_set_callback(
             .map(|s| s.to_rust_string_lossy(scope))
             .unwrap_or_default();
 
-        // Set the header
-        let key = v8::String::new(scope, &name).unwrap();
-        let val = v8::String::new(scope, &value).unwrap();
-        this.set(scope, key.into(), val.into());
+        // Store in __headers__ internal object (same as headers_get_callback uses)
+        let headers_key = v8::String::new(scope, "__headers__").unwrap();
+        if let Some(headers_val) = this.get(scope, headers_key.into()) {
+            if let Some(headers_obj) = headers_val.to_object(scope) {
+                let key = v8::String::new(scope, &name).unwrap();
+                let val = v8::String::new(scope, &value).unwrap();
+                headers_obj.set(scope, key.into(), val.into());
+            }
+        }
     }
 }
 
@@ -1333,7 +1338,8 @@ fn headers_constructor(
                 for i in 0..len {
                     if let Some(key) = names.get_index(scope, i) {
                         if let Some(key_str) = key.to_string(scope) {
-                            let key_name = key_str.to_rust_string_lossy(scope);
+                            // Normalize header name to lowercase (per Fetch spec)
+                            let key_name = key_str.to_rust_string_lossy(scope).to_lowercase();
                             if let Some(value) = init_obj.get(scope, key.into()) {
                                 if let Some(value_str) = value.to_string(scope) {
                                     let value_string = value_str.to_rust_string_lossy(scope);
@@ -1378,10 +1384,10 @@ fn headers_get_callback(
 ) {
     let this = args.this();
 
-    // Get the header name
+    // Get the header name and normalize to lowercase (per Fetch spec)
     let name = if args.length() > 0 {
         args.get(0).to_string(scope)
-            .map(|s| s.to_rust_string_lossy(scope))
+            .map(|s| s.to_rust_string_lossy(scope).to_lowercase())
             .unwrap_or_default()
     } else {
         String::new()
@@ -1414,8 +1420,9 @@ fn headers_set_callback_v2(
     let this = args.this();
 
     if args.length() >= 2 {
+        // Normalize header name to lowercase (per Fetch spec)
         let name = args.get(0).to_string(scope)
-            .map(|s| s.to_rust_string_lossy(scope))
+            .map(|s| s.to_rust_string_lossy(scope).to_lowercase())
             .unwrap_or_default();
         let value = args.get(1).to_string(scope)
             .map(|s| s.to_rust_string_lossy(scope))

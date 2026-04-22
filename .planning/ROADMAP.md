@@ -168,10 +168,32 @@
 **Bug Fixed:** #6 (VFS Not Used for JS)
 **Approach:** Temp directory extraction with RAII cleanup
 
-### Phase 21: Documentation & Architecture
-**Goal:** Fix cold start claims, document compatibility accurately  
+### Phase 21: v1.2.0 Remediation Completion 🚧
+**Goal:** Fix remaining 8 failing tests to reach 90%+ score for production release  
 **Depends on:** Phase 20  
-**Requirements:** REQ-21-01, REQ-21-02, REQ-21-03, REQ-21-04  
+**Requirements:** REQ-21-01 through REQ-21-08  
+**Success Criteria**:
+  1. Score reaches 90%+ (45+/50 tests passing)
+  2. All CRUD operations work (already passing - 6/6)
+  3. VFS fully functional (3/3 tests passing)
+  4. WinterCG Headers API works
+  5. WinterCG URL API works  
+  6. Streams API functional
+  7. Timer functions available
+  8. SHA-256 hashing works
+**Plans:**
+  - [ ] 21-01-PLAN.md — VFS Implementation (writeFile, readFile, Node.js fs compat)
+  - [ ] 21-02-PLAN.md — WinterCG Headers API fix
+  - [ ] 21-03-PLAN.md — WinterCG URL API fix
+  - [ ] 21-04-PLAN.md — Streams API (ReadableStream/WritableStream)
+  - [ ] 21-05-PLAN.md — Timer functions (setTimeout/setInterval)
+  - [ ] 21-06-PLAN.md — SHA-256 hashing and final verification
+**UI hint:** no
+
+### Phase 22: Documentation & Architecture 📋
+**Goal:** Fix cold start claims, document compatibility accurately  
+**Depends on:** Phase 21  
+**Requirements:** REQ-22-01, REQ-22-02, REQ-22-03, REQ-22-04  
 **Success Criteria**:
   1. Cold start metrics distinguish process boot (~60ms) from request latency (~267µs)
   2. Node.js compatibility matrix published (~5% accurate)
@@ -179,10 +201,10 @@
   4. Troubleshooting guide covers common issues
   5. All docs reviewed for accuracy
 **Plans:**
-  - [ ] 21-01-PLAN.md — Fix cold start metrics and performance documentation
-  - [ ] 21-02-PLAN.md — Create Node.js compatibility matrix and migration guides
-  - [ ] 21-03-PLAN.md — Document state architecture and troubleshooting guide
-  - [ ] 21-04-PLAN.md — Finalize documentation index and cross-references
+  - [ ] 22-01-PLAN.md — Fix cold start metrics and performance documentation
+  - [ ] 22-02-PLAN.md — Create Node.js compatibility matrix and migration guides
+  - [ ] 22-03-PLAN.md — Document state architecture and troubleshooting guide
+  - [ ] 22-04-PLAN.md — Finalize documentation index and cross-references
 **UI hint:** no
 
 **Full details:** [REMEDIATION-v1.2.md](./REMEDIATION-v1.2.md)
@@ -193,7 +215,7 @@
 
 **Milestone Goal:** WebSockets, advanced crypto, compression, inter-isolate messaging
 
-### Phase 22: WebSocket Server
+### Phase 23: WebSocket Server
 **Goal:** RFC 6455 WebSocket upgrade handling  
 **Depends on:** v1.2 complete  
 **Requirements:** WS-01, WS-02, WS-03  
@@ -204,20 +226,20 @@
 **Plans**: TBD  
 **UI hint**: no
 
-### Phase 23: Advanced Crypto
+### Phase 24: Advanced Crypto
 **Goal:** RSA and ECDSA operations  
-**Depends on:** Phase 22  
-**Requirements:** CRYPT-05, CRYPT-06, CRYPT-07  
-**Success Criteria** (what must be TRUE):
-  1. RSA key generation and import/export
-  2. ECDSA sign/verify operations
-  3. RSA-OAEP encrypt/decrypt
-**Plans**: TBD  
-**UI hint**: no
-
-### Phase 24: Compression Streams
-**Goal:** CompressionStream and DecompressionStream  
 **Depends on:** Phase 23  
+**Requirements:** CRYPT-05, CRYPT-06, CRYPT-07  
+**Success Criteria** (what must be TRUE):
+  1. RSA key generation and import/export
+  2. ECDSA sign/verify operations
+  3. RSA-OAEP encrypt/decrypt
+**Plans**: TBD  
+**UI hint**: no
+
+### Phase 25: Compression Streams
+**Goal:** CompressionStream and DecompressionStream  
+**Depends on:** Phase 24  
 **Requirements:** COMP-01, COMP-02  
 **Success Criteria** (what must be TRUE):
   1. CompressionStream with deflate
@@ -226,57 +248,11 @@
 **Plans**: TBD  
 **UI hint**: no
 
-### Phase 25: Inter-Isolate Messaging
+### Phase 26: Inter-Isolate Messaging
 **Goal:** PostMessage API between isolates  
-**Depends on:** Phase 24  
+**Depends on:** Phase 25  
 **Requirements:** MSG-01, MSG-02  
-**Success Criteria** (what must be TRUE):
-  1. JS can postMessage to other isolates
-  2. Broadcast channels for app groups
-  3. Message serialization preserves types
-**Plans**: TBD
-**Goal:** RFC 6455 WebSocket upgrade handling  
-**Depends on:** v1.1 complete  
-**Requirements:** WS-01, WS-02, WS-03  
-**Success Criteria** (what must be TRUE):
-  1. HTTP server supports WebSocket upgrade
-  2. JS can handle WebSocket connections
-  3. Per-isolate connection limits enforced
-**Plans**: TBD
-**UI hint**: no
 
-### Phase 18: Advanced Crypto
-**Goal:** RSA and ECDSA operations  
-**Depends on:** Phase 17  
-**Requirements:** CRYPT-05, CRYPT-06, CRYPT-07  
-**Success Criteria** (what must be TRUE):
-  1. RSA key generation and import/export
-  2. ECDSA sign/verify operations
-  3. RSA-OAEP encrypt/decrypt
-**Plans**: TBD
-**UI hint**: no
-
-### Phase 19: Compression Streams
-**Goal:** CompressionStream and DecompressionStream  
-**Depends on:** Phase 18  
-**Requirements:** COMP-01, COMP-02  
-**Success Criteria** (what must be TRUE):
-  1. CompressionStream with deflate
-  2. DecompressionStream with inflate
-  3. Works with fetch() Response/Request bodies
-**Plans**: TBD
-**UI hint**: no
-
-### Phase 20: Inter-Isolate Messaging
-**Goal:** PostMessage API between isolates  
-**Depends on:** Phase 19  
-**Requirements:** MSG-01, MSG-02  
-**Success Criteria** (what must be TRUE):
-  1. JS can postMessage to other isolates
-  2. Broadcast channels for app groups
-  3. Message serialization preserves types
-**Plans**: TBD
-**UI hint**: no
 
 ---
 
@@ -300,19 +276,40 @@
 | 14. Snapshot Create | v1.1 | 4/4 | Complete | 2026-04-20 |
 | 15. Snapshot Restore | v1.1 | 5/5 | Complete | 2026-04-20 |
 | 16. CLI Integration | v1.1 | 5/5 | Complete | 2026-04-20 |
-| 17. WebSocket Server | v2.0 | 0/TBD | Not started | - |
-| 18. Advanced Crypto | v2.0 | 0/TBD | Not started | - |
-| 19. Compression | v2.0 | 0/TBD | Not started | - |
-| 20. Inter-Isolate | v2.0 | 0/TBD | Not started | - |
+| 17. Request/Response Fixes | v1.2 | 1/1 | Complete | 2026-04-21 |
+| 18. ESM Module System | v1.2 | 1/1 | Complete | 2026-04-21 |
+| 19. Config Mode Implementation | v1.2 | 1/1 | Complete | 2026-04-21 |
+| 20. Sliver VFS Integration | v1.2 | 1/1 | Complete | 2026-04-21 |
+| 21. v1.2.0 Remediation Completion | v1.2 | 0/6 | In Progress | - |
+| 22. Documentation | v1.2 | 0/4 | Planned | - |
+| 23. WebSocket Server | v2.0 | 0/TBD | Not started | - |
+| 24. Advanced Crypto | v2.0 | 0/TBD | Not started | - |
+| 25. Compression | v2.0 | 0/TBD | Not started | - |
+| 26. Inter-Isolate | v2.0 | 0/TBD | Not started | - |
 
 ---
 
 ## What's Next
 
-To start Phase 17 planning: `/gsd-plan-phase 17`
+**v1.2.0 Goal:** Fix remaining 8 tests to reach 90%+ score
 
-Or to start a new milestone: `/gsd-new-milestone`
+Current: 84% (42/50 tests passing)
+Target: 90%+ (45+/50 tests passing)
+
+### Remaining Issues (8 tests):
+1. VFS: Nano.fs.writeFile
+2. VFS: Nano.fs.readFile  
+3. VFS: Node.js fs module compatibility
+4. WinterCG: Headers API
+5. WinterCG: URL API
+6. WinterCG: ReadableStream/WritableStream
+7. Node.js: setTimeout/setInterval
+8. WebCrypto: SHA-256 hashing
+
+### Commands:
+- Start Phase 21 planning: `/gsd-plan-phase 21`
+- Check progress: `/gsd-progress`
 
 ---
 
-*Roadmap updated: 2026-04-20 — v1.1 milestone shipped*
+*Roadmap updated: 2026-04-21 — v1.2 remediation 84% complete, targeting 90%+*
