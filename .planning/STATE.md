@@ -22,12 +22,14 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 
 **Milestone:** v1.2 — Remediation ✅ COMPLETE  
 **Phase:** Phase 21 COMPLETE (6/6 plans executed)  
+**Next:** Phase 21.1 v1.2.1 — Static File Serving 📋
 **Goal:** Fix remaining 8 failing tests to reach 90%+ score  
 **Status:** ✅ **100% ACHIEVED** - v1.2.0 PRODUCTION READY 🚀
 
 **Progress:**
 ```
 [██████████████████████████████████████████████] 100% (49/49 tests passing)
+[░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% (0/4 plans) — Phase 21.1
 v1.2 Remediation: COMPLETE - All tests passing!
 ```
 
@@ -83,6 +85,11 @@ v1.2 Remediation: COMPLETE - All tests passing!
   - ✅ 21-04: Streams API (+2%, 1 test fixed)
   - ✅ 21-05: Timer functions (+2%, 1 test fixed)
   - ✅ 21-06: SHA-256 and verification (+2%, 1 test fixed)
+- 🚧 Phase 21.1: v1.2.1 Static File Serving (PLANNED - v1.2.1 patch)
+  - 📋 21.1-01: Auto-detect entrypoint type and serve static files
+  - 📋 21.1-02: VFS directory loading for static assets
+  - 📋 21.1-03: Sliver creation from directory (no running app required)
+  - 📋 21.1-04: Test suite for static file serving
 - 📋 Phase 22: Documentation (PLANNED - v1.2.0 release prep)
 
 **v2.0 Target:**

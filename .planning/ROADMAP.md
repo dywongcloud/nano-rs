@@ -190,6 +190,24 @@
   - [ ] 21-06-PLAN.md — SHA-256 hashing and final verification
 **UI hint:** no
 
+### Phase 21.1: v1.2.1 Static File Serving & VFS Improvements 🚧
+**Goal:** Auto-detect non-JS entrypoints, serve static files, improve sliver creation workflow  
+**Depends on:** Phase 21  
+**Requirements:** REQ-21.1-01, REQ-21.1-02, REQ-21.1-03, REQ-21.1-04  
+**Success Criteria**:
+  1. Entrypoint auto-detection: JS files execute, other files served statically
+  2. Static files (HTML, CSS, images) serve with correct content-type
+  3. Sliver creation works without requiring app to be running
+  4. Sliver packs all app files (not just JS)
+  5. Sliver runs standalone without external dependencies
+  6. Astro/Next.js static exports work out of the box
+**Plans:**
+  - [ ] 21.1-01-PLAN.md — Auto-detect entrypoint type and serve static files
+  - [ ] 21.1-02-PLAN.md — VFS directory loading for static assets
+  - [ ] 21.1-03-PLAN.md — Sliver creation from directory (no running app required)
+  - [ ] 21.1-04-PLAN.md — Test suite for static file serving
+**UI hint:** no
+
 ### Phase 22: Documentation & Architecture 📋
 **Goal:** Fix cold start claims, document compatibility accurately  
 **Depends on:** Phase 21  
