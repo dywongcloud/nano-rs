@@ -577,11 +577,10 @@ pub async fn start_server_with_config(
     tracing::info!("Created AppRegistry with {} app(s)", registry.count());
 
     // Build VirtualHostRouter from config apps
+    // Empty default response triggers 404 for unknown hosts
     let default_target = RouteTarget {
         hostname: "default".to_string(),
-        handler_type: HandlerType::StaticResponse(
-            "NANO Runtime - No app configured for this host".to_string(),
-        ),
+        handler_type: HandlerType::StaticResponse("".to_string()),
     };
     let mut router = VirtualHostRouter::new(default_target);
 

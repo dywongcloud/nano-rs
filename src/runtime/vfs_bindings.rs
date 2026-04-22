@@ -180,9 +180,9 @@ fn throw_vfs_error(scope: &mut v8::HandleScope, error: &VfsError) {
     scope.throw_exception(exception);
 }
 
-/// Nano.fs.readFileSync(path) implementation
+/// Nano.fs.readFileSync(path, encoding?) implementation
 ///
-/// Returns Uint8Array containing file contents, or throws on error
+/// Returns Uint8Array containing file contents (or string if encoding specified), or throws on error
 fn nano_fs_read_file_sync(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -197,6 +197,10 @@ fn nano_fs_read_file_sync(
             return;
         }
     };
+
+    // Check for optional encoding parameter
+    let encoding = extract_string_arg(scope, &args, 1);
+    let return_string = encoding.as_ref().map(|e| e == "utf8" || e == "utf-8").unwrap_or(false);
 
     // Perform synchronous read using block_on
     let result = with_current_vfs(|vfs_opt| {
@@ -217,18 +221,25 @@ fn nano_fs_read_file_sync(
 
     match result {
         Ok(bytes) => {
-            // Create Uint8Array from bytes
-            let ab = v8::ArrayBuffer::new(scope, bytes.len());
-            let store = ab.get_backing_store();
-            for (i, byte) in bytes.iter().enumerate() {
-                if let Some(cell) = store.get(i) {
-                    cell.set(*byte);
-                }
-            }
-            if let Some(uint8array) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {
-                retval.set(uint8array.into());
+            if return_string {
+                // Return as UTF-8 string
+                let content = String::from_utf8_lossy(&bytes);
+                let str_val = v8::String::new(scope, &content).unwrap();
+                retval.set(str_val.into());
             } else {
-                retval.set(ab.into());
+                // Create Uint8Array from bytes (default behavior)
+                let ab = v8::ArrayBuffer::new(scope, bytes.len());
+                let store = ab.get_backing_store();
+                for (i, byte) in bytes.iter().enumerate() {
+                    if let Some(cell) = store.get(i) {
+                        cell.set(*byte);
+                    }
+                }
+                if let Some(uint8array) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {
+                    retval.set(uint8array.into());
+                } else {
+                    retval.set(ab.into());
+                }
             }
         }
         Err(e) => {
@@ -384,6 +395,10 @@ fn nano_fs_read_file(
         }
     };
 
+    // Check for optional encoding parameter
+    let encoding = extract_string_arg(scope, &args, 1);
+    let return_string = encoding.as_ref().map(|e| e == "utf8" || e == "utf-8").unwrap_or(false);
+
     // Perform read synchronously
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
@@ -401,18 +416,24 @@ fn nano_fs_read_file(
 
     match result {
         Ok(bytes) => {
-            // Create Uint8Array from bytes
-            let ab = v8::ArrayBuffer::new(scope, bytes.len());
-            let store = ab.get_backing_store();
-            for (i, byte) in bytes.iter().enumerate() {
-                if let Some(cell) = store.get(i) {
-                    cell.set(*byte);
-                }
-            }
-            let data: v8::Local<v8::Value> = if let Some(uint8array) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {
-                uint8array.into()
+            let data: v8::Local<v8::Value> = if return_string {
+                // Return as UTF-8 string
+                let content = String::from_utf8_lossy(&bytes);
+                v8::String::new(scope, &content).unwrap().into()
             } else {
-                ab.into()
+                // Create Uint8Array from bytes (default behavior)
+                let ab = v8::ArrayBuffer::new(scope, bytes.len());
+                let store = ab.get_backing_store();
+                for (i, byte) in bytes.iter().enumerate() {
+                    if let Some(cell) = store.get(i) {
+                        cell.set(*byte);
+                    }
+                }
+                if let Some(uint8array) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {
+                    uint8array.into()
+                } else {
+                    ab.into()
+                }
             };
 
             // Return resolved Promise: Promise.resolve(data)
