@@ -14,6 +14,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -28,6 +29,7 @@ use crate::app::registry::AppRegistry;
 use crate::config::NanoConfig;
 use crate::http::config::ServerConfig;
 use crate::http::router::{dispatch_to_worker_pool, AppState, HandlerType, RouteTarget, VirtualHostRouter};
+use crate::http::content_type_from_ext;
 use crate::signal::ShutdownState;
 
 /// Health check response
@@ -586,27 +588,105 @@ pub async fn start_server_with_config(
 
     // Register routes for each app in config
     for app in &nano_config.apps {
-        let target = if let Some(ref sliver_path) = app.sliver {
-            // Sliver-based app
-            RouteTarget {
-                hostname: app.hostname.clone(),
-                handler_type: HandlerType::WinterCGSliverHandler {
-                    hostname: app.hostname.clone(),
-                    entrypoint: app.entrypoint.clone(),
-                },
+        let target = if let Some(ref _sliver_path) = app.sliver {
+            // Sliver-based app (entrypoint type detection for sliver entrypoint)
+            use crate::http::router::detect_entrypoint_type;
+            let entrypoint_type = detect_entrypoint_type(&app.entrypoint);
+            
+            match entrypoint_type {
+                crate::http::router::EntrypointType::JavaScript(_) => {
+                    // JavaScript entrypoint - use sliver handler
+                    RouteTarget {
+                        hostname: app.hostname.clone(),
+                        handler_type: HandlerType::WinterCGSliverHandler {
+                            hostname: app.hostname.clone(),
+                            entrypoint: app.entrypoint.clone(),
+                        },
+                    }
+                }
+                crate::http::router::EntrypointType::StaticFile(path) => {
+                    // Static file entrypoint - serve directly
+                    let ext = Path::new(&path)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("");
+                    let content_type = content_type_from_ext(ext).to_string();
+                    RouteTarget {
+                        hostname: app.hostname.clone(),
+                        handler_type: HandlerType::StaticFile {
+                            path,
+                            content_type,
+                        },
+                    }
+                }
+                crate::http::router::EntrypointType::StaticDir(root) => {
+                    // Directory entrypoint - serve from directory
+                    RouteTarget {
+                        hostname: app.hostname.clone(),
+                        handler_type: HandlerType::StaticDir {
+                            root,
+                            default_file: "index.html".to_string(),
+                        },
+                    }
+                }
             }
         } else {
-            // Entrypoint-based app
-            RouteTarget {
-                hostname: app.hostname.clone(),
-                handler_type: HandlerType::WinterCGHandler(app.entrypoint.clone()),
+            // Entrypoint-based app (non-sliver) - use entrypoint type detection
+            use crate::http::router::detect_entrypoint_type;
+            let entrypoint_type = detect_entrypoint_type(&app.entrypoint);
+            
+            match entrypoint_type {
+                crate::http::router::EntrypointType::JavaScript(path) => {
+                    // JavaScript entrypoint - execute as Worker
+                    RouteTarget {
+                        hostname: app.hostname.clone(),
+                        handler_type: HandlerType::WinterCGHandler(path),
+                    }
+                }
+                crate::http::router::EntrypointType::StaticFile(path) => {
+                    // Static file entrypoint - serve directly
+                    let ext = Path::new(&path)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("");
+                    let content_type = content_type_from_ext(ext).to_string();
+                    RouteTarget {
+                        hostname: app.hostname.clone(),
+                        handler_type: HandlerType::StaticFile {
+                            path,
+                            content_type,
+                        },
+                    }
+                }
+                crate::http::router::EntrypointType::StaticDir(root) => {
+                    // Directory entrypoint - serve from directory
+                    RouteTarget {
+                        hostname: app.hostname.clone(),
+                        handler_type: HandlerType::StaticDir {
+                            root,
+                            default_file: "index.html".to_string(),
+                        },
+                    }
+                }
             }
         };
+        
+        // Log registration with handler type
+        let handler_name = match &target.handler_type {
+            HandlerType::WinterCGHandler(_) => "javascript",
+            HandlerType::WinterCGSliverHandler { .. } => "sliver-js",
+            HandlerType::StaticFile { .. } => "static-file",
+            HandlerType::StaticDir { .. } => "static-dir",
+            HandlerType::StaticResponse(_) => "static-response",
+            HandlerType::VfsStaticFiles { .. } => "vfs-static",
+        };
+        
         router.register(app.hostname.clone(), target);
         tracing::info!(
-            "Registered app '{}' with {} handler",
+            "Registered app '{}' with {} handler (entrypoint: {})",
             app.hostname,
-            if app.sliver.is_some() { "sliver" } else { "entrypoint" }
+            handler_name,
+            app.entrypoint
         );
     }
 
