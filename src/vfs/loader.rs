@@ -13,6 +13,8 @@
 //! - Performance optimized for bulk loading
 
 use std::path::Path;
+use std::pin::Pin;
+use std::future::Future;
 use tokio::fs;
 use crate::vfs::{IsolateVfs, VfsError};
 
@@ -54,8 +56,18 @@ pub async fn load_directory_to_vfs(
     source_dir: &str,
     mount_point: &str,
 ) -> Result<usize, VfsError> {
+    // Use Box::pin to avoid infinite-sized recursive async fn
+    load_directory_to_vfs_inner(Box::pin(vfs.clone()), source_dir.to_string(), mount_point.to_string()).await
+}
+
+/// Internal implementation that uses boxed future to handle recursion
+async fn load_directory_to_vfs_inner(
+    vfs: Pin<Box<IsolateVfs>>,
+    source_dir: String,
+    mount_point: String,
+) -> Result<usize, VfsError> {
     let mut count = 0;
-    let source_path = Path::new(source_dir);
+    let source_path = Path::new(&source_dir);
     
     // Verify source directory exists
     if !source_path.exists() {
@@ -87,7 +99,8 @@ pub async fn load_directory_to_vfs(
         let vfs_path = if mount_point.ends_with('/') {
             format!("{}{}", mount_point, file_name_str)
         } else if mount_point == "/" {
-            format!("/{}", file_name_str)
+            format!("/{}"
+, file_name_str)
         } else {
             format!("{}/{}", mount_point, file_name_str)
         };
@@ -99,15 +112,18 @@ pub async fn load_directory_to_vfs(
         }
         
         if path.is_dir() {
-            // Recursively load subdirectory
-            let sub_count = load_directory_to_vfs(
-                vfs,
-                path.to_str().ok_or_else(|| VfsError::InvalidPath {
-                    path: path.to_string_lossy().to_string(),
-                    reason: "Invalid UTF-8 in path".to_string(),
-                })?,
-                &vfs_path,
-            ).await?;
+            // Recursively load subdirectory using boxed future
+            let sub_path = path.to_str().ok_or_else(|| VfsError::InvalidPath {
+                path: path.to_string_lossy().to_string(),
+                reason: "Invalid UTF-8 in path".to_string(),
+            })?;
+            
+            // Box the recursive call to avoid infinite type size
+            let sub_count = Box::pin(load_directory_to_vfs_inner(
+                vfs.clone(),
+                sub_path.to_string(),
+                vfs_path,
+            )).await?;
             count += sub_count;
         } else if path.is_file() {
             // Load file as binary (supports both text and binary files)
