@@ -64,6 +64,12 @@ pub trait VfsBackend: Send + Sync {
 
     /// Get file metadata
     async fn metadata(&self, path: &VfsPath) -> VfsResult<VfsFile>;
+
+    /// Get a reference to Any for downcasting
+    ///
+    /// This method allows downcasting the backend to its concrete type
+    /// for accessing backend-specific functionality like snapshot_entries.
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// User-facing filesystem API

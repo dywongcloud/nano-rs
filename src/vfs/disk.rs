@@ -429,6 +429,10 @@ impl VfsBackend for DiskBackend {
             size: meta.len() as usize,
         })
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 // Required for random temp file suffixes

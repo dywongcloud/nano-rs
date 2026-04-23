@@ -14,7 +14,6 @@
 
 use std::path::Path;
 use std::pin::Pin;
-use std::future::Future;
 use tokio::fs;
 use crate::vfs::{IsolateVfs, VfsError};
 

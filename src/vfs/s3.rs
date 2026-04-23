@@ -366,6 +366,10 @@ impl VfsBackend for S3Backend {
             size,
         })
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]

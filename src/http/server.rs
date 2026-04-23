@@ -31,6 +31,7 @@ use crate::http::config::ServerConfig;
 use crate::http::router::{dispatch_to_worker_pool, AppState, HandlerType, RouteTarget, VirtualHostRouter};
 use crate::http::content_type_from_ext;
 use crate::signal::ShutdownState;
+use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, loader::load_directory_to_vfs};
 
 /// Health check response
 #[derive(Debug, Serialize, Deserialize)]
@@ -620,13 +621,62 @@ pub async fn start_server_with_config(
                     }
                 }
                 crate::http::router::EntrypointType::StaticDir(root) => {
-                    // Directory entrypoint - serve from directory
-                    RouteTarget {
-                        hostname: app.hostname.clone(),
-                        handler_type: HandlerType::StaticDir {
-                            root,
-                            default_file: "index.html".to_string(),
-                        },
+                    // Directory entrypoint - load into VFS for better performance
+                    // This loads all files into memory at startup for fast serving
+                    let vfs = IsolateVfs::new(
+                        VfsNamespace::from_hostname(&app.hostname),
+                        Arc::new(MemoryBackend::default()),
+                    );
+                    
+                    // Load directory contents into VFS
+                    match load_directory_to_vfs(&vfs, &root, "/").await {
+                        Ok(count) => {
+                            tracing::info!(
+                                "Loaded {} files from '{}' into VFS for {}",
+                                count, root, app.hostname
+                            );
+                            
+                            // Build files HashMap from VFS backend
+                            let mut files = std::collections::HashMap::new();
+                            let backend = vfs.backend();
+                            
+                            // Get all entries from the VFS backend
+                            // Note: We need to get the entries from the MemoryBackend
+                            if let Some(mem_backend) = backend.as_any().downcast_ref::<MemoryBackend>() {
+                                for (path, file) in mem_backend.snapshot_entries() {
+                                    // Determine content type from path
+                                    let ext = std::path::Path::new(path.as_str())
+                                        .extension()
+                                        .and_then(|e| e.to_str())
+                                        .unwrap_or("");
+                                    let content_type = content_type_from_ext(ext).to_string();
+                                    
+                                    files.insert(path.as_str().to_string(), (file.content, content_type));
+                                }
+                            }
+                            
+                            RouteTarget {
+                                hostname: app.hostname.clone(),
+                                handler_type: HandlerType::VfsStaticFiles {
+                                    files,
+                                    default_file: Some("index.html".to_string()),
+                                },
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to load directory '{}' into VFS for {}: {}",
+                                root, app.hostname, e
+                            );
+                            // Fallback to filesystem-based StaticDir handler
+                            RouteTarget {
+                                hostname: app.hostname.clone(),
+                                handler_type: HandlerType::StaticDir {
+                                    root,
+                                    default_file: "index.html".to_string(),
+                                },
+                            }
+                        }
                     }
                 }
             }
