@@ -614,7 +614,7 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
             tracing::info!("Creating sliver for hostname: {}", hostname);
             
             // Validate hostname
-            validate_hostname(&args.hostname)
+            validate_hostname(&hostname)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             
             // Validate optional name
@@ -631,7 +631,7 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
             
             // Determine output path
             let output = args.output.unwrap_or_else(|| {
-                let name = args.name.as_ref().unwrap_or(&args.hostname);
+                let name = args.name.as_ref().unwrap_or(&hostname);
                 let tag = args.tag.as_ref().map(|t| format!("-{}", t)).unwrap_or_default();
                 PathBuf::from(format!("{}{}.sliver", name, tag))
             });
@@ -645,7 +645,7 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
             let sliver_tag = args.tag.clone();
             
             // Create metadata
-            let mut metadata = SliverMetadata::new(&args.hostname, env!("CARGO_PKG_VERSION"));
+            let mut metadata = SliverMetadata::new(&hostname, env!("CARGO_PKG_VERSION"));
             metadata.name = sliver_name.clone();
             if let Some(tag) = sliver_tag {
                 metadata.description = Some(format!("Tag: {}", tag));
@@ -670,8 +670,8 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
                 .with_context(|| format!("Failed to write sliver to {}", output.display()))?;
             
             println!("Created sliver: {}", output.display());
-            println!("  Hostname: {}", args.hostname);
-            println!("  Name: {}", sliver_name.as_deref().unwrap_or(&args.hostname));
+            println!("  Hostname: {}", hostname);
+            println!("  Name: {}", sliver_name.as_deref().unwrap_or(&hostname));
             println!("  Tag: {}", args.tag.as_deref().unwrap_or("none"));
             println!("  Size: {} bytes", archive_data.len());
             println!("  Heap: {} bytes", heap_data.len());
