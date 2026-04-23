@@ -66,11 +66,11 @@ impl SliverPacker {
     ///
     /// The path will be prefixed with "vfs/" in the archive.
     /// Preserves the directory structure from the VFS path.
+    /// Uses GNU long-name extension for paths exceeding 100 characters.
     pub fn add_vfs_entry(&mut self, path: &VfsPath, file: &VfsFile) -> SliverResult<()> {
         let archive_path = format!("{}{}", VFS_PREFIX, path.as_str());
         
         let mut header = Header::new_gnu();
-        header.set_path(&archive_path)?;
         header.set_size(file.content.len() as u64);
         header.set_mode(0o644);
         
@@ -89,7 +89,8 @@ impl SliverPacker {
         
         header.set_cksum();
 
-        self.builder.append(&header, file.content.as_slice())?;
+        // Use append_data to support long paths (>100 chars) via GNU extensions
+        self.builder.append_data(&mut header, &archive_path, file.content.as_slice())?;
         self.entries.push(archive_path);
 
         Ok(())
