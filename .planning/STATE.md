@@ -3,7 +3,7 @@
 **Project:** nano-rs — Edge JavaScript Runtime  
 **Version:** v1.2 — Remediation ✅ COMPLETE  
 **Created:** 2026-04-19  
-**Updated:** 2026-04-21 — Phase 21 COMPLETE, v1.2.0 PRODUCTION READY 🚀  
+**Updated:** 2026-04-22 — Phase 21.1 COMPLETE, v1.2.1 Static File Serving 🚀  
 **Mode:** YOLO (auto-approve execution)
 
 ---
@@ -20,21 +20,22 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 
 ## Current Position
 
-**Milestone:** v1.2 — Remediation ✅ COMPLETE  
-**Phase:** Phase 21.1 IN PROGRESS (2/4 plans executed)  
-**Next:** Phase 21.1-04 — Test Suite for Static File Serving 📋  
+**Milestone:** v1.2.1 — Static File Serving ✅ COMPLETE  
+**Phase:** Phase 21.1 COMPLETE (4/4 plans executed)  
+**Next:** Phase 22 — Documentation & Architecture 📋  
 **Goal:** v1.2.1 patch with static file serving improvements  
-**Status:** ✅ **Sliver creation from directory complete** - Pack standalone slivers 🚀
+**Status:** ✅ **Phase 21.1 Complete** - Static file serving, VFS directory loading, and directory-based sliver creation 🚀
 
 **Progress:**
 ```
 [██████████████████████████████████████████████] 100% (49/49 tests passing)
-[██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 33% (2/4 plans) — Phase 21.1
+[██████████████████████████████████████████████] 100% (4/4 plans) — Phase 21.1
 v1.2 Remediation: COMPLETE - All tests passing!
-Phase 21.1: 2/4 plans complete
+Phase 21.1: 4/4 plans complete
   ✅ 21.1-01: Auto-detect entrypoint type and serve static files
   ✅ 21.1-02: VFS directory loading for static assets
   ✅ 21.1-03: Sliver creation from directory (no running app required)
+  ✅ 21.1-04: Test suite for static file serving (26 tests passing)
 ```
 
 **Test Score Progress:**
