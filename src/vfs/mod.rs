@@ -24,6 +24,7 @@ use std::sync::Arc;
 pub mod disk;
 pub mod factory;
 pub mod isolate;
+pub mod loader;
 pub mod memory;
 pub mod types;
 
@@ -34,6 +35,7 @@ pub mod s3;
 pub use disk::DiskBackend;
 pub use factory::BackendFactory;
 pub use isolate::{IsolateVfs, VfsNamespace};
+pub use loader::{load_directory_to_vfs, load_file_to_vfs};
 pub use memory::MemoryBackend;
 pub use security::{PathValidator, ResourceLimiter};
 pub use types::{ResourceLimits, VfsError, VfsFile, VfsPath, VfsResult};

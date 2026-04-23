@@ -21,16 +21,17 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 **Milestone:** v1.2 — Remediation ✅ COMPLETE  
-**Phase:** Phase 21 COMPLETE (6/6 plans executed)  
-**Next:** Phase 21.1 v1.2.1 — Static File Serving 📋
-**Goal:** Fix remaining 8 failing tests to reach 90%+ score  
-**Status:** ✅ **100% ACHIEVED** - v1.2.0 PRODUCTION READY 🚀
+**Phase:** Phase 21.1 IN PROGRESS (1/4 plans executed)  
+**Next:** Phase 21.1-02 — VFS Directory Loading 📋  
+**Goal:** v1.2.1 patch with static file serving improvements  
+**Status:** ✅ **Entrypoint detection complete** - Static file serving ready 🚀
 
 **Progress:**
 ```
 [██████████████████████████████████████████████] 100% (49/49 tests passing)
-[░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% (0/4 plans) — Phase 21.1
+[███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 17% (1/4 plans) — Phase 21.1
 v1.2 Remediation: COMPLETE - All tests passing!
+Phase 21.1: 1/4 plans complete (Entrypoint detection ✓)
 ```
 
 **Test Score Progress:**
@@ -85,8 +86,13 @@ v1.2 Remediation: COMPLETE - All tests passing!
   - ✅ 21-04: Streams API (+2%, 1 test fixed)
   - ✅ 21-05: Timer functions (+2%, 1 test fixed)
   - ✅ 21-06: SHA-256 and verification (+2%, 1 test fixed)
-- 🚧 Phase 21.1: v1.2.1 Static File Serving (PLANNED - v1.2.1 patch)
-  - 📋 21.1-01: Auto-detect entrypoint type and serve static files
+- 🚧 Phase 21.1: v1.2.1 Static File Serving (IN PROGRESS - v1.2.1 patch)
+  - ✅ 21.1-01: Auto-detect entrypoint type and serve static files (COMPLETE - 2026-04-22)
+    - Added EntrypointType enum with JavaScript, StaticFile, StaticDir variants
+    - Implemented detect_entrypoint_type() for automatic file type detection
+    - Added HandlerType::StaticFile and HandlerType::StaticDir variants
+    - Implemented content_type_from_ext() with 30+ MIME type mappings
+    - Integrated with start_server_with_config() for automatic detection
   - 📋 21.1-02: VFS directory loading for static assets
   - 📋 21.1-03: Sliver creation from directory (no running app required)
   - 📋 21.1-04: Test suite for static file serving
