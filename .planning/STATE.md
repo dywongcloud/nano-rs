@@ -3,7 +3,7 @@
 **Project:** nano-rs — Edge JavaScript Runtime  
 **Version:** v1.2 — Remediation ✅ COMPLETE  
 **Created:** 2026-04-19  
-**Updated:** 2026-04-23 — Phase 21.2 IN PROGRESS, Bug #1 (VFS paths) FIXED 🚀  
+**Updated:** 2026-04-23 — Phase 21.2 COMPLETE ✅ - Both bugs fixed, ready for v1.2.2 release  
 **Mode:** YOLO (auto-approve execution)
 
 ---
@@ -20,11 +20,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 
 ## Current Position
 
-**Milestone:** v1.2.2 — Critical Bug Fixes 🚧 IN PROGRESS  
-**Phase:** Phase 21.2 IN PROGRESS (1/2 plans executed)  
-**Next:** Phase 21.2-02 — Server Process Cleanup 📋  
+**Milestone:** v1.2.2 — Critical Bug Fixes ✅ COMPLETE  
+**Phase:** Phase 21.2 COMPLETE (2/2 plans executed)  
+**Next:** Phase 22 — Documentation or v1.2.2 release  
 **Goal:** v1.2.2 patch with runtime bug fixes discovered by test suite  
-**Status:** 🚀 **Bug #1 FIXED** - VFS path validation now allows [...slug].astro patterns
+**Status:** ✅ **ALL BUGS FIXED** - Both VFS paths and server cleanup resolved
 
 **Progress:**
 ```
