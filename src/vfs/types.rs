@@ -46,10 +46,11 @@ impl VfsPath {
         let normalized = Self::normalize(path);
         
         // Check for traversal attempts after normalization
-        if normalized.contains("..") {
+        // Only reject ".." as a full path segment, not as part of filenames
+        if normalized.split('/').any(|segment| segment == "..") {
             return Err(VfsError::InvalidPath {
                 path: path.to_string(),
-                reason: "Path contains '..' which is not allowed".to_string(),
+                reason: "Path contains '..' segment which is not allowed".to_string(),
             });
         }
         
@@ -281,6 +282,22 @@ mod tests {
         assert!(VfsPath::new("foo/../../etc/passwd").is_err());
         assert!(VfsPath::new("..").is_err());
         assert!(VfsPath::new("foo/..").is_err());
+    }
+
+    #[test]
+    fn test_vfs_path_special_characters_allowed() {
+        // Framework route patterns with [...] should be allowed
+        assert!(VfsPath::new("blog/[...slug].astro").is_ok());
+        assert!(VfsPath::new("routes/[[...optional]].ts").is_ok());
+        assert!(VfsPath::new("[...path].js").is_ok());
+        
+        // Files with .. in name (not as segment) should be allowed
+        assert!(VfsPath::new("file..name.txt").is_ok());
+        assert!(VfsPath::new("foo..bar.js").is_ok());
+        assert!(VfsPath::new("test...file.md").is_ok());
+        
+        // Single . in filenames should be fine
+        assert!(VfsPath::new("file.name.txt").is_ok());
     }
 
     #[test]
