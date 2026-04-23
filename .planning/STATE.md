@@ -3,7 +3,7 @@
 **Project:** nano-rs — Edge JavaScript Runtime  
 **Version:** v1.2 — Remediation ✅ COMPLETE  
 **Created:** 2026-04-19  
-**Updated:** 2026-04-22 — Phase 21.1 COMPLETE, v1.2.1 Static File Serving 🚀  
+**Updated:** 2026-04-23 — Phase 21.2 IN PROGRESS, Bug #1 (VFS paths) FIXED 🚀  
 **Mode:** YOLO (auto-approve execution)
 
 ---
@@ -20,22 +20,26 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 
 ## Current Position
 
-**Milestone:** v1.2.1 — Static File Serving ✅ COMPLETE  
-**Phase:** Phase 21.1 COMPLETE (4/4 plans executed)  
-**Next:** Phase 22 — Documentation & Architecture 📋  
-**Goal:** v1.2.1 patch with static file serving improvements  
-**Status:** ✅ **Phase 21.1 Complete** - Static file serving, VFS directory loading, and directory-based sliver creation 🚀
+**Milestone:** v1.2.2 — Critical Bug Fixes 🚧 IN PROGRESS  
+**Phase:** Phase 21.2 IN PROGRESS (1/2 plans executed)  
+**Next:** Phase 21.2-02 — Server Process Cleanup 📋  
+**Goal:** v1.2.2 patch with runtime bug fixes discovered by test suite  
+**Status:** 🚀 **Bug #1 FIXED** - VFS path validation now allows [...slug].astro patterns
 
 **Progress:**
 ```
 [██████████████████████████████████████████████] 100% (49/49 tests passing)
 [██████████████████████████████████████████████] 100% (4/4 plans) — Phase 21.1
+[██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 50% (1/2 plans) — Phase 21.2
 v1.2 Remediation: COMPLETE - All tests passing!
 Phase 21.1: 4/4 plans complete
   ✅ 21.1-01: Auto-detect entrypoint type and serve static files
   ✅ 21.1-02: VFS directory loading for static assets
   ✅ 21.1-03: Sliver creation from directory (no running app required)
   ✅ 21.1-04: Test suite for static file serving (26 tests passing)
+Phase 21.2: 1/2 plans complete
+  ✅ 21.2-01: Fix VFS path validation for special characters (BUG #1 FIXED)
+  📋 21.2-02: Fix server process cleanup on error/termination (BUG #2)
 ```
 
 **Test Score Progress:**
@@ -185,6 +189,11 @@ Phase 21.1: 4/4 plans complete
 - **VFS design:** Layered approach: API → Core → Backend (memory/disk/S3)
 - **Sliver format:** Tar-based, inspectable, portable
 - **Request body fix:** Use `args.this()` directly in constructor (not Object.create)
+
+### Roadmap Evolution
+- **Phase 21.2 inserted after Phase 21.1:** Critical bug fixes discovered during test suite validation (URGENT)
+  - Bug #1: VFS path validation incorrectly rejected `[...]` file patterns (Astro/Next.js catch-all routes)
+  - Bug #2: Server process cleanup failure in error scenarios
 
 ---
 

@@ -52,6 +52,32 @@ use crate::admin::handlers::{
 use crate::app::registry::AppRegistry;
 use crate::metrics::MetricsRegistry;
 
+/// Create a TCP listener with SO_REUSEADDR enabled for quick port reuse
+///
+/// This allows the admin server to be restarted immediately after shutdown,
+/// preventing "Address already in use" errors during development and testing.
+async fn create_reuse_listener(addr: &SocketAddr) -> Result<TcpListener, String> {
+    let socket = tokio::net::TcpSocket::new_v4()
+        .map_err(|e| format!("Failed to create TCP socket: {}", e))?;
+    
+    // Enable SO_REUSEADDR to allow immediate port reuse after shutdown
+    socket.set_reuseaddr(true)
+        .map_err(|e| format!("Failed to set SO_REUSEADDR on socket: {}", e))?;
+    
+    // Also enable SO_REUSEPORT on Unix systems for better load balancing
+    #[cfg(unix)]
+    socket.set_reuseport(true)
+        .map_err(|e| format!("Failed to set SO_REUSEPORT on socket: {}", e))?;
+    
+    socket.bind(*addr)
+        .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
+    
+    let listener = socket.listen(128)
+        .map_err(|e| format!("Failed to listen on socket: {}", e))?;
+    
+    Ok(listener)
+}
+
 /// Admin server configuration
 ///
 /// Configuration for the admin HTTP server including port, API key,
@@ -451,10 +477,8 @@ pub async fn start_admin_server(
 
     let addr = config.socket_addr()?;
 
-    // Create listener
-    let listener = TcpListener::bind(&addr)
-        .await
-        .map_err(|e| format!("Failed to bind admin server to {}: {}", addr, e))?;
+    // Create listener with SO_REUSEADDR for quick port reuse
+    let listener = create_reuse_listener(&addr).await?;
 
     let local_addr = listener
         .local_addr()

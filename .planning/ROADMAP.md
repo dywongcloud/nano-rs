@@ -209,9 +209,25 @@
 **UI hint:** no
 **Test Coverage:** 26 integration tests, 7 VFS loader tests, all passing
 
+### Phase 21.2: v1.2.2 Critical Bug Fixes 🚧 (INSERTED)
+**Goal:** Fix runtime bugs discovered during test suite validation  
+**Depends on:** Phase 21.1  
+**Requirements:** REQ-21.2-01, REQ-21.2-02  
+**Success Criteria**:
+  ✅ VFS path validation allows `[...]` file patterns (Astro/Next.js catch-all routes)
+  2. Server process cleanup releases port after error scenarios
+  ✅ Sliver creation works with framework files like `[...slug].astro`
+  4. Test suite passes all 50 tests without skips
+**Plans:**
+  - [x] 21.2-01-PLAN.md — Fix VFS path validation for special characters in filenames (COMPLETE 2026-04-23)
+  - [ ] 21.2-02-PLAN.md — Fix server process cleanup on error/termination
+**UI hint:** no
+**Test Coverage:** 76 VFS tests passing, 4 test suite tests still skipped pending server cleanup fix
+**Bug Reports:** [docs/BUG_REPORTS.md](./docs/BUG_REPORTS.md)
+
 ### Phase 22: Documentation & Architecture 📋
 **Goal:** Fix cold start claims, document compatibility accurately  
-**Depends on:** Phase 21  
+**Depends on:** Phase 21.2  
 **Requirements:** REQ-22-01, REQ-22-02, REQ-22-03, REQ-22-04  
 **Success Criteria**:
   1. Cold start metrics distinguish process boot (~60ms) from request latency (~267µs)

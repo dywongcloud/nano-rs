@@ -33,6 +33,32 @@ use crate::http::content_type_from_ext;
 use crate::signal::ShutdownState;
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, loader::load_directory_to_vfs};
 
+/// Create a TCP listener with SO_REUSEADDR enabled for quick port reuse
+///
+/// This allows the server to be restarted immediately after shutdown,
+/// preventing "Address already in use" errors during development and testing.
+async fn create_reuse_listener(addr: &std::net::SocketAddr) -> Result<TcpListener> {
+    let socket = tokio::net::TcpSocket::new_v4()
+        .context("Failed to create TCP socket")?;
+    
+    // Enable SO_REUSEADDR to allow immediate port reuse after shutdown
+    socket.set_reuseaddr(true)
+        .context("Failed to set SO_REUSEADDR on socket")?;
+    
+    // Also enable SO_REUSEPORT on Unix systems for better load balancing
+    #[cfg(unix)]
+    socket.set_reuseport(true)
+        .context("Failed to set SO_REUSEPORT on socket")?;
+    
+    socket.bind(*addr)
+        .with_context(|| format!("Failed to bind to {}", addr))?;
+    
+    let listener = socket.listen(128)
+        .context("Failed to listen on socket")?;
+    
+    Ok(listener)
+}
+
 /// Health check response
 #[derive(Debug, Serialize, Deserialize)]
 struct HealthResponse {
@@ -273,9 +299,7 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
         .socket_addr()
         .context("Failed to parse server address")?;
 
-    let listener = TcpListener::bind(&addr)
-        .await
-        .with_context(|| format!("Failed to bind to {}", addr))?;
+    let listener = create_reuse_listener(&addr).await?;
 
     tracing::info!("HTTP server listening on {}", addr);
 
@@ -329,9 +353,7 @@ where
         .socket_addr()
         .context("Failed to parse server address")?;
 
-    let listener = TcpListener::bind(&addr)
-        .await
-        .with_context(|| format!("Failed to bind to {}", addr))?;
+    let listener = create_reuse_listener(&addr).await?;
 
     tracing::info!("HTTP server listening on {}", addr);
 
@@ -384,9 +406,7 @@ pub async fn start_server_with_state(
         .socket_addr()
         .context("Failed to parse server address")?;
 
-    let listener = TcpListener::bind(&addr)
-        .await
-        .with_context(|| format!("Failed to bind to {}", addr))?;
+    let listener = create_reuse_listener(&addr).await?;
 
     tracing::info!("HTTP server listening on {}", addr);
 
@@ -459,9 +479,7 @@ pub async fn start_server_with_router(
         .socket_addr()
         .context("Failed to parse server address")?;
 
-    let listener = TcpListener::bind(&addr)
-        .await
-        .with_context(|| format!("Failed to bind to {}", addr))?;
+    let listener = create_reuse_listener(&addr).await?;
 
     tracing::info!("HTTP server listening on {} with custom router", addr);
 
@@ -508,9 +526,7 @@ pub async fn start_server_with_sliver_pool(
         .socket_addr()
         .context("Failed to parse server address")?;
 
-    let listener = TcpListener::bind(&addr)
-        .await
-        .with_context(|| format!("Failed to bind to {}", addr))?;
+    let listener = create_reuse_listener(&addr).await?;
 
     tracing::info!(
         "HTTP server listening on {} with sliver JS execution (entrypoint: {})",
@@ -755,9 +771,7 @@ pub async fn start_server_with_config(
         .socket_addr()
         .context("Failed to parse server address")?;
 
-    let listener = TcpListener::bind(&addr)
-        .await
-        .with_context(|| format!("Failed to bind to {}", addr))?;
+    let listener = create_reuse_listener(&addr).await?;
 
     tracing::info!("Config-mode HTTP server listening on {}", addr);
 
@@ -970,5 +984,27 @@ mod tests {
 
         assert!(!ready.ready);
         assert_eq!(ready.message, "Server is shutting down");
+    }
+
+    #[tokio::test]
+    async fn test_socket_reuse_addr() {
+        // Test that we can create a listener, close it, and immediately bind again
+        // This verifies SO_REUSEADDR is working correctly
+        let config = ServerConfig::default();
+        let addr = config.socket_addr().unwrap();
+        
+        // First bind
+        let listener1 = create_reuse_listener(&addr).await;
+        assert!(listener1.is_ok(), "First bind should succeed");
+        
+        // Drop the first listener
+        drop(listener1);
+        
+        // Small delay to let the OS clean up (but with SO_REUSEADDR this should be instant)
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        
+        // Second bind on same address should succeed with SO_REUSEADDR
+        let listener2 = create_reuse_listener(&addr).await;
+        assert!(listener2.is_ok(), "Second bind should succeed with SO_REUSEADDR enabled");
     }
 }
