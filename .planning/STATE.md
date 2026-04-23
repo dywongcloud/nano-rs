@@ -21,17 +21,20 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 **Milestone:** v1.2 — Remediation ✅ COMPLETE  
-**Phase:** Phase 21.1 IN PROGRESS (1/4 plans executed)  
-**Next:** Phase 21.1-02 — VFS Directory Loading 📋  
+**Phase:** Phase 21.1 IN PROGRESS (2/4 plans executed)  
+**Next:** Phase 21.1-04 — Test Suite for Static File Serving 📋  
 **Goal:** v1.2.1 patch with static file serving improvements  
-**Status:** ✅ **Entrypoint detection complete** - Static file serving ready 🚀
+**Status:** ✅ **Sliver creation from directory complete** - Pack standalone slivers 🚀
 
 **Progress:**
 ```
 [██████████████████████████████████████████████] 100% (49/49 tests passing)
-[███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 17% (1/4 plans) — Phase 21.1
+[██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 33% (2/4 plans) — Phase 21.1
 v1.2 Remediation: COMPLETE - All tests passing!
-Phase 21.1: 1/4 plans complete (Entrypoint detection ✓)
+Phase 21.1: 2/4 plans complete
+  ✅ 21.1-01: Auto-detect entrypoint type and serve static files
+  ✅ 21.1-02: VFS directory loading for static assets
+  ✅ 21.1-03: Sliver creation from directory (no running app required)
 ```
 
 **Test Score Progress:**
