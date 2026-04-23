@@ -266,3 +266,108 @@ fn load_directory_files(dir: &Path) -> Result<Vec<(VfsPath, VfsFile)>> {
     
     Ok(entries)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_detect_entrypoint_js() {
+        let temp_dir = TempDir::new().unwrap();
+        let dir_path = temp_dir.path();
+
+        // Create index.js
+        std::fs::write(dir_path.join("index.js"), "console.log('test');").unwrap();
+
+        let entrypoint = detect_entrypoint(dir_path);
+        assert_eq!(entrypoint, "index.js");
+    }
+
+    #[test]
+    fn test_detect_entrypoint_html() {
+        let temp_dir = TempDir::new().unwrap();
+        let dir_path = temp_dir.path();
+
+        // Create index.html (no JS)
+        std::fs::write(dir_path.join("index.html"), "<html></html>").unwrap();
+
+        let entrypoint = detect_entrypoint(dir_path);
+        assert_eq!(entrypoint, "index.html");
+    }
+
+    #[test]
+    fn test_detect_entrypoint_priority() {
+        let temp_dir = TempDir::new().unwrap();
+        let dir_path = temp_dir.path();
+
+        // Create both index.js and index.html - index.js should win
+        std::fs::write(dir_path.join("index.js"), "console.log('test');").unwrap();
+        std::fs::write(dir_path.join("index.html"), "<html></html>").unwrap();
+
+        let entrypoint = detect_entrypoint(dir_path);
+        assert_eq!(entrypoint, "index.js");
+    }
+
+    #[test]
+    fn test_detect_entrypoint_fallback() {
+        let temp_dir = TempDir::new().unwrap();
+        let dir_path = temp_dir.path();
+
+        // No recognized entrypoint - should default to index.html
+        std::fs::write(dir_path.join("style.css"), "body{}").unwrap();
+
+        let entrypoint = detect_entrypoint(dir_path);
+        assert_eq!(entrypoint, "index.html");
+    }
+
+    #[test]
+    fn test_create_placeholder_heap() {
+        let heap = create_placeholder_heap("index.js");
+        
+        // Should start with magic header
+        assert!(heap.starts_with(b"NANO-DIR-v1\0"));
+        
+        // Should contain entrypoint
+        let entrypoint = std::str::from_utf8(&heap[12..]).unwrap();
+        assert_eq!(entrypoint, "index.js");
+    }
+
+    #[test]
+    fn test_load_directory_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let dir_path = temp_dir.path();
+
+        // Create test files
+        std::fs::write(dir_path.join("index.js"), "console.log('test');").unwrap();
+        std::fs::create_dir(dir_path.join("assets")).unwrap();
+        std::fs::write(dir_path.join("assets").join("style.css"), "body{}").unwrap();
+
+        let entries = load_directory_files(dir_path).unwrap();
+        
+        // Should have 2 files
+        assert_eq!(entries.len(), 2);
+        
+        // Check paths are correct (should start with / and use forward slashes)
+        let paths: Vec<_> = entries.iter().map(|(p, _)| p.as_str().to_string()).collect();
+        assert!(paths.iter().any(|p| p.ends_with("index.js")), "Should contain index.js: {:?}", paths);
+        assert!(paths.iter().any(|p| p.contains("style.css")), "Should contain style.css: {:?}", paths);
+    }
+
+    #[test]
+    fn test_load_directory_files_skips_sliver_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let dir_path = temp_dir.path();
+
+        // Create test files including a .sliver file
+        std::fs::write(dir_path.join("index.js"), "console.log('test');").unwrap();
+        std::fs::write(dir_path.join("app.sliver"), "binary data").unwrap();
+
+        let entries = load_directory_files(dir_path).unwrap();
+        
+        // Should only have index.js, not the .sliver file
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].0.as_str().contains("index.js"));
+    }
+}
