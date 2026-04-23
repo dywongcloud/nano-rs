@@ -1,5 +1,33 @@
 # v1.2 Backlog
 
+## Hybrid Static File Serving (Sliver Mode)
+- **Feature**: Fast-path static file serving from VFS without JS overhead
+- **Status**: PLANNED
+- **Description**:
+  - **Current (v1.1)**: ALL requests dispatch to JS handler (pure WinterCG)
+  - **Proposed**: Check VFS first for static files, serve directly from Rust
+  - **Benefits**: 
+    - ~10x faster for static assets (no JS isolate context switch)
+    - Better for SPAs with many assets (CSS, JS, images)
+  - **Implementation**:
+    - Add routing manifest to sliver metadata (static paths vs dynamic routes)
+    - Pattern matching: `/assets/*`, `*.css`, `*.js` → serve from VFS directly
+    - Fallback to JS handler for non-matching paths
+  - **Example**:
+    ```yaml
+    # In sliver metadata
+    static_routes:
+      - path: /assets/*
+        serve_from_vfs: true
+        cache_control: max-age=3600
+      - path: /api/*
+        serve_from_vfs: false  # Always to JS
+    ```
+  - **Tradeoffs**: 
+    - Requires build-time routing analysis
+    - Less pure WinterCG (but compatible)
+    - Use Option 1 for now (full JS routing), add this later for performance
+
 ## V8 Runtime Heap Snapshots
 - **Feature**: True V8 heap snapshot capture from running isolates
 - **Trigger**: When rusty_v8 exposes runtime SnapshotCreator API

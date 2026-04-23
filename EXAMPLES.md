@@ -76,6 +76,100 @@ curl http://hello.local:8080/json
 
 ---
 
+## Serving Static Files from Sliver Mode
+
+In sliver mode (`--sliver`), **ALL requests route through your JavaScript handler**. Static files in the VFS must be served by your JS code.
+
+### Static File Handler Example
+
+`apps/static-server.js`:
+
+```javascript
+// MIME type mapping
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml; charset=utf-8',
+  '.ico': 'image/x-icon',
+};
+
+function getMimeType(path) {
+  const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
+  return MIME_TYPES[ext] || 'application/octet-stream';
+}
+
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    let path = url.pathname;
+    
+    // Default to index.html for directories
+    if (path.endsWith('/')) {
+      path += 'index.html';
+    }
+    
+    // Try to serve from VFS
+    try {
+      const content = await Nano.vfs.readFile(path);
+      return new Response(content, {
+        headers: { 
+          'Content-Type': getMimeType(path),
+          'Cache-Control': 'public, max-age=3600'
+        }
+      });
+    } catch (err) {
+      // File not found in VFS - could be dynamic route
+      if (path === '/api/data') {
+        return new Response(
+          JSON.stringify({ message: 'Dynamic API response' }),
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // 404 for everything else
+      return new Response('Not Found', { status: 404 });
+    }
+  }
+};
+```
+
+### Sliver Creation with Static Files
+
+```bash
+# Your app directory structure:
+# my-app/
+#   ├── index.js          (handler above)
+#   ├── index.html        (static HTML)
+#   ├── style.css         (static CSS)
+#   └── assets/
+#       └── logo.png
+
+# Create sliver from directory
+cd my-app
+nano-rs sliver create app.example.com --output app.sliver
+
+# Run with JS execution
+nano-rs run --sliver app.sliver --workers 4
+
+# All requests go through JS:
+curl http://app.example.com:8080/          # → JS serves index.html from VFS
+curl http://app.example.com:8080/style.css  # → JS serves CSS from VFS
+curl http://app.example.com:8080/api/data  # → JS returns dynamic JSON
+```
+
+### Important Notes
+
+- **Pure WinterCG model**: Unlike traditional web servers, NANO doesn't have a separate "static file server"
+- **Your JS is the router**: Every request hits your `fetch()` handler first
+- **VFS access via `Nano.vfs`**: Use the WinterCG-compatible VFS API to read files
+- **Performance**: Each static file request creates a JS context and executes your handler (~5ms overhead). For high-traffic static assets, see BACKLOG.md for planned "hybrid mode" optimization.
+
+---
+
 ## Using the VFS
 
 ### Example 1: Session Store (Ephemeral)
@@ -247,8 +341,10 @@ nano-rs sliver list
 # NAME       HOSTNAME      CREATED              SIZE
 # api-prod   api.local     2026-04-19T20:00:00  2.4MB
 
-# 5. Run from sliver (faster cold start)
+# 5. Run from sliver (JavaScript handler executed for all requests)
 nano-rs run --sliver api-v1.sliver --workers 4
+# Output: "ALL requests route through JavaScript (WinterCG fetch handler)"
+# The sliver's JS code handles every HTTP request via its fetch() export
 
 # 6. Or use in production config
 cat > prod.json << 'EOF'

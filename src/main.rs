@@ -308,9 +308,9 @@ async fn run_from_sliver(
     println!("");
     println!("╔════════════════════════════════════════════════════════════╗");
     if static_files {
-        println!("║         NANO Edge Runtime - Sliver Mode (Static)          ║");
+        println!("║      NANO Edge Runtime - Sliver Mode (WinterCG/Permissive) ║");
     } else {
-        println!("║       NANO Edge Runtime - Sliver Mode (Multi-Tenant)       ║");
+        println!("║    NANO Edge Runtime - Sliver Mode (WinterCG/Multi-Tenant) ║");
     }
     println!("╚════════════════════════════════════════════════════════════╝");
     println!("");
@@ -322,12 +322,13 @@ async fn run_from_sliver(
     println!("  Heap:       {} bytes", heap_size);
     println!("  VFS Files:  {}", vfs_file_count);
     if static_files {
-        println!("  Mode:       Permissive (--static) - VFS to any host");
+        println!("  Mode:       Permissive (--static) - requests to any host");
     } else {
         println!("  Mode:       Strict - 404 for wrong Host header");
     }
     println!("");
-    println!("  JavaScript heap restored (execute via WinterCG handler)");
+    println!("  ALL requests route through JavaScript (WinterCG fetch handler)");
+    println!("  Static files must be served by your JS code via nano.vfs.read()");
     println!("  Entrypoint: {}", js_entrypoint);
     println!("  Ready to accept connections...");
     println!("  Press Ctrl+C to stop");
