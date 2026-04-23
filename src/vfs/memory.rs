@@ -249,6 +249,10 @@ impl VfsBackend for MemoryBackend {
             }),
         }
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
