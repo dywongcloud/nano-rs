@@ -913,7 +913,7 @@ mod tests {
         if let Ok(Cli { command: Some(Commands::Sliver(cmd)) }) = cli {
             match cmd {
                 cli::SliverCommand::Create(args) => {
-                    assert_eq!(args.hostname, "api.example.com");
+                    assert_eq!(args.hostname, Some("api.example.com".to_string()));
                     assert_eq!(args.output, Some(PathBuf::from("./test.sliver")));
                 }
                 _ => panic!("Expected Create command"),

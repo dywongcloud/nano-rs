@@ -928,6 +928,12 @@ fn response_constructor(
 
     // Create headers object
     let headers = v8::Object::new(scope);
+    
+    // Initialize internal headers store for set/get methods
+    let internal_headers_key = v8::String::new(scope, "__headers__").unwrap();
+    let internal_headers = v8::Object::new(scope);
+    headers.set(scope, internal_headers_key.into(), internal_headers.into());
+    
     if let Some(hdrs) = headers_obj {
         // Copy headers from options
         if let Some(names) = hdrs.get_own_property_names(scope, Default::default()) {
@@ -942,6 +948,8 @@ fn response_constructor(
                                 let hkey = v8::String::new(scope, &key_name).unwrap();
                                 let hval = v8::String::new(scope, &value_string).unwrap();
                                 headers.set(scope, hkey.into(), hval.into());
+                                // Also store in internal headers for extraction
+                                internal_headers.set(scope, hkey.into(), hval.into());
                             }
                         }
                     }

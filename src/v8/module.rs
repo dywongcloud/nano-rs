@@ -345,7 +345,8 @@ pub fn transform_module_code(code: &str) -> String {
         let transformed = code.replace("export default", "var __nano_handler =");
 
         // Add code to extract fetch to global scope at the end
-        format!("{}\n\n// Extract fetch from exported handler\nif (typeof __nano_handler === 'object' && __nano_handler.fetch) {{\n    var fetch = __nano_handler.fetch;\n}}", transformed)
+        // Use globalThis.fetch to ensure it's in the global scope
+        format!("{}\n\n// Extract fetch from exported handler\nvar fetch = undefined;\nif (typeof __nano_handler === 'object' && __nano_handler.fetch) {{\n    fetch = __nano_handler.fetch;\n}}", transformed)
     } else {
         // No transformation needed
         code.to_string()
