@@ -359,9 +359,9 @@ async fn run_from_sliver(
     // Signal server to stop first
     shutdown.shutdown().await;
 
-    // Wait for server with timeout
+    // Wait for server with timeout (3s allows graceful shutdown while being responsive for tests)
     let shutdown_result = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
+        std::time::Duration::from_secs(3),
         server_handle
     ).await;
     
@@ -528,9 +528,9 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
     // Perform graceful shutdown
     shutdown.shutdown().await;
 
-    // Wait for server with timeout
+    // Wait for server with timeout (3s allows graceful shutdown while being responsive for tests)
     let shutdown_result = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(3),
         server_handle
     ).await;
 
