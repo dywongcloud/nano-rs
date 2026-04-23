@@ -22,14 +22,8 @@
 //! ```
 
 use anyhow::{bail, Context, Result};
-use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use tar::Builder;
 
-use crate::sliver::format::{
-    HEAP_FILENAME, MANIFEST_FILENAME, METADATA_FILENAME, VFS_PREFIX, FORMAT_VERSION,
-};
 use crate::sliver::metadata::SliverMetadata;
 use crate::sliver::packer::SliverPacker;
 use crate::vfs::types::{VfsFile, VfsPath};
@@ -58,6 +52,7 @@ pub struct DirectorySliverMetadata {
 /// * `name` - Name for the sliver
 /// * `tag` - Optional version tag
 /// * `output` - Optional output path (defaults to `{name}.sliver`)
+/// * `hostname` - Optional hostname (defaults to name if not specified)
 ///
 /// # Returns
 ///
@@ -75,6 +70,7 @@ pub async fn create_sliver_from_directory(
     name: &str,
     tag: Option<String>,
     output: Option<String>,
+    hostname: Option<String>,
 ) -> Result<PathBuf> {
     let source_path = Path::new(source_dir);
     
@@ -99,13 +95,16 @@ pub async fn create_sliver_from_directory(
         );
     }
     
+    // Use provided hostname or default to name
+    let sliver_hostname = hostname.unwrap_or_else(|| name.to_string());
+    
     // Detect entrypoint
     let entrypoint = detect_entrypoint(source_path);
     tracing::info!("Detected entrypoint: {}", entrypoint);
     
     // Create sliver metadata
     let sliver_tag = tag.clone().unwrap_or_else(|| "latest".to_string());
-    let mut metadata = SliverMetadata::new(name, env!("CARGO_PKG_VERSION"));
+    let mut metadata = SliverMetadata::new(&sliver_hostname, env!("CARGO_PKG_VERSION"));
     metadata.name = Some(name.to_string());
     metadata.description = Some(format!(
         "Created from directory: {} | Entrypoint: {} | Tag: {}",
@@ -146,6 +145,7 @@ pub async fn create_sliver_from_directory(
     println!("Created sliver: {}", output_path.display());
     println!("  Source: {}", source_dir);
     println!("  Name: {}", name);
+    println!("  Hostname: {}", sliver_hostname);
     println!("  Tag: {}", sliver_tag);
     println!("  Entrypoint: {}", entrypoint);
     println!("  Size: {} bytes", archive_data.len());
@@ -212,10 +212,11 @@ fn detect_entrypoint(dir: &Path) -> String {
 /// Preserves directory structure in the VFS paths.
 fn load_directory_files(dir: &Path) -> Result<Vec<(VfsPath, VfsFile)>> {
     use std::time::SystemTime;
+    use walkdir::WalkDir;
     
     let mut entries = Vec::new();
     
-    for entry in walkdir::WalkDir::new(dir)
+    for entry in WalkDir::new(dir)
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())

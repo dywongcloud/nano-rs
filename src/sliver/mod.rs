@@ -52,6 +52,7 @@ pub mod extractor;
 mod format;
 mod metadata;
 mod packer;
+pub mod packager;
 pub mod restore;
 mod unpacker;
 pub mod validation;

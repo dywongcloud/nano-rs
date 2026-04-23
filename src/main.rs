@@ -557,6 +557,7 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
 /// Handle sliver management commands
 async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
     use nano::sliver::{pack_sliver, SliverMetadata, unpack_sliver, validate_sliver};
+    use nano::sliver::packager::create_sliver_from_directory;
     use cli::validation::{validate_hostname, validate_sliver_name, validate_tag};
     
     // Initialize V8 platform if not already done (required for snapshot operations)
@@ -568,7 +569,49 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
     
     match cmd {
         cli::SliverCommand::Create(args) => {
-            tracing::info!("Creating sliver for hostname: {}", args.hostname);
+            // Check if we're creating from a directory
+            if let Some(from_dir) = args.from_dir {
+                tracing::info!("Creating sliver from directory: {}", from_dir.display());
+                
+                // Get name - required for directory-based slivers
+                let name = args.name.ok_or_else(|| {
+                    anyhow::anyhow!("--name is required when using --from-dir")
+                })?;
+                
+                // Validate name
+                validate_sliver_name(&name)
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+                
+                // Validate tag if provided
+                if let Some(ref tag) = args.tag {
+                    validate_tag(tag)
+                        .map_err(|e| anyhow::anyhow!("{}", e))?;
+                }
+                
+                // Get hostname from args or use name as default
+                let hostname = args.hostname.or_else(|| Some(name.clone()));
+                
+                // Create output path
+                let output = args.output.map(|p| p.to_string_lossy().to_string());
+                
+                // Create the sliver from directory
+                create_sliver_from_directory(
+                    from_dir.to_str().unwrap_or("."),
+                    &name,
+                    args.tag,
+                    output,
+                    hostname,
+                ).await?;
+                
+                return Ok(());
+            }
+            
+            // Original hostname-based sliver creation
+            let hostname = args.hostname.ok_or_else(|| {
+                anyhow::anyhow!("Either hostname or --from-dir must be specified")
+            })?;
+            
+            tracing::info!("Creating sliver for hostname: {}", hostname);
             
             // Validate hostname
             validate_hostname(&args.hostname)
