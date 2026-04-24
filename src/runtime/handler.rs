@@ -128,8 +128,8 @@ pub fn execute_handler_with_context(
 
     let parse_key = v8::String::new(scope, "parse").unwrap();
     let parse_fn_val = match json_obj.get(scope, parse_key.into()) {
-        Some(val) => val,
-        None => return Err(anyhow!("JSON.parse not found")),
+        Some(val) if val.is_function() => val,
+        _ => return Err(anyhow!("JSON.parse not found or not a function")),
     };
 
     let parse_fn = parse_fn_val.cast::<v8::Function>();
@@ -235,8 +235,8 @@ fn execute_in_v8(
 
     let parse_key = v8::String::new(scope, "parse").unwrap();
     let parse_fn_val = match json_obj.get(scope, parse_key.into()) {
-        Some(val) => val,
-        None => return Err(anyhow!("JSON.parse not found")),
+        Some(val) if val.is_function() => val,
+        _ => return Err(anyhow!("JSON.parse not found or not a function")),
     };
 
     let parse_fn = parse_fn_val.cast::<v8::Function>();

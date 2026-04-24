@@ -501,25 +501,34 @@ fn execute_with_context_manager(
         .ok_or_else(|| anyhow!("Script compilation failed"))?;
     script.run(context_scope);
 
-    // Get global and look for fetch function
+    // Get global and look for the user's handler function
+    // The handler is stored in __nano_user_fetch by transform_module_code
     let global = v8_context.global(context_scope);
-    let fetch_key = v8::String::new(context_scope, "fetch").unwrap();
-    let fetch_val = match global.get(context_scope, fetch_key.into()) {
-        Some(val) => val,
-        None => {
-            return Ok(NanoResponse::ok()
-                .with_header("Content-Type", "text/plain")
-                .with_body("Handler executed (no fetch function defined)"));
+    let handler_key = v8::String::new(context_scope, "__nano_user_fetch").unwrap();
+    let handler_val = match global.get(context_scope, handler_key.into()) {
+        Some(val) if val.is_function() => {
+            tracing::debug!("Found user handler function in global scope");
+            val
+        }
+        _ => {
+            // Fallback: try 'fetch' for non-ESM modules
+            let fetch_key = v8::String::new(context_scope, "fetch").unwrap();
+            match global.get(context_scope, fetch_key.into()) {
+                Some(val) if val.is_function() => {
+                    tracing::debug!("Found handler via 'fetch' global");
+                    val
+                }
+                _ => {
+                    tracing::warn!("No handler function found - looking for __nano_user_fetch or fetch");
+                    return Ok(NanoResponse::ok()
+                        .with_header("Content-Type", "text/plain")
+                        .with_body("Handler executed (no handler function defined)"));
+                }
+            }
         }
     };
 
-    if !fetch_val.is_function() {
-        return Ok(NanoResponse::ok()
-            .with_header("Content-Type", "text/plain")
-            .with_body("Handler executed (fetch is not a function)"));
-    }
-
-    let fetch_fn = fetch_val.cast::<v8::Function>();
+    let fetch_fn = handler_val.cast::<v8::Function>();
 
     // Create Request instance using the Request constructor
     // This ensures the request has Request.prototype methods (text, json, arrayBuffer)

@@ -5,17 +5,33 @@
 //! and responses are returned via oneshot channels.
 
 use crate::http::NanoResponse;
-use crate::http::v8_bridge::serialize_request_to_json;
 use crate::runtime::HandlerContext;
 use crate::v8::{initialize_platform, NanoIsolate};
 use crate::worker::context::ContextManager;
 use crate::worker::oom::OomMonitorBuilder;
 use crate::worker::HandlerTask;
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use std::fs;
+
+/// Thread-local storage for the worker thread's Tokio runtime handle
+/// This allows fetch() and other async operations to access the runtime
+thread_local! {
+    static WORKER_RUNTIME: RefCell<Option<tokio::runtime::Handle>> = RefCell::new(None);
+}
+
+/// Get the worker thread's Tokio runtime handle if available
+pub fn with_worker_runtime<F, R>(f: F) -> Option<R>
+where
+    F: FnOnce(&tokio::runtime::Handle) -> R,
+{
+    WORKER_RUNTIME.with(|runtime| {
+        runtime.borrow().as_ref().map(f)
+    })
+}
 
 /// Execute a handler within a specific V8 context
 ///
@@ -58,7 +74,13 @@ fn execute_handler_code(
     v8_context: v8::Local<v8::Context>,
     handler_ctx: &HandlerContext,
 ) -> Result<NanoResponse> {
+    use crate::runtime::apis::RuntimeAPIs;
     use crate::v8::module::{is_esm_module, transform_module_code};
+
+    // Bind all WinterCG APIs (URL, fetch, etc.) to the context
+    // This must be done before executing any handler code
+    RuntimeAPIs::bind_all(scope, v8_context);
+    tracing::debug!("Bound WinterCG APIs to handler context");
 
     // Read the handler code
     let code = fs::read_to_string(&handler_ctx.entrypoint)
@@ -79,41 +101,89 @@ fn execute_handler_code(
         .ok_or_else(|| anyhow!("Script compilation failed"))?;
     script.run(scope);
 
-    // Get global and look for fetch function
+    // Get global and look for the user's handler function
+    // The handler is stored in __nano_user_fetch by transform_module_code
     let global = v8_context.global(scope);
-    let fetch_key = v8::String::new(scope, "fetch").unwrap();
-    let fetch_val = match global.get(scope, fetch_key.into()) {
-        Some(val) => val,
-        None => {
-            return Ok(NanoResponse::ok()
-                .with_header("Content-Type", "text/plain")
-                .with_body("Handler executed (no fetch function defined)"));
+    let handler_key = v8::String::new(scope, "__nano_user_fetch").unwrap();
+    let handler_val = match global.get(scope, handler_key.into()) {
+        Some(val) if val.is_function() => {
+            tracing::debug!("Found user handler function in global scope");
+            val
+        }
+        _ => {
+            // Fallback: try 'fetch' for non-ESM modules
+            let fetch_key = v8::String::new(scope, "fetch").unwrap();
+            match global.get(scope, fetch_key.into()) {
+                Some(val) if val.is_function() => {
+                    tracing::debug!("Found handler via 'fetch' global");
+                    val
+                }
+                _ => {
+                    tracing::warn!("No handler function found - looking for __nano_user_fetch or fetch");
+                    return Ok(NanoResponse::ok()
+                        .with_header("Content-Type", "text/plain")
+                        .with_body("Handler executed (no handler function defined)"));
+                }
+            }
         }
     };
 
-    let fetch_fn = fetch_val.cast::<v8::Function>();
+    let handler_fn = handler_val.cast::<v8::Function>();
 
-    // Create request object using full WinterCG serialization
-    let request_json = serialize_request_to_json(&handler_ctx.request);
-    let request_str = v8::String::new(scope, &request_json)
-        .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
+    // Create Request object using the Request constructor
+    // This ensures the request has proper prototype with headers.get() and other methods
+    let request_url = v8::String::new(scope, &handler_ctx.request.url().href()).unwrap();
+    
+    // Build options object with method and headers
+    let options_obj = v8::Object::new(scope);
+    
+    // Set method
+    let method_key = v8::String::new(scope, "method").unwrap();
+    let method_val = v8::String::new(scope, handler_ctx.request.method()).unwrap();
+    options_obj.set(scope, method_key.into(), method_val.into());
+    
+    // Set headers using Headers constructor
+    let headers_key = v8::String::new(scope, "headers").unwrap();
+    let headers_ctor_key = v8::String::new(scope, "Headers").unwrap();
+    let headers_ctor_val = global.get(scope, headers_ctor_key.into())
+        .filter(|v| v.is_function())
+        .ok_or_else(|| anyhow!("Headers constructor not found or not a function"))?;
+    let headers_ctor = headers_ctor_val.cast::<v8::Function>();
 
-    // Parse JSON to create proper JS object
-    let json_key = v8::String::new(scope, "JSON").unwrap();
-    let json_val = global.get(scope, json_key.into())
-        .ok_or_else(|| anyhow!("JSON not found"))?;
-    let json_obj = json_val.to_object(scope)
-        .ok_or_else(|| anyhow!("JSON is not an object"))?;
-    let parse_key = v8::String::new(scope, "parse").unwrap();
-    let parse_fn = json_obj.get(scope, parse_key.into())
-        .ok_or_else(|| anyhow!("JSON.parse not found"))?
-        .cast::<v8::Function>();
+    // Create headers init object
+    let headers_init = v8::Object::new(scope);
+    for (name, values) in handler_ctx.request.headers().entries() {
+        // For headers with multiple values, join them with commas per HTTP spec
+        let value = values.join(", ");
+        let key = v8::String::new(scope, name).unwrap();
+        let val = v8::String::new(scope, &value).unwrap();
+        headers_init.set(scope, key.into(), val.into());
+    }
 
-    let js_request = parse_fn.call(scope, json_val.into(), &[request_str.into()])
-        .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
+    let headers_obj = headers_ctor.new_instance(scope, &[headers_init.into()])
+        .ok_or_else(|| anyhow!("Failed to create Headers object"))?;
+    options_obj.set(scope, headers_key.into(), headers_obj.into());
 
-    // Call fetch function with parsed JS object
-    let result = fetch_fn.call(scope, global.into(), &[js_request.into()]);
+    // Set body if present (base64 encoded for proper handling in JS)
+    if let Some(body) = handler_ctx.request.body() {
+        let body_key = v8::String::new(scope, "body").unwrap();
+        let base64_body = base64::encode(body);
+        let body_val = v8::String::new(scope, &base64_body).unwrap();
+        options_obj.set(scope, body_key.into(), body_val.into());
+    }
+
+    // Call Request constructor
+    let request_ctor_key = v8::String::new(scope, "Request").unwrap();
+    let request_ctor_val = global.get(scope, request_ctor_key.into())
+        .filter(|v| v.is_function())
+        .ok_or_else(|| anyhow!("Request constructor not found or not a function"))?;
+    let request_ctor = request_ctor_val.cast::<v8::Function>();
+    
+    let js_request = request_ctor.new_instance(scope, &[request_url.into(), options_obj.into()])
+        .ok_or_else(|| anyhow!("Failed to create Request object"))?;
+
+    // Call the user's handler function with the request
+    let result = handler_fn.call(scope, global.into(), &[js_request.into()]);
 
     // Perform microtask checkpoint to resolve any Promises
     scope.perform_microtask_checkpoint();
@@ -154,57 +224,108 @@ fn execute_handler_in_context(
     v8_context: v8::Local<v8::Context>,
     handler_ctx: &HandlerContext,
 ) -> Result<NanoResponse> {
+    use crate::runtime::apis::RuntimeAPIs;
+    
     // Create scope stack for execution - must be dropped in reverse order
     let handle_scope = &mut v8::HandleScope::new(isolate);
     let context_scope = &mut v8::ContextScope::new(handle_scope, v8_context);
+    
+    // Bind all WinterCG APIs (URL, fetch, Request, etc.) to the context
+    RuntimeAPIs::bind_all(context_scope, v8_context);
+    tracing::debug!("Bound WinterCG APIs to handler context");
 
     // Read the handler code
     let code = fs::read_to_string(&handler_ctx.entrypoint)
         .map_err(|e| anyhow!("Failed to read entrypoint: {}", e))?;
+    
+    // Transform ES6 module syntax if this is an ESM module
+    use crate::v8::module::{is_esm_module, transform_module_code};
+    let transformed_code = if is_esm_module(&code) {
+        transform_module_code(&code)
+    } else {
+        code
+    };
 
-    // Compile and run script to define fetch function
-    let code_str = v8::String::new(context_scope, &code)
+    // Compile and run script to define handler function
+    let code_str = v8::String::new(context_scope, &transformed_code)
         .ok_or_else(|| anyhow!("Failed to create code string"))?;
     let script = v8::Script::compile(context_scope, code_str, None)
         .ok_or_else(|| anyhow!("Script compilation failed"))?;
     script.run(context_scope);
 
-    // Get global and look for fetch function
+    // Get global and look for the user's handler function
     let global = v8_context.global(context_scope);
-    let fetch_key = v8::String::new(context_scope, "fetch").unwrap();
-    let fetch_val = match global.get(context_scope, fetch_key.into()) {
-        Some(val) => val,
-        None => {
-            // No fetch function defined - return default response
-            return Ok(NanoResponse::ok()
-                .with_header("Content-Type", "text/plain")
-                .with_body("Handler executed (no fetch function defined)"));
+    let handler_key = v8::String::new(context_scope, "__nano_user_fetch").unwrap();
+    let handler_val = match global.get(context_scope, handler_key.into()) {
+        Some(val) if val.is_function() => val,
+        _ => {
+            // Fallback: try 'fetch' for non-ESM modules
+            let fetch_key = v8::String::new(context_scope, "fetch").unwrap();
+            match global.get(context_scope, fetch_key.into()) {
+                Some(val) if val.is_function() => val,
+                _ => {
+                    return Ok(NanoResponse::ok()
+                        .with_header("Content-Type", "text/plain")
+                        .with_body("Handler executed (no handler function defined)"));
+                }
+            }
         }
     };
 
-    let fetch_fn = fetch_val.cast::<v8::Function>();
+    let handler_fn = handler_val.cast::<v8::Function>();
 
-    // Create request object using full WinterCG serialization
-    let request_json = serialize_request_to_json(&handler_ctx.request);
-    let request_str = v8::String::new(context_scope, &request_json)
-        .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
+    // Create Request object using the Request constructor
+    let request_url = v8::String::new(context_scope, &handler_ctx.request.url().href()).unwrap();
+    
+    // Build options object with method and headers
+    let options_obj = v8::Object::new(context_scope);
+    
+    // Set method
+    let method_key = v8::String::new(context_scope, "method").unwrap();
+    let method_val = v8::String::new(context_scope, handler_ctx.request.method()).unwrap();
+    options_obj.set(context_scope, method_key.into(), method_val.into());
+    
+    // Set headers using Headers constructor
+    let headers_key = v8::String::new(context_scope, "headers").unwrap();
+    let headers_ctor_key = v8::String::new(context_scope, "Headers").unwrap();
+    let headers_ctor_val = global.get(context_scope, headers_ctor_key.into())
+        .filter(|v| v.is_function())
+        .ok_or_else(|| anyhow!("Headers constructor not found or not a function"))?;
+    let headers_ctor = headers_ctor_val.cast::<v8::Function>();
+    
+    // Create headers init object
+    let headers_init = v8::Object::new(context_scope);
+    for (name, values) in handler_ctx.request.headers().entries() {
+        let value = values.join(", ");
+        let key = v8::String::new(context_scope, name).unwrap();
+        let val = v8::String::new(context_scope, &value).unwrap();
+        headers_init.set(context_scope, key.into(), val.into());
+    }
+    
+    let headers_obj = headers_ctor.new_instance(context_scope, &[headers_init.into()])
+        .ok_or_else(|| anyhow!("Failed to create Headers object"))?;
+    options_obj.set(context_scope, headers_key.into(), headers_obj.into());
 
-    // Parse JSON to create proper JS object
-    let json_key = v8::String::new(context_scope, "JSON").unwrap();
-    let json_val = global.get(context_scope, json_key.into())
-        .ok_or_else(|| anyhow!("JSON not found"))?;
-    let json_obj = json_val.to_object(context_scope)
-        .ok_or_else(|| anyhow!("JSON is not an object"))?;
-    let parse_key = v8::String::new(context_scope, "parse").unwrap();
-    let parse_fn = json_obj.get(context_scope, parse_key.into())
-        .ok_or_else(|| anyhow!("JSON.parse not found"))?
-        .cast::<v8::Function>();
+            // Set body if present (base64 encoded for proper handling in JS)
+            if let Some(body) = handler_ctx.request.body() {
+                let body_key = v8::String::new(context_scope, "body").unwrap();
+                let base64_body = base64::encode(body);
+                let body_val = v8::String::new(context_scope, &base64_body).unwrap();
+                options_obj.set(context_scope, body_key.into(), body_val.into());
+            }
 
-    let js_request = parse_fn.call(context_scope, json_val.into(), &[request_str.into()])
-        .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
+            // Call Request constructor
+    let request_ctor_key = v8::String::new(context_scope, "Request").unwrap();
+    let request_ctor_val = global.get(context_scope, request_ctor_key.into())
+        .filter(|v| v.is_function())
+        .ok_or_else(|| anyhow!("Request constructor not found or not a function"))?;
+    let request_ctor = request_ctor_val.cast::<v8::Function>();
+    
+    let js_request = request_ctor.new_instance(context_scope, &[request_url.into(), options_obj.into()])
+        .ok_or_else(|| anyhow!("Failed to create Request object"))?;
 
-    // Call fetch function with parsed JS object
-    let result = fetch_fn.call(context_scope, global.into(), &[js_request.into()]);
+    // Call the user's handler function with the request
+    let result = handler_fn.call(context_scope, global.into(), &[js_request.into()]);
 
     // Perform microtask checkpoint to resolve any Promises
     context_scope.perform_microtask_checkpoint();
@@ -922,6 +1043,16 @@ impl SliverWorkerPool {
             let thread = thread::spawn(move || {
                 info!("SliverWorker {} starting for {}", id, worker_hostname);
 
+                // Create a Tokio runtime for this worker thread
+                // This runtime stays alive for the entire thread lifetime
+                let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+                
+                // Store runtime handle in thread-local for fetch() to use
+                let rt_handle = rt.handle().clone();
+                WORKER_RUNTIME.with(|runtime| {
+                    *runtime.borrow_mut() = Some(rt_handle);
+                });
+
                 // Create OOM monitor
                 let oom_monitor = if memory_limit_mb > 0 {
                     Some(
@@ -941,7 +1072,6 @@ impl SliverWorkerPool {
                 );
 
                 // Restore VFS entries from sliver before creating isolate
-                let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
                 if let Err(e) = rt.block_on(worker_sliver.restore_to_vfs(&vfs)) {
                     error!("Worker {} failed to restore VFS: {}", id, e);
                     // Continue anyway - the app might work without VFS data

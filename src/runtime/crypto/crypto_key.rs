@@ -18,6 +18,16 @@ pub enum AlgorithmIdentifier {
     AesGcm { length: u16 },
     /// HMAC message authentication
     Hmac { hash: HashAlgorithm, length: Option<u32> },
+    /// RSA-OAEP encryption
+    RsaOaep { hash: HashAlgorithm },
+    /// RSA-PSS signing
+    RsaPss { hash: HashAlgorithm, salt_length: Option<u32> },
+    /// RSASSA-PKCS1-v1_5 signing
+    RsaSsaPkcs1V1_5 { hash: HashAlgorithm },
+    /// ECDSA signing
+    Ecdsa { named_curve: String, hash: HashAlgorithm },
+    /// ECDH key agreement
+    Ecdh { named_curve: String },
 }
 
 impl AlgorithmIdentifier {
@@ -26,14 +36,20 @@ impl AlgorithmIdentifier {
         match self {
             AlgorithmIdentifier::AesGcm { .. } => "AES-GCM",
             AlgorithmIdentifier::Hmac { .. } => "HMAC",
+            AlgorithmIdentifier::RsaOaep { .. } => "RSA-OAEP",
+            AlgorithmIdentifier::RsaPss { .. } => "RSA-PSS",
+            AlgorithmIdentifier::RsaSsaPkcs1V1_5 { .. } => "RSASSA-PKCS1-v1_5",
+            AlgorithmIdentifier::Ecdsa { .. } => "ECDSA",
+            AlgorithmIdentifier::Ecdh { .. } => "ECDH",
         }
     }
-    
+
     /// Get the key length in bits, if applicable
     pub fn key_length(&self) -> Option<u16> {
         match self {
             AlgorithmIdentifier::AesGcm { length } => Some(*length),
             AlgorithmIdentifier::Hmac { length, .. } => length.map(|l| l as u16),
+            _ => None, // Asymmetric keys don't have fixed lengths
         }
     }
 }
@@ -121,7 +137,7 @@ impl KeyUsage {
 }
 
 /// Opaque handle to key material
-/// 
+///
 /// This enum wraps the actual key bytes. The key material is stored as raw bytes
 /// because ring's key types are not Send/Sync, but we need to move keys between threads.
 /// The bytes are zeroed when the key is dropped (security consideration T-09-01).
@@ -131,6 +147,14 @@ pub enum CryptoKeyHandle {
     AesGcmKey(Box<[u8]>),
     /// HMAC key material (variable length, at least hash output size per RFC 2104)
     HmacKey(Box<[u8]>),
+    /// RSA private key in PKCS#8 DER format
+    RsaPrivateKey(Vec<u8>),
+    /// RSA public key in SPKI DER format
+    RsaPublicKey(Vec<u8>),
+    /// ECDSA private key in PKCS#8 DER format
+    EcdsaPrivateKey(Vec<u8>),
+    /// ECDSA public key in SPKI DER format
+    EcdsaPublicKey(Vec<u8>),
 }
 
 impl CryptoKeyHandle {
@@ -139,14 +163,22 @@ impl CryptoKeyHandle {
         match self {
             CryptoKeyHandle::AesGcmKey(bytes) => bytes,
             CryptoKeyHandle::HmacKey(bytes) => bytes,
+            CryptoKeyHandle::RsaPrivateKey(bytes) => bytes,
+            CryptoKeyHandle::RsaPublicKey(bytes) => bytes,
+            CryptoKeyHandle::EcdsaPrivateKey(bytes) => bytes,
+            CryptoKeyHandle::EcdsaPublicKey(bytes) => bytes,
         }
     }
-    
+
     /// Get the algorithm type for this key handle
     pub fn algorithm_type(&self) -> &'static str {
         match self {
             CryptoKeyHandle::AesGcmKey(_) => "AES-GCM",
             CryptoKeyHandle::HmacKey(_) => "HMAC",
+            CryptoKeyHandle::RsaPrivateKey(_) => "RSA",
+            CryptoKeyHandle::RsaPublicKey(_) => "RSA",
+            CryptoKeyHandle::EcdsaPrivateKey(_) => "ECDSA",
+            CryptoKeyHandle::EcdsaPublicKey(_) => "ECDSA",
         }
     }
 }
@@ -157,6 +189,10 @@ impl Drop for CryptoKeyHandle {
         match self {
             CryptoKeyHandle::AesGcmKey(bytes) => bytes.zeroize(),
             CryptoKeyHandle::HmacKey(bytes) => bytes.zeroize(),
+            CryptoKeyHandle::RsaPrivateKey(bytes) => bytes.zeroize(),
+            CryptoKeyHandle::RsaPublicKey(bytes) => bytes.zeroize(),
+            CryptoKeyHandle::EcdsaPrivateKey(bytes) => bytes.zeroize(),
+            CryptoKeyHandle::EcdsaPublicKey(bytes) => bytes.zeroize(),
         }
     }
 }
@@ -197,11 +233,16 @@ impl CryptoKey {
         }
     }
     
-    /// Get the key type (always "secret" for symmetric algorithms)
+    /// Get the key type ("secret" for symmetric, "public" or "private" for asymmetric)
     pub fn key_type(&self) -> &'static str {
-        // For v1, only symmetric algorithms (AES-GCM, HMAC) are supported
-        // These always have type "secret"
-        "secret"
+        match self.handle.as_ref() {
+            CryptoKeyHandle::AesGcmKey(_) => "secret",
+            CryptoKeyHandle::HmacKey(_) => "secret",
+            CryptoKeyHandle::RsaPrivateKey(_) => "private",
+            CryptoKeyHandle::RsaPublicKey(_) => "public",
+            CryptoKeyHandle::EcdsaPrivateKey(_) => "private",
+            CryptoKeyHandle::EcdsaPublicKey(_) => "public",
+        }
     }
     
     /// Check if the key has a specific usage
@@ -212,6 +253,66 @@ impl CryptoKey {
     /// Check if the key can be used for a specific operation
     pub fn can(&self, usage: KeyUsage) -> bool {
         self.has_usage(usage)
+    }
+
+    /// Create a new RSA CryptoKey from a private key in PKCS#8 format
+    pub fn new_rsa_private(
+        algorithm: AlgorithmIdentifier,
+        private_key_pkcs8: Vec<u8>,
+        extractable: bool,
+        usages: Vec<KeyUsage>,
+    ) -> Self {
+        Self {
+            handle: Arc::new(CryptoKeyHandle::RsaPrivateKey(private_key_pkcs8)),
+            algorithm,
+            extractable,
+            usages,
+        }
+    }
+
+    /// Create a new RSA CryptoKey from a public key in SPKI format
+    pub fn new_rsa_public(
+        algorithm: AlgorithmIdentifier,
+        public_key_spki: Vec<u8>,
+        extractable: bool,
+        usages: Vec<KeyUsage>,
+    ) -> Self {
+        Self {
+            handle: Arc::new(CryptoKeyHandle::RsaPublicKey(public_key_spki)),
+            algorithm,
+            extractable,
+            usages,
+        }
+    }
+
+    /// Create a new ECDSA CryptoKey from a private key in PKCS#8 format
+    pub fn new_ecdsa_private(
+        algorithm: AlgorithmIdentifier,
+        private_key_pkcs8: Vec<u8>,
+        extractable: bool,
+        usages: Vec<KeyUsage>,
+    ) -> Self {
+        Self {
+            handle: Arc::new(CryptoKeyHandle::EcdsaPrivateKey(private_key_pkcs8)),
+            algorithm,
+            extractable,
+            usages,
+        }
+    }
+
+    /// Create a new ECDSA CryptoKey from a public key in SPKI format
+    pub fn new_ecdsa_public(
+        algorithm: AlgorithmIdentifier,
+        public_key_spki: Vec<u8>,
+        extractable: bool,
+        usages: Vec<KeyUsage>,
+    ) -> Self {
+        Self {
+            handle: Arc::new(CryptoKeyHandle::EcdsaPublicKey(public_key_spki)),
+            algorithm,
+            extractable,
+            usages,
+        }
     }
 }
 

@@ -15,6 +15,8 @@ pub mod crypto_key;
 pub mod subtle;
 pub mod aes_gcm;
 pub mod hmac;
+pub mod rsa;
+pub mod ecdsa;
 
 pub use crypto_key::{CryptoKey, CryptoKeyHandle, AlgorithmIdentifier, KeyUsage, HashAlgorithm, JwkObject};
 pub use subtle::SubtleCrypto;

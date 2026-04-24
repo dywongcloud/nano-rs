@@ -1699,13 +1699,17 @@ fn create_algorithm_js<'s>(
             let hash_name_val = v8::String::new(scope, hash.name()).unwrap();
             hash_obj.set(scope, hash_name_key.into(), hash_name_val.into());
             obj.set(scope, hash_key.into(), hash_obj.into());
-            
+
             // Set length if present
             if let Some(len) = length {
                 let length_key = v8::String::new(scope, "length").unwrap();
                 let length_val = v8::Number::new(scope, *len as f64);
                 obj.set(scope, length_key.into(), length_val.into());
             }
+        }
+        _ => {
+            // RSA and ECDSA algorithms - TODO: add specific properties
+            // For now, just return the algorithm name without extra properties
         }
     }
     

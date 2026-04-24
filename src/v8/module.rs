@@ -273,6 +273,11 @@ pub fn execute_classic_script<'a>(
         }
     };
 
+    if !fetch_val.is_function() {
+        return Ok(NanoResponse::ok()
+            .with_header("Content-Type", "text/plain")
+            .with_body("Handler executed (fetch is not a function)"));
+    }
     let fetch_fn = fetch_val.cast::<v8::Function>();
 
     // Create request object using full WinterCG serialization
@@ -287,9 +292,10 @@ pub fn execute_classic_script<'a>(
     let json_obj = json_val.to_object(scope)
         .ok_or_else(|| anyhow!("JSON is not an object"))?;
     let parse_key = v8::String::new(scope, "parse").unwrap();
-    let parse_fn = json_obj.get(scope, parse_key.into())
-        .ok_or_else(|| anyhow!("JSON.parse not found"))?
-        .cast::<v8::Function>();
+    let parse_val = json_obj.get(scope, parse_key.into())
+        .filter(|v| v.is_function())
+        .ok_or_else(|| anyhow!("JSON.parse not found or not a function"))?;
+    let parse_fn = parse_val.cast::<v8::Function>();
 
     let js_request = parse_fn.call(scope, json_val.into(), &[request_str.into()])
         .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
@@ -337,16 +343,17 @@ pub fn execute_classic_script<'a>(
 /// Transform ES6 module syntax to be compatible with V8 Script execution
 ///
 /// Converts `export default { fetch: ... }` to `var __nano_handler = { ... };`
-/// and extracts the fetch function to global scope.
+/// and extracts the fetch function to a separate global variable without
+/// overwriting the native fetch() API.
 pub fn transform_module_code(code: &str) -> String {
     // Check if this looks like ES6 module syntax with export default
     if code.contains("export default") {
         // Replace export default with var declaration
         let transformed = code.replace("export default", "var __nano_handler =");
 
-        // Add code to extract fetch to global scope at the end
-        // Use globalThis.fetch to ensure it's in the global scope
-        format!("{}\n\n// Extract fetch from exported handler\nvar fetch = undefined;\nif (typeof __nano_handler === 'object' && __nano_handler.fetch) {{\n    fetch = __nano_handler.fetch;\n}}", transformed)
+        // Add code to extract handler function to a SEPARATE global variable
+        // This preserves the native fetch() for external HTTP requests
+        format!("{}\n\n// Extract handler function from export\nvar __nano_user_fetch = undefined;\nif (typeof __nano_handler === 'object' && __nano_handler.fetch) {{\n    __nano_user_fetch = __nano_handler.fetch;\n}}", transformed)
     } else {
         // No transformation needed
         code.to_string()
@@ -821,7 +828,11 @@ mod tests {
         let esm = "export default { fetch: function() {} }";
         let transformed = transform_module_code(esm);
         assert!(transformed.contains("var __nano_handler ="));
-        assert!(transformed.contains("var fetch = __nano_handler.fetch"));
+        // Should extract handler to __nano_user_fetch (not overwrite native fetch)
+        assert!(transformed.contains("var __nano_user_fetch = undefined"));
+        assert!(transformed.contains("__nano_user_fetch = __nano_handler.fetch"));
+        // Should NOT overwrite native fetch
+        assert!(!transformed.contains("var fetch = __nano_handler.fetch"));
 
         // Should not transform regular code
         let script = "function fetch() { return 1; }";
