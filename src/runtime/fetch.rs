@@ -431,13 +431,29 @@ fn response_text_callback(
     mut retval: v8::ReturnValue,
 ) {
     let this = args.this();
+    // First try to get data from external response data (fetch() responses)
     if let Some(data) = get_response_data(scope, this) {
         let text = String::from_utf8_lossy(&data.body);
         let result = v8::String::new(scope, &text).unwrap();
         retval.set(result.into());
-    } else {
-        retval.set(v8::String::new(scope, "").unwrap().into());
+        return;
     }
+    
+    // Fall back to body property for manually created Response objects
+    let body_key = v8::String::new(scope, "body").unwrap();
+    if let Some(body_val) = this.get(scope, body_key.into()) {
+        if !body_val.is_null() && !body_val.is_undefined() {
+            if let Some(body_str) = body_val.to_string(scope) {
+                let text = body_str.to_rust_string_lossy(scope);
+                let result = v8::String::new(scope, &text).unwrap();
+                retval.set(result.into());
+                return;
+            }
+        }
+    }
+    
+    // Return empty string if no body
+    retval.set(v8::String::new(scope, "").unwrap().into());
 }
 
 /// Callback for Response.json()
@@ -447,16 +463,36 @@ fn response_json_callback(
     mut retval: v8::ReturnValue,
 ) {
     let this = args.this();
-    if let Some(data) = get_response_data(scope, this) {
-        let text = String::from_utf8_lossy(&data.body);
-        let json_str = v8::String::new(scope, &text).unwrap();
-        if let Some(json) = v8::json::parse(scope, json_str.into()) {
-            retval.set(json);
-        } else {
-            reject_with_error(scope, &mut retval, "Invalid JSON");
-        }
+    let text = if let Some(data) = get_response_data(scope, this) {
+        // Get data from external response data (fetch() responses)
+        String::from_utf8_lossy(&data.body).to_string()
     } else {
-        retval.set_undefined();
+        // Fall back to body property for manually created Response objects
+        let body_key = v8::String::new(scope, "body").unwrap();
+        if let Some(body_val) = this.get(scope, body_key.into()) {
+            if !body_val.is_null() && !body_val.is_undefined() {
+                if let Some(body_str) = body_val.to_string(scope) {
+                    body_str.to_rust_string_lossy(scope).to_string()
+                } else {
+                    retval.set_undefined();
+                    return;
+                }
+            } else {
+                retval.set_undefined();
+                return;
+            }
+        } else {
+            retval.set_undefined();
+            return;
+        }
+    };
+    
+    // Parse the JSON
+    let json_str = v8::String::new(scope, &text).unwrap();
+    if let Some(json) = v8::json::parse(scope, json_str.into()) {
+        retval.set(json);
+    } else {
+        reject_with_error(scope, &mut retval, "Invalid JSON");
     }
 }
 
@@ -467,17 +503,33 @@ fn response_arraybuffer_callback(
     mut retval: v8::ReturnValue,
 ) {
     let this = args.this();
-    if let Some(data) = get_response_data(scope, this) {
-        let ab = v8::ArrayBuffer::new(scope, data.body.len());
-        if let Some(data_ptr) = ab.data() {
-            let dest = unsafe { std::slice::from_raw_parts_mut(data_ptr.as_ptr() as *mut u8, data.body.len()) };
-            dest.copy_from_slice(&data.body);
-        }
-        retval.set(ab.into());
+    let body_bytes: Bytes = if let Some(data) = get_response_data(scope, this) {
+        // Get data from external response data (fetch() responses)
+        data.body.clone()
     } else {
-        let ab = v8::ArrayBuffer::new(scope, 0);
-        retval.set(ab.into());
+        // Fall back to body property for manually created Response objects
+        let body_key = v8::String::new(scope, "body").unwrap();
+        if let Some(body_val) = this.get(scope, body_key.into()) {
+            if !body_val.is_null() && !body_val.is_undefined() {
+                if let Some(body_str) = body_val.to_string(scope) {
+                    Bytes::from(body_str.to_rust_string_lossy(scope).into_bytes())
+                } else {
+                    Bytes::new()
+                }
+            } else {
+                Bytes::new()
+            }
+        } else {
+            Bytes::new()
+        }
+    };
+    
+    let ab = v8::ArrayBuffer::new(scope, body_bytes.len());
+    if let Some(data_ptr) = ab.data() {
+        let dest = unsafe { std::slice::from_raw_parts_mut(data_ptr.as_ptr() as *mut u8, body_bytes.len()) };
+        dest.copy_from_slice(&body_bytes);
     }
+    retval.set(ab.into());
 }
 
 /// Reject with an error
