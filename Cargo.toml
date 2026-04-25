@@ -67,8 +67,8 @@ pollster = "0.4"
 hyper = { version = "1.4", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["client", "tokio"] }
 http-body-util = "0.1"
-rustls = { version = "0.23", features = ["ring"] }
-tokio-rustls = "0.26"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 webpki-roots = "0.26"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
