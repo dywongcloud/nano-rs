@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Reference - NANO Documentation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        code, pre { font-family: 'JetBrains Mono', monospace; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-200">
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <a href="../index.html" class="flex items-center gap-2 text-white font-bold text-xl">
+                    <span class="text-blue-500 text-2xl">&#9670;</span>
+                    NANO
+                </a>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="quickstart.html" class="text-slate-400 hover:text-white transition">Quick Start</a>
+                    <a href="api.html" class="text-white">API</a>
+                    <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers</a>
+                    <a href="cli.html" class="text-slate-400 hover:text-white transition">CLI</a>
+                    <a href="runtime.html" class="text-slate-400 hover:text-white transition">Runtime</a>
+                    <a href="architecture.html" class="text-slate-400 hover:text-white transition">Architecture</a>
+                    <a href="../index.html" class="text-slate-400 hover:text-white transition">Home</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto">
+            <h1 class="text-4xl font-bold text-white mb-4">API Reference</h1>
+            <p class="text-lg text-slate-400 mb-8">Complete API documentation for NANO runtime</p>
+
+            <!-- WinterCG APIs -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">WinterCG APIs</h2>
+                <p class="text-slate-400 mb-4">NANO implements the WinterCG standard for edge runtimes.</p>
+                
+                <div class="bg-slate-900 rounded-lg border border-slate-800 overflow-hidden">
+                    <table class="w-full text-sm">
+                        <thead class="bg-slate-800">
+                            <tr>
+                                <th class="text-left px-4 py-3 text-white font-semibold">API</th>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Status</th>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800">
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">fetch()</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">HTTP client with request/response</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">Request</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">HTTP request object</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">Response</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">HTTP response object</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">Headers</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">HTTP headers map</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">URL</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">URL parsing</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">console</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">log, error, warn</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Continue to other API sections... -->
+            
+            <div class="mt-12 flex justify-between items-center">
+                <a href="quickstart.html" class="text-slate-400 hover:text-white transition">&larr; Quick Start</a>
+                <a href="slivers.html" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg font-semibold transition">Next: Slivers &rarr;</a>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 border-t border-slate-800 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center text-sm text-slate-500">
+                <p>&copy; 2026 nano-rs project. Released under MIT License.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

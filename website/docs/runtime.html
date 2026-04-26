@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Runtime - NANO Documentation</title>
+    <meta name="description" content="NANO runtime architecture and configuration documentation.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>body { font-family: 'Inter', sans-serif; } code, pre { font-family: 'JetBrains Mono', monospace; }</style>
+</head>
+<body class="bg-slate-950 text-slate-200">
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <a href="../index.html" class="flex items-center gap-2 text-white font-bold text-xl">
+                    <span class="text-blue-500 text-2xl">&#9670;</span>
+                    NANO
+                </a>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="quickstart.html" class="text-slate-400 hover:text-white transition">Quick Start</a>
+                    <a href="api.html" class="text-slate-400 hover:text-white transition">API</a>
+                    <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers</a>
+                    <a href="cli.html" class="text-slate-400 hover:text-white transition">CLI</a>
+                    <a href="runtime.html" class="text-white">Runtime</a>
+                    <a href="architecture.html" class="text-slate-400 hover:text-white transition">Architecture</a>
+                    <a href="../index.html" class="text-slate-400 hover:text-white transition">Home</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto">
+            <h1 class="text-4xl font-bold text-white mb-4">Runtime</h1>
+            <p class="text-lg text-slate-400 mb-8">Understanding NANO runtime configuration and behavior</p>
+
+            <!-- Configuration -->
+            <section class="mb-10">
+                <h2 class="text-2xl font-semibold text-white mb-4">Configuration</h2>
+                <p class="text-slate-400 mb-4">NANO uses JSON configuration files to define the runtime behavior.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">nano.json</div>
+                    <div class="p-4 overflow-x-auto">
+                        <pre class="text-sm text-slate-300">{
+  "port": 8080,
+  "workers": 4,
+  "apps": [
+    {
+      "name": "my-app",
+      "entry": "app.js",
+      "domain": "app.example.com"
+    }
+  ],
+  "slivers": {
+    "enabled": true,
+    "cache_size": 100
+  }
+}</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Worker Pool -->
+            <section class="mb-10">
+                <h2 class="text-2xl font-semibold text-white mb-4">Worker Pool</h2>
+                <p class="text-slate-400 mb-4">NANO uses a worker pool to handle incoming requests efficiently.</p>
+                
+                <div class="bg-slate-800/50 rounded-lg p-6 mb-4">
+                    <h3 class="text-lg font-semibold text-white mb-2">Configuration</h3>
+                    <pre class="text-sm text-slate-300">{
+  "workers": 4,        // Number of worker threads
+  "queue_size": 1000,  // Max queue size for pending requests
+  "timeout": 30000     // Request timeout in milliseconds
+}</pre>
+                </div>
+                
+                <p class="text-slate-400">Each worker maintains a thread-local isolate for fast context switching between requests.</p>
+            </section>
+
+            <!-- Performance -->
+            <section class="mb-10">
+                <h2 class="text-2xl font-semibold text-white mb-4">Performance Tuning</h2>
+                
+                <div class="space-y-4">
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                        <h3 class="text-lg font-semibold text-white mb-2">Memory</h3>
+                        <p class="text-slate-400 text-sm mb-2">Configure heap limits and memory pooling.</p>
+                        <pre class="text-sm text-slate-300">{
+  "memory": {
+    "heap_limit": 128,      // MB per isolate
+    "pool_size": 10,        // Pre-warmed isolates
+    "gc_threshold": 0.8     // Trigger GC at 80% usage
+  }
+}</pre>
+                    </div>
+                    
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                        <h3 class="text-lg font-semibold text-white mb-2">Slivers</h3>
+                        <p class="text-slate-400 text-sm mb-2">Enable and configure sliver snapshots for cold starts.</p>
+                        <pre class="text-sm text-slate-300">{
+  "slivers": {
+    "enabled": true,
+    "cache_size": 100,      // Max slivers to cache
+    "compression": "lz4",   // Compression algorithm
+    "auto_create": true    // Auto-create slivers on deploy
+  }
+}</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Navigation -->
+            <div class="flex justify-between items-center mt-12">
+                <a href="cli.html" class="text-slate-400 hover:text-white transition">&larr; CLI</a>
+                <a href="architecture.html" class="text-slate-400 hover:text-white transition">Architecture &rarr;</a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-slate-900 border-t border-slate-800 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center text-sm text-slate-500">
+                <p>&copy; 2026 nano-rs project. Released under MIT License.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

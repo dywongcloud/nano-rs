@@ -194,6 +194,147 @@ NANO_BINARY=/path/to/nano-rs node scripts/run-tests.js
 
 All tests pass at 100%.
 
+## Compatibility Polyfills
+
+The `nano-compat` library provides drop-in polyfills for APIs with workarounds.
+
+**Location:** `/Users/gleicon/code/js/nano-rs-test-suite/nano-compat/`
+
+**Structure:**
+- `index.mjs` - Main entry point (exports all modules)
+- `patch.mjs` - Global patch (import once to fix all issues)
+- `response.mjs` - Response.redirect() and related utilities
+- `headers.mjs` - Headers to object conversion
+- `json.mjs` - Safe JSON.stringify with Promise handling
+- `url.mjs` - URLSearchParams utilities
+- `timers.mjs` - setImmediate/clearImmediate polyfills
+- `env.mjs` - Environment variable access
+- `package.json` - Package configuration
+- `README.md` - Complete documentation
+
+### Installation
+
+Copy `nano-compat/` directory to your project:
+
+```bash
+cp -r /path/to/nano-compat ./nano-compat
+```
+
+Or from the test suite:
+
+```bash
+cp -r /Users/gleicon/code/js/nano-rs-test-suite/nano-compat ./nano-compat
+```
+
+### Usage
+
+#### Option 1: Global Patch (Recommended - Zero Code Changes)
+
+Import once at the top of your worker to patch global objects:
+
+```javascript
+// At the very top of your worker file
+import 'nano-compat/patch';
+
+// Now everything works natively - NO code changes needed!
+export default {
+  async fetch(request) {
+    // Response.redirect works
+    if (url.pathname === '/old') {
+      return Response.redirect('/new', 301); // Works!
+    }
+    
+    // Object.fromEntries works with Headers
+    const headers = Object.fromEntries(request.headers);
+    
+    // JSON.stringify works with Promises
+    const data = { users: fetchUsers() };
+    return new Response(JSON.stringify(data));
+  }
+};
+```
+
+**This is the recommended approach** - it patches global objects so your existing code works without any changes.
+
+#### Option 2: Named Imports (Explicit Control)
+
+Import specific polyfills without modifying globals:
+
+```javascript
+import { 
+  Response, 
+  headersToObject, 
+  safeStringify,
+  searchParamsToObject,
+  setImmediate
+} from 'nano-compat';
+
+export default {
+  async fetch(request) {
+    // Use polyfill functions directly
+    if (url.pathname === '/old') {
+      return Response.redirect('/new', 301);
+    }
+    
+    // Convert headers safely
+    const headers = headersToObject(request.headers);
+    
+    // Stringify with Promise resolution
+    const data = { users: fetchUsers() };
+    const json = await safeStringify(data);
+    
+    // URL params with auto-decode
+    const url = new URL(request.url);
+    const params = searchParamsToObject(url.searchParams);
+    
+    // Timers
+    setImmediate(() => console.log('Next tick'));
+    
+    return new Response(json, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+};
+```
+
+#### Option 3: Specific Module Imports (Tree Shaking)
+
+Import only the modules you need:
+
+```javascript
+// Only import response utilities
+import { redirect } from 'nano-compat/response';
+
+// Only import headers utilities  
+import { toObject } from 'nano-compat/headers';
+
+// Only import JSON utilities
+import { safeStringify } from 'nano-compat/json';
+
+// Only import URL utilities
+import { searchParamsToObject } from 'nano-compat/url';
+
+// Only import timer utilities
+import { setImmediate, clearImmediate } from 'nano-compat/timers';
+
+// Only import env utilities
+import { getEnv } from 'nano-compat/env';
+```
+
+### Module Reference
+
+| Import | Provides | Use Case |
+|--------|----------|----------|
+| `nano-compat/patch` | Global patches | One import fixes all issues |
+| `nano-compat` | All utilities | Import specific functions |
+| `nano-compat/response` | Response utilities | Response.redirect(), etc. |
+| `nano-compat/headers` | Headers utilities | Headers to object conversion |
+| `nano-compat/json` | JSON utilities | Safe stringify with Promises |
+| `nano-compat/url` | URL utilities | SearchParams helpers |
+| `nano-compat/timers` | Timer polyfills | setImmediate, nextTick |
+| `nano-compat/env` | Environment utilities | Config access |
+
 ## License
 
 MIT License - See LICENSE file for details.
+

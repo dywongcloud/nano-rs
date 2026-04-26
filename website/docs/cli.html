@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLI Reference - NANO Documentation</title>
+    <meta name="description" content="Complete command-line interface documentation for NANO runtime.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>body { font-family: 'Inter', sans-serif; } code, pre { font-family: 'JetBrains Mono', monospace; }</style>
+</head>
+<body class="bg-slate-950 text-slate-200">
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <a href="../index.html" class="flex items-center gap-2 text-white font-bold text-xl">
+                    <span class="text-blue-500 text-2xl">&#9670;</span>
+                    NANO
+                </a>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="quickstart.html" class="text-slate-400 hover:text-white transition">Quick Start</a>
+                    <a href="api.html" class="text-slate-400 hover:text-white transition">API</a>
+                    <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers</a>
+                    <a href="cli.html" class="text-white">CLI</a>
+                    <a href="runtime.html" class="text-slate-400 hover:text-white transition">Runtime</a>
+                    <a href="architecture.html" class="text-slate-400 hover:text-white transition">Architecture</a>
+                    <a href="../index.html" class="text-slate-400 hover:text-white transition">Home</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto">
+            <h1 class="text-4xl font-bold text-white mb-4">CLI Reference</h1>
+            <p class="text-lg text-slate-400 mb-8">Complete command-line interface for managing NANO runtime and applications</p>
+
+            <!-- Overview -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Overview</h2>
+                <p class="text-slate-400 mb-4">The NANO CLI provides commands for running the server, managing applications, and creating sliver snapshots.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Usage</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">nano-rs [OPTIONS] &lt;COMMAND&gt;
+
+Commands:
+  run     Run the NANO server
+  app     Application management
+  sliver  Sliver snapshot management
+  help    Print this message or help for given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Run Command -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">nano-rs run</h2>
+                <p class="text-slate-400 mb-4">Run the NANO server with the specified configuration.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Options</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">-c, --config &lt;FILE&gt;    Configuration file path [default: nano.json]
+-p, --port &lt;PORT&gt;      Override port from config
+-w, --workers &lt;N&gt;      Number of worker threads
+-d, --debug            Enable debug logging
+-h, --help             Print help</pre>
+                    </div>
+                </div>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Example</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300"># Run with default config
+nano-rs run
+
+# Run with custom config and port
+nano-rs run --config production.json --port 8080
+
+# Run with debug logging
+nano-rs run --debug</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- App Commands -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">nano-rs app</h2>
+                <p class="text-slate-400 mb-4">Manage deployed applications.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Subcommands</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">app deploy    Deploy a new application
+app list      List all applications
+app info      Show application details
+app remove    Remove an application
+app restart   Restart an application</pre>
+                    </div>
+                </div>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Example: Deploy an app</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300"># Deploy from a directory
+nano-rs app deploy ./my-app --name my-app --domain app.example.com
+
+# Deploy from a sliver
+nano-rs app deploy --sliver my-app-v1.0 --name my-app</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sliver Commands -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">nano-rs sliver</h2>
+                <p class="text-slate-400 mb-4">Manage sliver snapshots for fast cold starts.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Subcommands</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">sliver create    Create a sliver snapshot
+sliver list      List all slivers
+sliver info      Show sliver details
+sliver delete    Delete a sliver</pre>
+                    </div>
+                </div>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Example: Create a sliver</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300"># Create from a running app
+nano-rs sliver create localhost --name my-app --tag v1.0
+
+# Create from a directory
+nano-rs sliver create ./my-app --name my-app --tag v1.0
+
+# List all slivers
+nano-rs sliver list --verbose</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Navigation -->
+            <div class="flex justify-between items-center mt-12">
+                <a href="slivers.html" class="text-slate-400 hover:text-white transition">&larr; Slivers</a>
+                <a href="runtime.html" class="text-slate-400 hover:text-white transition">Runtime &rarr;</a>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 border-t border-slate-800 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center text-sm text-slate-500">
+                <p>&copy; 2026 nano-rs project. Released under MIT License.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

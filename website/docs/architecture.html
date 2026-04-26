@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture - NANO Documentation</title>
+    <meta name="description" content="NANO architecture overview with V8 isolates, worker pools, and sliver snapshots.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>body { font-family: 'Inter', sans-serif; } code, pre { font-family: 'JetBrains Mono', monospace; }</style>
+</head>
+<body class="bg-slate-950 text-slate-200">
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <a href="../index.html" class="flex items-center gap-2 text-white font-bold text-xl">
+                    <span class="text-blue-500 text-2xl">&#9670;</span>
+                    NANO
+                </a>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="quickstart.html" class="text-slate-400 hover:text-white transition">Quick Start</a>
+                    <a href="api.html" class="text-slate-400 hover:text-white transition">API</a>
+                    <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers</a>
+                    <a href="cli.html" class="text-slate-400 hover:text-white transition">CLI</a>
+                    <a href="runtime.html" class="text-slate-400 hover:text-white transition">Runtime</a>
+                    <a href="architecture.html" class="text-white">Architecture</a>
+                    <a href="../index.html" class="text-slate-400 hover:text-white transition">Home</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto">
+            <h1 class="text-4xl font-bold text-white mb-4">Architecture</h1>
+            <p class="text-lg text-slate-400 mb-8">Understanding how NANO works under the hood</p>
+
+            <!-- High Level -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">High-Level Architecture</h2>
+                <p class="text-slate-400 mb-6">NANO consists of a Rust-based runtime that embeds V8 to execute JavaScript in isolated environments.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg p-6 font-mono text-sm text-slate-300">
+                    <pre>  [Client Request]
+         |
+         v
+  [HTTP Router]  -->  [App Registry]
+         |                    |
+         v                    v
+  [Worker Pool]  <--  [Isolate Cache]
+         |
+         v
+  [V8 Isolate]  -->  [JavaScript Execution]</pre>
+                </div>
+            </section>
+
+            <!-- V8 Isolates -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">V8 Isolates</h2>
+                <p class="text-slate-400 mb-4">Each application runs in its own V8 isolate, providing complete isolation from other applications while sharing the same OS process.</p>
+                
+                <div class="bg-slate-800/50 rounded-lg p-6 mb-4">
+                    <h3 class="text-lg font-semibold text-white mb-2">Isolate Properties</h3>
+                    <ul class="space-y-2 text-sm text-slate-400">
+                        <li><strong class="text-slate-300">Memory limit:</strong> Configurable heap size per isolate</li>
+                        <li><strong class="text-slate-300">Context reset:</strong> ~5ms between requests (not full recreate)</li>
+                        <li><strong class="text-slate-300">Thread-local:</strong> Isolates never move between threads</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Sliver Snapshots -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Sliver Snapshots</h2>
+                <p class="text-slate-400 mb-4">Slivers enable sub-millisecond cold starts by serializing the pre-initialized V8 isolate state.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Sliver Creation Process</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">1. Create fresh V8 isolate
+2. Load JavaScript bundle into isolate
+3. Execute initialization code
+4. Serialize isolate state to file
+5. Compress and store as sliver
+
+Result: 267ms cold start becomes 267us</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Worker Pool -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Worker Pool</h2>
+                <p class="text-slate-400 mb-4">The worker pool manages concurrent request handling with thread-local isolates.</p>
+                
+                <div class="bg-slate-800/50 rounded-lg p-6 mb-4">
+                    <h3 class="text-lg font-semibold text-white mb-2">Request Flow</h3>
+                    <ol class="space-y-2 text-sm text-slate-400 list-decimal list-inside">
+                        <li>HTTP request arrives at router</li>
+                        <li>Router determines target app from hostname/path</li>
+                        <li>Request is queued for worker pool</li>
+                        <li>Available worker picks up request</li>
+                        <li>Worker resets isolate context (~5ms)</li>
+                        <li>JavaScript handler executes</li>
+                        <li>Response is returned to client</li>
+                    </ol>
+                </div>
+            </section>
+
+            <!-- Navigation -->
+            <div class="flex justify-between items-center mt-12">
+                <a href="runtime.html" class="text-slate-400 hover:text-white transition">&larr; Runtime</a>
+                <a href="../index.html" class="text-slate-400 hover:text-white transition">Home &rarr;</a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-slate-900 border-t border-slate-800 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center text-sm text-slate-500">
+                <p>&copy; 2026 nano-rs project. Released under MIT License.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
