@@ -409,7 +409,7 @@ fn fetch_callback(
 }
 
 /// Helper to get response data from JavaScript object
-fn get_response_data(
+pub fn get_response_data(
     scope: &mut v8::HandleScope,
     this: v8::Local<v8::Object>,
 ) -> Option<&'static ResponseBodyData> {
@@ -425,7 +425,7 @@ fn get_response_data(
 }
 
 /// Callback for Response.text()
-fn response_text_callback(
+pub fn response_text_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
@@ -457,7 +457,7 @@ fn response_text_callback(
 }
 
 /// Callback for Response.json()
-fn response_json_callback(
+pub fn response_json_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
@@ -497,7 +497,7 @@ fn response_json_callback(
 }
 
 /// Callback for Response.arrayBuffer()
-fn response_arraybuffer_callback(
+pub fn response_arraybuffer_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,

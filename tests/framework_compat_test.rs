@@ -6,6 +6,15 @@
 use nano::runtime::{HandlerContext, execute_handler};
 use nano::http::{NanoRequest, NanoUrl, NanoHeaders};
 use nano::v8::{initialize_platform, NanoIsolate};
+use std::sync::Once;
+
+static INIT: Once = Once::new();
+
+fn init_platform() {
+    INIT.call_once(|| {
+        initialize_platform().expect("Failed to initialize V8 platform");
+    });
+}
 
 /// Loads a test fixture file from tests/fixtures/frameworks/
 fn load_fixture(name: &str) -> String {
@@ -26,7 +35,7 @@ fn create_temp_js_file(fixture_name: &str) -> std::path::PathBuf {
 
 #[tokio::test]
 async fn test_generic_wintercg_app_root_route() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("generic-wintercg-app");
@@ -68,7 +77,7 @@ async fn test_generic_wintercg_app_root_route() {
 
 #[tokio::test]
 async fn test_generic_wintercg_app_health_route() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("generic-wintercg-app");
@@ -95,7 +104,7 @@ async fn test_generic_wintercg_app_health_route() {
 
 #[tokio::test]
 async fn test_generic_wintercg_app_api_data_route() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("generic-wintercg-app");
@@ -122,7 +131,7 @@ async fn test_generic_wintercg_app_api_data_route() {
 
 #[tokio::test]
 async fn test_generic_wintercg_app_404() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("generic-wintercg-app");
@@ -149,7 +158,7 @@ async fn test_generic_wintercg_app_404() {
 
 #[tokio::test]
 async fn test_hono_style_app_root_route() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("hono-app");
@@ -192,7 +201,7 @@ async fn test_hono_style_app_root_route() {
 
 #[tokio::test]
 async fn test_hono_style_app_about_route() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("hono-app");
@@ -219,7 +228,7 @@ async fn test_hono_style_app_about_route() {
 
 #[tokio::test]
 async fn test_hono_style_app_404() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("hono-app");

@@ -5,6 +5,15 @@
 use nano::runtime::{HandlerContext, execute_handler};
 use nano::http::{NanoRequest, NanoUrl, NanoHeaders};
 use nano::v8::{initialize_platform, NanoIsolate};
+use std::sync::Once;
+
+static INIT: Once = Once::new();
+
+fn init_platform() {
+    INIT.call_once(|| {
+        initialize_platform().expect("Failed to initialize V8 platform");
+    });
+}
 
 fn load_fixture(name: &str) -> String {
     let path = format!("tests/fixtures/frameworks/{}.js", name);
@@ -23,7 +32,7 @@ fn create_temp_js_file(fixture_name: &str) -> std::path::PathBuf {
 
 #[tokio::test]
 async fn test_astro_home_page_renders_islands() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("astro-islands-app");
@@ -54,7 +63,7 @@ async fn test_astro_home_page_renders_islands() {
 
 #[tokio::test]
 async fn test_astro_gallery_page_carousel() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("astro-islands-app");
@@ -81,7 +90,7 @@ async fn test_astro_gallery_page_carousel() {
 
 #[tokio::test]
 async fn test_astro_404() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("astro-islands-app");
@@ -108,7 +117,7 @@ async fn test_astro_404() {
 
 #[tokio::test]
 async fn test_astro_image_assets() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("astro-islands-app");
@@ -149,7 +158,7 @@ async fn test_astro_image_assets() {
 
 #[tokio::test]
 async fn test_astro_island_hydration_strategy_markers() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("astro-islands-app");
@@ -176,7 +185,7 @@ async fn test_astro_island_hydration_strategy_markers() {
 
 #[tokio::test]
 async fn test_astro_server_rendered_content() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("astro-islands-app");

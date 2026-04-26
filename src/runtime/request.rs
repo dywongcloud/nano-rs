@@ -155,8 +155,14 @@ fn request_constructor_callback(
     
     // Set body and bodyUsed
     let body_key = v8::String::new(scope, "body").unwrap();
+    // Check if body_val exists AND is not undefined/null
     if let Some(body) = body_val {
-        instance.set(scope, body_key.into(), body.into());
+        if !body.is_null() && !body.is_undefined() {
+            instance.set(scope, body_key.into(), body.into());
+        } else {
+            let null_val = v8::null(scope);
+            instance.set(scope, body_key.into(), null_val.into());
+        }
     } else {
         let null_val = v8::null(scope);
         instance.set(scope, body_key.into(), null_val.into());

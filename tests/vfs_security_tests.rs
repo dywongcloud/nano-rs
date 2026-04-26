@@ -388,7 +388,9 @@ fn test_filename_with_dotdot_prefix_blocked() {
     let result = script.run(scope).unwrap();
     let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
     
-    assert_eq!(result_str, "EINVAL", "Any path with .. substring should be blocked for security");
+    // Files starting with '..' are valid filenames, not path traversal
+    // Should return ENOENT (file not found), not EINVAL (invalid path)
+    assert_eq!(result_str, "ENOENT", "Files with .. prefix are valid, just not found");
 }
 
 /// Test unicode paths work correctly

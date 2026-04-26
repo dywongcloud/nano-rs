@@ -61,8 +61,11 @@ pub fn execute_handler_with_context(
     let code = fs::read_to_string(&context.entrypoint)
         .map_err(|e| anyhow!("Failed to read entrypoint '{}': {}", context.entrypoint, e))?;
 
+    // Check if this is an ESM module before consuming code
+    let is_esm = is_esm_module(&code);
+    
     // Transform ES6 module syntax only if this is an ESM module
-    let transformed_code = if is_esm_module(&code) {
+    let transformed_code = if is_esm {
         transform_module_code(&code)
     } else {
         code
@@ -91,14 +94,29 @@ pub fn execute_handler_with_context(
     script.run(scope);
 
     // Look for the fetch function on global scope
-    let fetch_key = v8::String::new(scope, "fetch").unwrap();
-    let fetch_val = match global.get(scope, fetch_key.into()) {
-        Some(val) if !val.is_undefined() && !val.is_null() => val,
-        _ => {
-            // Return a default response for now - handler doesn't define fetch
-            return Ok(NanoResponse::ok()
-                .with_header("Content-Type", "text/plain")
-                .with_body("Handler executed (no fetch function defined)"));
+    // For ESM modules, check __nano_user_fetch first (set by transform_module_code)
+    let fetch_val = if is_esm {
+        let fetch_key = v8::String::new(scope, "__nano_user_fetch").unwrap();
+        global.get(scope, fetch_key.into())
+            .filter(|val| !val.is_undefined() && !val.is_null())
+    } else {
+        None
+    };
+    
+    let fetch_val = match fetch_val {
+        Some(val) => val,
+        None => {
+            // Fall back to checking for global fetch function
+            let fetch_key = v8::String::new(scope, "fetch").unwrap();
+            match global.get(scope, fetch_key.into()) {
+                Some(val) if !val.is_undefined() && !val.is_null() => val,
+                _ => {
+                    // Return a default response for now - handler doesn't define fetch
+                    return Ok(NanoResponse::ok()
+                        .with_header("Content-Type", "text/plain")
+                        .with_body("Handler executed (no fetch function defined)"));
+                }
+            }
         }
     };
 
@@ -165,8 +183,11 @@ fn execute_in_v8(
     use crate::runtime::vfs_bindings;
     use crate::v8::module::{is_esm_module, transform_module_code};
     
+    // Check if this is an ESM module first
+    let is_esm = is_esm_module(code);
+    
     // Transform ES6 module syntax to V8-compatible code if needed
-    let transformed_code = if is_esm_module(code) {
+    let transformed_code = if is_esm {
         transform_module_code(code)
     } else {
         code.to_string()
@@ -201,14 +222,29 @@ fn execute_in_v8(
     script.run(scope);
 
     // Look for the fetch function on global scope
-    let fetch_key = v8::String::new(scope, "fetch").unwrap();
-    let fetch_val = match global.get(scope, fetch_key.into()) {
-        Some(val) if !val.is_undefined() && !val.is_null() => val,
-        _ => {
-            // Return a default response for now - handler doesn't define fetch
-            return Ok(NanoResponse::ok()
-                .with_header("Content-Type", "text/plain")
-                .with_body("Handler executed (no fetch function defined)"));
+    // For ESM modules, check __nano_user_fetch first (set by transform_module_code)
+    let fetch_val = if is_esm {
+        let fetch_key = v8::String::new(scope, "__nano_user_fetch").unwrap();
+        global.get(scope, fetch_key.into())
+            .filter(|val| !val.is_undefined() && !val.is_null())
+    } else {
+        None
+    };
+    
+    let fetch_val = match fetch_val {
+        Some(val) => val,
+        None => {
+            // Fall back to checking for global fetch function
+            let fetch_key = v8::String::new(scope, "fetch").unwrap();
+            match global.get(scope, fetch_key.into()) {
+                Some(val) if !val.is_undefined() && !val.is_null() => val,
+                _ => {
+                    // Return a default response for now - handler doesn't define fetch
+                    return Ok(NanoResponse::ok()
+                        .with_header("Content-Type", "text/plain")
+                        .with_body("Handler executed (no fetch function defined)"));
+                }
+            }
         }
     };
 
@@ -322,14 +358,45 @@ pub fn extract_js_response(
 
     // Extract status property (default to 200)
     let status_key = v8::String::new(scope, "status").unwrap();
-    let status = match obj.get(scope, status_key.into()) {
+    let status_val_opt = obj.get(scope, status_key.into());
+    let status = match status_val_opt {
         Some(val) if !val.is_null() && !val.is_undefined() => {
+            tracing::info!("Status value found: is_number={}, is_int32={}, to_integer={:?}",
+                val.is_number(), val.is_int32(), val.to_integer(scope).map(|i| i.value()));
             match val.to_integer(scope) {
-                Some(int) => int.value() as u16,
-                None => 200,
+                Some(int) => {
+                    let s = int.value() as u16;
+                    tracing::info!("Status extracted from integer: {}", s);
+                    s
+                }
+                None => {
+                    // Try to_number as fallback
+                    match val.to_number(scope) {
+                        Some(num) => {
+                            let s = num.value() as u16;
+                            tracing::info!("Status extracted from number: {}", s);
+                            s
+                        }
+                        None => {
+                            tracing::warn!("Failed to convert status to number, defaulting to 200");
+                            200
+                        }
+                    }
+                }
             }
         }
-        _ => 200,
+        Some(val) if val.is_null() => {
+            tracing::info!("Status value is null, defaulting to 200");
+            200
+        }
+        Some(val) if val.is_undefined() => {
+            tracing::info!("Status value is undefined, defaulting to 200");
+            200
+        }
+        _ => {
+            tracing::info!("Status property not found, defaulting to 200");
+            200
+        }
     };
 
     // Extract headers property
@@ -376,14 +443,37 @@ pub fn extract_js_response(
     let body_key = v8::String::new(scope, "body").unwrap();
     let body = match obj.get(scope, body_key.into()) {
         Some(val) if !val.is_null() && !val.is_undefined() => {
+            tracing::debug!("Response body value: type check - is_string={}, is_object={}, is_array={}", 
+                val.is_string(), val.is_object(), val.is_array());
             match val.to_string(scope) {
-                Some(s) => Some(Bytes::from(s.to_rust_string_lossy(scope))),
-                None => None,
+                Some(s) => {
+                    let body_str = s.to_rust_string_lossy(scope);
+                    tracing::info!("Extracted response body: {} bytes", body_str.len());
+                    Some(Bytes::from(body_str))
+                }
+                None => {
+                    tracing::warn!("Failed to convert response body to string");
+                    None
+                }
             }
         }
-        _ => None,
+        Some(val) if val.is_null() => {
+            tracing::debug!("Response body is null");
+            None
+        }
+        Some(val) if val.is_undefined() => {
+            tracing::debug!("Response body is undefined");
+            None
+        }
+        _ => {
+            tracing::warn!("Response body property not found or not accessible");
+            None
+        }
     };
 
+    tracing::info!("Final NanoResponse: status={}, has_body={}, body_len={}", 
+        status, body.is_some(), body.as_ref().map(|b| b.len()).unwrap_or(0));
+    
     Ok(NanoResponse::new(status, nano_headers, body))
 }
 

@@ -5,6 +5,15 @@
 use nano::runtime::{HandlerContext, execute_handler};
 use nano::http::{NanoRequest, NanoUrl, NanoHeaders};
 use nano::v8::{initialize_platform, NanoIsolate};
+use std::sync::Once;
+
+static INIT: Once = Once::new();
+
+fn init_platform() {
+    INIT.call_once(|| {
+        initialize_platform().expect("Failed to initialize V8 platform");
+    });
+}
 
 fn load_fixture(name: &str) -> String {
     let path = format!("tests/fixtures/frameworks/{}.js", name);
@@ -23,7 +32,7 @@ fn create_temp_js_file(fixture_name: &str) -> std::path::PathBuf {
 
 #[tokio::test]
 async fn test_nextjs_home_page() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("nextjs-static-app");
@@ -58,7 +67,7 @@ async fn test_nextjs_home_page() {
 
 #[tokio::test]
 async fn test_nextjs_about_page() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("nextjs-static-app");
@@ -85,7 +94,7 @@ async fn test_nextjs_about_page() {
 
 #[tokio::test]
 async fn test_nextjs_blog_post() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("nextjs-static-app");
@@ -112,7 +121,7 @@ async fn test_nextjs_blog_post() {
 
 #[tokio::test]
 async fn test_nextjs_404() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("nextjs-static-app");
@@ -143,7 +152,7 @@ async fn test_nextjs_404() {
 
 #[tokio::test]
 async fn test_nextjs_static_css_asset() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("nextjs-static-app");
@@ -174,7 +183,7 @@ async fn test_nextjs_static_css_asset() {
 
 #[tokio::test]
 async fn test_nextjs_static_js_asset() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("nextjs-static-app");

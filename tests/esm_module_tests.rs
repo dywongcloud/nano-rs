@@ -49,7 +49,8 @@ fn test_transform_module_code() {
     let esm = "export default { fetch: function() {} }";
     let transformed = transform_module_code(esm);
     assert!(transformed.contains("var __nano_handler ="));
-    assert!(transformed.contains("var fetch = __nano_handler.fetch"));
+    assert!(transformed.contains("var __nano_user_fetch"));
+    assert!(transformed.contains("__nano_user_fetch = __nano_handler.fetch"));
 
     // Should not transform regular code
     let script = "function fetch() { return 1; }";
@@ -67,7 +68,7 @@ fn test_fixture_export_default_fetch() {
     // Should be transformable
     let transformed = transform_module_code(&code);
     assert!(transformed.contains("var __nano_handler ="));
-    assert!(transformed.contains("var fetch = __nano_handler.fetch"));
+    assert!(transformed.contains("var __nano_user_fetch"));
 }
 
 #[test]
@@ -187,12 +188,12 @@ fn test_esm_transformed_code_runs() {
     let script = v8::Script::compile(scope, code_str, None).unwrap();
     script.run(scope);
 
-    // Get global and look for fetch function
+    // Get global and look for __nano_user_fetch function (set by ESM transform)
     let global = context.global(scope);
-    let fetch_key = v8::String::new(scope, "fetch").unwrap();
-    let fetch_val = global.get(scope, fetch_key.into()).expect("fetch should be defined after transformation");
+    let fetch_key = v8::String::new(scope, "__nano_user_fetch").unwrap();
+    let fetch_val = global.get(scope, fetch_key.into()).expect("__nano_user_fetch should be defined after transformation");
     
-    assert!(fetch_val.is_function(), "fetch should be a function after ESM transformation");
+    assert!(fetch_val.is_function(), "__nano_user_fetch should be a function after ESM transformation");
 }
 
 #[test]
@@ -289,6 +290,7 @@ fn test_transform_preserves_code_structure() {
     // Should have the handler assignment
     assert!(transformed.contains("var __nano_handler ="));
     
-    // Should have fetch extraction
-    assert!(transformed.contains("var fetch = __nano_handler.fetch"));
+    // Should have fetch extraction in __nano_user_fetch
+    assert!(transformed.contains("var __nano_user_fetch"));
+    assert!(transformed.contains("__nano_user_fetch = __nano_handler.fetch"));
 }

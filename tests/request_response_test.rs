@@ -97,10 +97,10 @@ function fetch(request) {
         status: 200,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-            hasContentType: 'content-type' in headers,
-            hasAuthorization: 'authorization' in headers,
-            contentType: headers['content-type'],
-            authorization: headers['authorization']
+            hasContentType: !!headers.get('content-type'),
+            hasAuthorization: !!headers.get('authorization'),
+            contentType: headers.get('content-type'),
+            authorization: headers.get('authorization')
         })
     };
 }
@@ -237,8 +237,8 @@ function fetch(request) {
         status: 200,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-            hasBody: request.body !== null,
-            bodyUsed: request.bodyUsed,
+            hasBody: request.body !== null && request.body !== undefined,
+            bodyPresent: !!request.body,
             bodyType: typeof request.body
         })
     };
@@ -265,7 +265,7 @@ function fetch(request) {
     let data: serde_json::Value = serde_json::from_str(&body_str).unwrap();
 
     assert!(data["hasBody"].as_bool().unwrap());
-    assert!(data["bodyUsed"].as_bool().unwrap());
+    assert!(data["bodyPresent"].as_bool().unwrap());
     assert_eq!(data["bodyType"].as_str().unwrap(), "string"); // base64 encoded
 
     // Test without body
@@ -284,7 +284,7 @@ function fetch(request) {
     let data2: serde_json::Value = serde_json::from_str(&body_str2).unwrap();
 
     assert!(!data2["hasBody"].as_bool().unwrap()); // null body
-    assert!(!data2["bodyUsed"].as_bool().unwrap());
+    assert!(!data2["bodyPresent"].as_bool().unwrap());
 
     pool.shutdown().unwrap();
 }

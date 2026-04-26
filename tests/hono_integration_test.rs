@@ -5,6 +5,15 @@
 use nano::runtime::{HandlerContext, execute_handler};
 use nano::http::{NanoRequest, NanoUrl, NanoHeaders};
 use nano::v8::{initialize_platform, NanoIsolate};
+use std::sync::Once;
+
+static INIT: Once = Once::new();
+
+fn init_platform() {
+    INIT.call_once(|| {
+        initialize_platform().expect("Failed to initialize V8 platform");
+    });
+}
 
 /// Loads a test fixture file from tests/fixtures/frameworks/
 fn load_fixture(name: &str) -> String {
@@ -26,7 +35,7 @@ fn create_temp_js_file(fixture_name: &str) -> std::path::PathBuf {
 #[tokio::test]
 async fn test_hono_middleware_chain_order() {
     // Verify middleware executes in correct order (logger wraps CORS)
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("hono-app");
@@ -56,7 +65,7 @@ async fn test_hono_middleware_chain_order() {
 
 #[tokio::test]
 async fn test_hono_post_request() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("hono-app");
@@ -88,7 +97,7 @@ async fn test_hono_post_request() {
 
 #[tokio::test]
 async fn test_hono_cors_headers_on_all_routes() {
-    initialize_platform().expect("Failed to initialize V8");
+    init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let js_path = create_temp_js_file("hono-app");

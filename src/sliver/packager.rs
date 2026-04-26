@@ -16,6 +16,7 @@
 //!     "myapp",
 //!     Some("v1.0".to_string()),
 //!     Some("./myapp.sliver".to_string()),
+//!     Some("myapp.example.com".to_string()),
 //! ).await?;
 //! # Ok(())
 //! # }

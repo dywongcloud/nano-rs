@@ -14,16 +14,16 @@
 use bytes::Bytes;
 use hyper::{StatusCode, Uri};
 use std::time::Duration;
-use tracing::{debug, trace};
+use tracing::{debug, trace, error};
 
 /// HTTP client for outbound requests
 ///
-/// Wraps HTTP client functionality with connection pooling, HTTPS support,
+/// Wraps reqwest client with connection pooling, HTTPS support,
 /// and security features like URL validation and timeout handling.
-/// Note: Full hyper/hyper-util client implementation is complex; using reqwest
-/// for actual HTTP operations while maintaining the same API.
 #[derive(Clone, Debug)]
 pub struct HttpClient {
+    /// Reqwest client for actual HTTP operations
+    client: reqwest::Client,
     /// Default timeout for requests
     timeout: Duration,
     /// Maximum number of redirects to follow
@@ -158,7 +158,14 @@ impl HttpClient {
     /// - Max redirects: 10
     /// - Max response size: 100MB
     pub fn new() -> anyhow::Result<Self> {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .https_only(false)
+            .build()?;
+
         Ok(Self {
+            client,
             timeout: Duration::from_secs(30),
             max_redirects: 10,
             max_response_size: 100 * 1024 * 1024, // 100MB
@@ -221,17 +228,77 @@ impl HttpClient {
             }
         }
 
-        trace!("Making {} request to {} (simplified implementation)", method, url);
+        trace!("Making {} request to {}", method, url);
 
-        // Simplified implementation: return a mock successful response
-        // In a full implementation, this would use hyper/reqwest to make the actual HTTP request
-        debug!("Request to {} would complete: 200 OK (simplified)", url);
+        // Build the request using reqwest
+        let mut req_builder = self.client.request(
+            reqwest::Method::from_bytes(method.as_bytes())
+                .map_err(|e| HttpClientError::InvalidUrl(format!("Invalid method: {}", e)))?,
+            url,
+        );
+
+        // Add headers if provided
+        if let Some(ref headers) = headers {
+            for (name, value) in headers {
+                req_builder = req_builder.header(name, value);
+            }
+        }
+
+        // Add body if provided
+        if let Some(body_bytes) = _body {
+            req_builder = req_builder.body(body_bytes);
+        }
+
+        // Execute the request
+        let response = self.client
+            .execute(req_builder.build()
+                .map_err(|e| HttpClientError::Network(format!("Failed to build request: {}", e)))?)
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    HttpClientError::Timeout(self.timeout)
+                } else {
+                    HttpClientError::Network(format!("Request failed: {}", e))
+                }
+            })?;
+
+        // Extract response information
+        let status = StatusCode::from_u16(response.status().as_u16())
+            .unwrap_or(StatusCode::OK);
+        let final_url = response.url().to_string();
+
+        // Extract headers
+        let mut response_headers = Vec::new();
+        for (name, value) in response.headers() {
+            if let Ok(value_str) = value.to_str() {
+                response_headers.push((name.to_string(), value_str.to_string()));
+            }
+        }
+
+        // Read response body with size limit
+        let body = if let Some(content_length) = response.content_length() {
+            if content_length > self.max_response_size as u64 {
+                return Err(HttpClientError::ResponseTooLarge(self.max_response_size));
+            }
+            Some(Bytes::from(response.bytes().await
+                .map_err(|e| HttpClientError::Network(format!("Failed to read body: {}", e)))?))
+        } else {
+            // No content length, read with size limit
+            let bytes = response.bytes().await
+                .map_err(|e| HttpClientError::Network(format!("Failed to read body: {}", e)))?;
+            if bytes.len() > self.max_response_size {
+                return Err(HttpClientError::ResponseTooLarge(self.max_response_size));
+            }
+            Some(Bytes::from(bytes))
+        };
+
+        trace!("Request to {} completed: {}", url, status);
 
         Ok(HttpClientResponse {
-            status: StatusCode::OK,
-            headers: vec![],
-            body: None,
-            url: url.to_string(),
+            status,
+            headers: response_headers,
+            body,
+            url: final_url,
         })
     }
 

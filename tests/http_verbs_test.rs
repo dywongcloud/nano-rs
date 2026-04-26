@@ -84,7 +84,8 @@ fn test_http_get_without_body() {
     assert_eq!(data["method"].as_str().unwrap(), "GET");
     assert!(data["url"].as_str().unwrap().contains("/api/resource"));
     assert!(data["url"].as_str().unwrap().contains("?filter=active"));
-    assert!(data["headers"]["authorization"].as_str().unwrap().contains("Bearer"));
+    // Headers are stored in internal __headers__ property of Headers object
+    assert!(data["headers"]["__headers__"]["authorization"].as_str().unwrap().contains("Bearer"));
     assert!(!data["hasBody"].as_bool().unwrap());
     assert!(data["body"].is_null());
 
@@ -159,7 +160,7 @@ fn test_http_post_with_json_body() {
     let body_b64 = data["body"].as_str().unwrap();
     let body_decoded = String::from_utf8(base64_decode(body_b64)).unwrap();
     assert!(body_decoded.contains("John"));
-    assert_eq!(data["headers"]["x-request-id"].as_str().unwrap(), "req-12345");
+    assert_eq!(data["headers"]["__headers__"]["x-request-id"].as_str().unwrap(), "req-12345");
 
     pool.shutdown().unwrap();
 }
@@ -390,7 +391,7 @@ fn test_http_options_request() {
 
     assert_eq!(data["method"].as_str().unwrap(), "OPTIONS");
     assert!(!data["hasBody"].as_bool().unwrap());
-    assert_eq!(data["headers"]["origin"].as_str().unwrap(), "https://example.com");
+    assert_eq!(data["headers"]["__headers__"]["origin"].as_str().unwrap(), "https://example.com");
 
     pool.shutdown().unwrap();
 }
@@ -479,7 +480,7 @@ function fetch(request) {
         let data: serde_json::Value = serde_json::from_str(&body_str).unwrap();
 
         assert_eq!(data["method"].as_str().unwrap(), method);
-        assert!(data["headers"]["x-custom-header"].as_str().unwrap().contains(method));
+        assert!(data["headers"]["__headers__"]["x-custom-header"].as_str().unwrap().contains(method));
     }
 
     pool.shutdown().unwrap();

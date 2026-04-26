@@ -297,11 +297,37 @@ impl RuntimeAPIs {
 
     /// Bind Response constructor for WinterCG compatibility
     fn bind_response(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        use crate::runtime::fetch::{response_text_callback, response_json_callback, response_arraybuffer_callback};
+        
         let global = context.global(scope);
 
         // Create Response constructor
         let template = v8::FunctionTemplate::new(scope, response_constructor);
         let ctor = template.get_function(scope).unwrap();
+        
+        // Add prototype methods to Response (text, json, arrayBuffer)
+        if let Some(ctor_obj) = ctor.to_object(scope) {
+            let proto_key = v8::String::new(scope, "prototype").unwrap();
+            if let Some(proto) = ctor_obj.get(scope, proto_key.into()) {
+                if let Some(proto_obj) = proto.to_object(scope) {
+                    // Bind text() method
+                    if let Some(text_fn) = v8::Function::new(scope, response_text_callback) {
+                        let text_key = v8::String::new(scope, "text").unwrap();
+                        proto_obj.set(scope, text_key.into(), text_fn.into());
+                    }
+                    // Bind json() method
+                    if let Some(json_fn) = v8::Function::new(scope, response_json_callback) {
+                        let json_key = v8::String::new(scope, "json").unwrap();
+                        proto_obj.set(scope, json_key.into(), json_fn.into());
+                    }
+                    // Bind arrayBuffer() method
+                    if let Some(ab_fn) = v8::Function::new(scope, response_arraybuffer_callback) {
+                        let ab_key = v8::String::new(scope, "arrayBuffer").unwrap();
+                        proto_obj.set(scope, ab_key.into(), ab_fn.into());
+                    }
+                }
+            }
+        }
 
         // Attach to global
         let key = v8::String::new(scope, "Response").unwrap();
@@ -357,6 +383,24 @@ impl RuntimeAPIs {
         // Create URL constructor
         let template = v8::FunctionTemplate::new(scope, url_constructor);
         let ctor = template.get_function(scope).unwrap();
+
+        // Add toString method to URL prototype
+        if let Some(ctor_obj) = ctor.to_object(scope) {
+            let proto_key = v8::String::new(scope, "prototype").unwrap();
+            if let Some(proto) = ctor_obj.get(scope, proto_key.into()) {
+                if let Some(proto_obj) = proto.to_object(scope) {
+                    if let Some(tostring_fn) = v8::Function::new(scope, url_tostring_callback) {
+                        let tostring_key = v8::String::new(scope, "toString").unwrap();
+                        proto_obj.set(scope, tostring_key.into(), tostring_fn.into());
+                    }
+                    // Also add href getter property if not already set
+                    if let Some(href_fn) = v8::Function::new(scope, url_href_callback) {
+                        let href_key = v8::String::new(scope, "href").unwrap();
+                        proto_obj.set(scope, href_key.into(), href_fn.into());
+                    }
+                }
+            }
+        }
 
         // Attach to global
         let key = v8::String::new(scope, "URL").unwrap();
@@ -422,6 +466,19 @@ impl RuntimeAPIs {
         let alloc_key = v8::String::new(scope, "alloc").unwrap();
         if let Some(alloc_fn) = v8::Function::new(scope, buffer_alloc_callback) {
             buffer_ctor.set(scope, alloc_key.into(), alloc_fn.into());
+        }
+
+        // Add toString method to Buffer prototype for Node.js compatibility
+        if let Some(ctor_obj) = buffer_ctor.to_object(scope) {
+            let proto_key = v8::String::new(scope, "prototype").unwrap();
+            if let Some(proto) = ctor_obj.get(scope, proto_key.into()) {
+                if let Some(proto_obj) = proto.to_object(scope) {
+                    if let Some(tostring_fn) = v8::Function::new(scope, buffer_tostring_callback) {
+                        let tostring_key = v8::String::new(scope, "toString").unwrap();
+                        proto_obj.set(scope, tostring_key.into(), tostring_fn.into());
+                    }
+                }
+            }
         }
 
         // Attach to global
@@ -910,8 +967,14 @@ fn response_constructor(
             // Extract status
             let status_key = v8::String::new(scope, "status").unwrap();
             if let Some(status_val) = opts.get(scope, status_key.into()) {
-                if let Some(num) = status_val.to_number(scope) {
-                    status = num.value() as u16;
+                // Only update status if the value is a valid number (not undefined/null/NaN)
+                if !status_val.is_null() && !status_val.is_undefined() {
+                    if let Some(num) = status_val.to_number(scope) {
+                        let val = num.value();
+                        if !val.is_nan() && val > 0.0 {
+                            status = val as u16;
+                        }
+                    }
                 }
             }
 
@@ -1104,6 +1167,46 @@ fn url_constructor(
     }
 
     retval.set(this.into());
+}
+
+/// URL.prototype.toString() callback - returns the href property
+fn url_tostring_callback(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = _args.this();
+
+    // Get the href property from this URL object
+    let href_key = v8::String::new(scope, "href").unwrap();
+    if let Some(href_val) = this.get(scope, href_key.into()) {
+        if let Some(href_str) = href_val.to_string(scope) {
+            retval.set(href_str.into());
+            return;
+        }
+    }
+
+    // Fallback: return empty string
+    retval.set(v8::String::new(scope, "").unwrap().into());
+}
+
+/// URL.prototype.href getter callback
+fn url_href_callback(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = _args.this();
+
+    // Get the href property from this URL object
+    let href_key = v8::String::new(scope, "href").unwrap();
+    if let Some(href_val) = this.get(scope, href_key.into()) {
+        retval.set(href_val);
+        return;
+    }
+
+    // Fallback: return empty string
+    retval.set(v8::String::new(scope, "").unwrap().into());
 }
 
 /// URLSearchParams constructor implementation
@@ -2538,8 +2641,24 @@ fn buffer_constructor(
     // Create Uint8Array as buffer backing
     let buffer = v8::ArrayBuffer::new(scope, size);
     let uint8_array = v8::Uint8Array::new(scope, buffer, 0, size).unwrap();
-    
+
+    // Add toString method for Buffer compatibility
+    add_buffer_tostring_to_instance(scope, uint8_array.into());
+
     retval.set(uint8_array.into());
+}
+
+/// Helper to add toString method to a Uint8Array instance for Buffer compatibility
+fn add_buffer_tostring_to_instance(
+    scope: &mut v8::HandleScope,
+    obj: v8::Local<v8::Object>,
+) {
+    // Create the toString function
+    if let Some(tostring_fn) = v8::Function::new(scope, buffer_tostring_callback) {
+        let tostring_key = v8::String::new(scope, "toString").unwrap();
+        // Set as own property (not prototype) to override Uint8Array's toString
+        let _ = obj.set(scope, tostring_key.into(), tostring_fn.into());
+    }
 }
 
 /// Buffer.from() static method
@@ -2551,6 +2670,7 @@ fn buffer_from_callback(
     if args.length() == 0 {
         let empty = v8::ArrayBuffer::new(scope, 0);
         let arr = v8::Uint8Array::new(scope, empty, 0, 0).unwrap();
+        add_buffer_tostring_to_instance(scope, arr.into());
         retval.set(arr.into());
         return;
     }
@@ -2569,6 +2689,7 @@ fn buffer_from_callback(
             }
         }
         let arr = v8::Uint8Array::new(scope, buffer, 0, bytes.len()).unwrap();
+        add_buffer_tostring_to_instance(scope, arr.into());
         retval.set(arr.into());
         return;
     }
@@ -2592,6 +2713,7 @@ fn buffer_from_callback(
                     }
                 }
                 let arr = v8::Uint8Array::new(scope, buffer, 0, len).unwrap();
+                add_buffer_tostring_to_instance(scope, arr.into());
                 retval.set(arr.into());
                 return;
             }
@@ -2601,6 +2723,7 @@ fn buffer_from_callback(
     // Default: return empty buffer
     let empty = v8::ArrayBuffer::new(scope, 0);
     let arr = v8::Uint8Array::new(scope, empty, 0, 0).unwrap();
+    add_buffer_tostring_to_instance(scope, arr.into());
     retval.set(arr.into());
 }
 
@@ -2642,7 +2765,48 @@ fn buffer_alloc_callback(
         }
     }
     let arr = v8::Uint8Array::new(scope, buffer, 0, size).unwrap();
+    add_buffer_tostring_to_instance(scope, arr.into());
     retval.set(arr.into());
+}
+
+/// Buffer.prototype.toString() callback - decodes buffer to UTF-8 string
+fn buffer_tostring_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+
+    // Extract bytes from the Uint8Array (which is what Buffer is)
+    let bytes = if let Some(uint8array) = this
+        .to_object(scope)
+        .and_then(|o| o.try_cast::<v8::Uint8Array>().ok())
+    {
+        let length = uint8array.byte_length();
+        let mut vec = Vec::with_capacity(length);
+        for i in 0..length {
+            if let Some(val) = uint8array.get_index(scope, i as u32) {
+                if let Some(int) = val.to_integer(scope) {
+                    vec.push(int.value() as u8);
+                }
+            }
+        }
+        vec
+    } else {
+        // Fallback: return empty string
+        retval.set(v8::String::new(scope, "").unwrap().into());
+        return;
+    };
+
+    // Decode bytes to UTF-8 string
+    let text = String::from_utf8_lossy(&bytes);
+
+    // Return the decoded string
+    if let Some(s) = v8::String::new(scope, &text) {
+        retval.set(s.into());
+    } else {
+        retval.set(v8::String::new(scope, "").unwrap().into());
+    }
 }
 
 #[cfg(test)]

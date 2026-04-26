@@ -427,13 +427,38 @@ fn extract_js_response(
     // Extract body property
     let body_key = v8::String::new(scope, "body").unwrap();
     let body = match obj.get(scope, body_key.into()) {
-        Some(val) if !val.is_null() && !val.is_undefined() => match val.to_string(scope) {
-            Some(s) => Some(Bytes::from(s.to_rust_string_lossy(scope))),
-            None => None,
-        },
-        _ => None,
+        Some(val) if !val.is_null() && !val.is_undefined() => {
+            tracing::debug!("Response body value type: is_string={}, is_object={}, is_array={}", 
+                val.is_string(), val.is_object(), val.is_array());
+            match val.to_string(scope) {
+                Some(s) => {
+                    let body_str = s.to_rust_string_lossy(scope);
+                    tracing::debug!("Extracted response body: {} bytes", body_str.len());
+                    Some(Bytes::from(body_str))
+                }
+                None => {
+                    tracing::warn!("Failed to convert response body to string");
+                    None
+                }
+            }
+        }
+        Some(val) if val.is_null() => {
+            tracing::debug!("Response body is null");
+            None
+        }
+        Some(val) if val.is_undefined() => {
+            tracing::debug!("Response body is undefined");
+            None
+        }
+        _ => {
+            tracing::debug!("Response body property not found");
+            None
+        }
     };
 
+    tracing::debug!("Extracted response: status={}, body={}", 
+        status, body.is_some());
+    
     Ok(NanoResponse::new(status, nano_headers, body))
 }
 use std::sync::atomic::{AtomicUsize, Ordering};
