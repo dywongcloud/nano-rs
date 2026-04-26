@@ -1,15 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API Reference - NANO Documentation</title>
+    <title>Quick Start - NANO Documentation</title>
+    <meta name="description" content="Get started with NANO in minutes. Install, create your first app, run, and create slivers.">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        code, pre { font-family: 'JetBrains Mono', monospace; }
-    </style>
+    <style>body { font-family: 'Inter', sans-serif; } code, pre { font-family: 'JetBrains Mono', monospace; }</style>
 </head>
 <body class="bg-slate-950 text-slate-200">
     <!-- Navigation -->
@@ -21,12 +19,13 @@
                     NANO
                 </a>
                 <div class="hidden md:flex items-center gap-8">
-                    <a href="quickstart.html" class="text-slate-400 hover:text-white transition">Quick Start</a>
-                    <a href="api.html" class="text-white">API</a>
+                    <a href="quickstart.html" class="text-white">Quick Start</a>
+                    <a href="api.html" class="text-slate-400 hover:text-white transition">API</a>
                     <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers</a>
                     <a href="cli.html" class="text-slate-400 hover:text-white transition">CLI</a>
                     <a href="runtime.html" class="text-slate-400 hover:text-white transition">Runtime</a>
                     <a href="architecture.html" class="text-slate-400 hover:text-white transition">Architecture</a>
+                    <a href="compatibility.html" class="text-slate-400 hover:text-white transition">Compatibility</a>
                     <a href="../index.html" class="text-slate-400 hover:text-white transition">Home</a>
                 </div>
             </div>
@@ -36,69 +35,188 @@
     <!-- Main Content -->
     <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
         <div class="max-w-4xl mx-auto">
-            <h1 class="text-4xl font-bold text-white mb-4">API Reference</h1>
-            <p class="text-lg text-slate-400 mb-8">Complete API documentation for NANO runtime</p>
+            <h1 class="text-4xl font-bold text-white mb-4">Quick Start</h1>
+            <p class="text-lg text-slate-400 mb-8">Get up and running with NANO in under 5 minutes</p>
 
-            <!-- WinterCG APIs -->
+            <!-- Step 1 -->
             <section class="mb-12">
-                <h2 class="text-2xl font-semibold text-white mb-4">WinterCG APIs</h2>
-                <p class="text-slate-400 mb-4">NANO implements the WinterCG standard for edge runtimes.</p>
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">1</div>
+                    <h2 class="text-2xl font-semibold text-white">Install NANO</h2>
+                </div>
+                <p class="text-slate-400 mb-4 ml-14">Download the latest release from GitHub and install.</p>
                 
-                <div class="bg-slate-900 rounded-lg border border-slate-800 overflow-hidden">
-                    <table class="w-full text-sm">
-                        <thead class="bg-slate-800">
-                            <tr>
-                                <th class="text-left px-4 py-3 text-white font-semibold">API</th>
-                                <th class="text-left px-4 py-3 text-white font-semibold">Status</th>
-                                <th class="text-left px-4 py-3 text-white font-semibold">Description</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-800">
-                            <tr>
-                                <td class="px-4 py-3 text-blue-400 font-mono">fetch()</td>
-                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">HTTP client with request/response</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 text-blue-400 font-mono">Request</td>
-                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">HTTP request object</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 text-blue-400 font-mono">Response</td>
-                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">HTTP response object</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 text-blue-400 font-mono">Headers</td>
-                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">HTTP headers map</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 text-blue-400 font-mono">URL</td>
-                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">URL parsing</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 text-blue-400 font-mono">console</td>
-                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">log, error, warn</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Install via GitHub Releases</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300"># Download latest release (Linux/macOS)
+curl -L https://github.com/nano-rs/nano-rs/releases/latest/download/nano-rs-$(uname -s)-$(uname -m).tar.gz | tar xz
+
+# Move to PATH
+sudo mv nano-rs /usr/local/bin/
+
+# Verify installation
+nano-rs --version</pre>
+                    </div>
                 </div>
             </section>
 
-            <!-- Continue to other API sections... -->
-            
-            <div class="mt-12 flex justify-between items-center">
-                <a href="quickstart.html" class="text-slate-400 hover:text-white transition">&larr; Quick Start</a>
-                <a href="slivers.html" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg font-semibold transition">Next: Slivers &rarr;</a>
+            <!-- Step 2 -->
+            <section class="mb-12">
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">2</div>
+                    <h2 class="text-2xl font-semibold text-white">Create Your First App</h2>
+                </div>
+                <p class="text-slate-400 mb-4 ml-14">Create a simple JavaScript app that responds to HTTP requests.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">app.js</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">// Simple HTTP handler using WinterTC fetch API
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    
+    if (url.pathname === '/') {
+      return new Response('Hello from NANO!', {
+        headers: { 'content-type': 'text/plain' }
+      });
+    }
+    
+    if (url.pathname === '/json') {
+      return Response.json({ 
+        message: 'Hello from NANO!',
+        runtime: 'nano-rs',
+        wintertc: true
+      });
+    }
+    
+    return new Response('Not Found', { status: 404 });
+  }
+};</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 3 -->
+            <section class="mb-12">
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">3</div>
+                    <h2 class="text-2xl font-semibold text-white">Configure and Run</h2>
+                </div>
+                <p class="text-slate-400 mb-4 ml-14">Create a configuration file and start the NANO server.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14 mb-4">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">nano.json - Multi-tenant Configuration</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">{
+  "port": 8080,
+  "workers": 4,
+  "apps": [
+    {
+      "name": "my-app",
+      "entry": "app.js",
+      "domain": "localhost"
+    },
+    {
+      "name": "api-service",
+      "entry": "api.js",
+      "domain": "api.localhost"
+    }
+  ]
+}</pre>
+                    </div>
+                </div>
+
+                <div class="bg-blue-900/20 border border-blue-800 rounded-lg p-4 ml-14 mb-4">
+                    <p class="text-sm text-blue-300"><strong>Multi-tenant routing:</strong> The Host header determines which app handles the request. <code>curl -H "Host: api.localhost"</code> routes to the api-service app, while <code>curl -H "Host: localhost"</code> routes to my-app.</p>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Run the server</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300"># Start the server
+nano-rs run --config nano.json
+
+# In another terminal, test your app
+# Note: Use the Host header for multi-tenant routing
+curl -H "Host: localhost" http://localhost:8080/
+# Output: Hello from NANO!
+
+curl -H "Host: localhost" http://localhost:8080/json
+# Output: {"message":"Hello from NANO!","runtime":"nano-rs","wintertc":true}
+
+# The Host header routes to the correct app isolate
+# Each app can have its own domain configured in nano.json</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 4 -->
+            <section class="mb-12">
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">4</div>
+                    <h2 class="text-2xl font-semibold text-white">Create a Sliver</h2>
+                </div>
+                <p class="text-slate-400 mb-4 ml-14">Slivers are portable snapshots that enable sub-millisecond cold starts. Create one from your running app.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14 mb-4">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Create a sliver</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300"># Create a sliver from the running app
+nano-rs sliver create localhost --name my-app --tag v1.0
+
+# The sliver is now stored and can be used for instant cold starts</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 5 -->
+            <section class="mb-12">
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">5</div>
+                    <h2 class="text-2xl font-semibold text-white">List and Manage Slivers</h2>
+                </div>
+                <p class="text-slate-400 mb-4 ml-14">View all your slivers and deploy them instantly.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Manage slivers</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300"># List all slivers
+nano-rs sliver list
+
+# Show detailed info
+nano-rs sliver list --verbose
+
+# Deploy from a sliver
+nano-rs app deploy --sliver my-app-v1.0 --name my-app</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Next Steps -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Next Steps</h2>
+                <div class="grid md:grid-cols-2 gap-4">
+                    <a href="api.html" class="bg-slate-800/50 border border-slate-700 rounded-lg p-6 hover:border-blue-500 transition">
+                        <h3 class="text-lg font-semibold text-white mb-2">API Reference</h3>
+                        <p class="text-slate-400 text-sm">Explore the complete WinterTC API documentation</p>
+                    </a>
+                    <a href="compatibility.html" class="bg-slate-800/50 border border-slate-700 rounded-lg p-6 hover:border-blue-500 transition">
+                        <h3 class="text-lg font-semibold text-white mb-2">Compatibility</h3>
+                        <p class="text-slate-400 text-sm">Learn about Node.js compatibility and polyfills</p>
+                    </a>
+                </div>
+            </section>
+
+            <!-- Navigation -->
+            <div class="flex justify-between items-center mt-12">
+                <a href="../index.html" class="text-slate-400 hover:text-white transition">&larr; Home</a>
+                <a href="api.html" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg font-semibold transition">Next: API Reference &rarr;</a>
             </div>
         </div>
     </main>
 
-    <!-- Footer -->
     <footer class="bg-slate-900 border-t border-slate-800 py-12">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="text-center text-sm text-slate-500">

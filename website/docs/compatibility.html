@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compatibility - NANO Documentation</title>
+    <meta name="description" content="NANO compatibility layer, Node.js compatibility matrix, and polyfills documentation.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>body { font-family: 'Inter', sans-serif; } code, pre { font-family: 'JetBrains Mono', monospace; }</style>
+</head>
+<body class="bg-slate-950 text-slate-200">
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <a href="../index.html" class="flex items-center gap-2 text-white font-bold text-xl">
+                    <span class="text-blue-500 text-2xl">&#9670;</span>
+                    NANO
+                </a>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="quickstart.html" class="text-slate-400 hover:text-white transition">Quick Start</a>
+                    <a href="api.html" class="text-slate-400 hover:text-white transition">API</a>
+                    <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers</a>
+                    <a href="cli.html" class="text-slate-400 hover:text-white transition">CLI</a>
+                    <a href="runtime.html" class="text-slate-400 hover:text-white transition">Runtime</a>
+                    <a href="architecture.html" class="text-slate-400 hover:text-white transition">Architecture</a>
+                    <a href="compatibility.html" class="text-white">Compatibility</a>
+                    <a href="../index.html" class="text-slate-400 hover:text-white transition">Home</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-5xl mx-auto">
+            <h1 class="text-4xl font-bold text-white mb-4">Compatibility</h1>
+            <p class="text-lg text-slate-400 mb-8">Node.js compatibility, polyfills, and the nano-compat library</p>
+
+            <!-- Overview -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Compatibility Overview</h2>
+                <p class="text-slate-400 mb-4">NANO is a <a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a>-compatible runtime, not a Node.js runtime. This means it provides web-standard APIs (fetch, Request, Response, etc.) rather than Node.js-specific APIs (fs, path, http, etc.).</p>
+                <p class="text-slate-400 mb-4">For applications that need Node.js compatibility, NANO provides the <strong>nano-compat</strong> library - a collection of polyfills and compatibility shims.</p>
+            </section>
+
+            <!-- nano-compat Library -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">nano-compat Library</h2>
+                <p class="text-slate-400 mb-4">The nano-compat library provides polyfills for common Node.js APIs that are not part of the <a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a> standard.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Installation</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">npm install @nano-rs/compat</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Usage</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">// Apply all polyfills
+import '@nano-rs/compat';
+
+// Or import specific modules
+import { Buffer } from '@nano-rs/compat/buffer';
+import { path } from '@nano-rs/compat/path';</pre>
+                    </div>
+                </div>
+
+                <h3 class="text-xl font-semibold text-white mb-4">Available Modules</h3>
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700">
+                        <h4 class="font-semibold text-white mb-2">buffer</h4>
+                        <p class="text-sm text-slate-400">Node.js Buffer implementation</p>
+                        <span class="inline-block mt-2 px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span>
+                    </div>
+                    <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700">
+                        <h4 class="font-semibold text-white mb-2">path</h4>
+                        <p class="text-sm text-slate-400">Path manipulation utilities</p>
+                        <span class="inline-block mt-2 px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span>
+                    </div>
+                    <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700">
+                        <h4 class="font-semibold text-white mb-2">crypto</h4>
+                        <p class="text-sm text-slate-400">Cryptographic functions</p>
+                        <span class="inline-block mt-2 px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded">Partial</span>
+                    </div>
+                    <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700">
+                        <h4 class="font-semibold text-white mb-2">stream</h4>
+                        <p class="text-sm text-slate-400">Stream utilities</p>
+                        <span class="inline-block mt-2 px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded">Planned</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Compatibility Matrix -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Node.js Compatibility Matrix</h2>
+                <p class="text-slate-400 mb-4">This matrix shows which Node.js built-in modules are available in NANO, either natively or via nano-compat.</p>
+                
+                <div class="bg-slate-900 rounded-lg border border-slate-800 overflow-hidden">
+                    <table class="w-full text-sm">
+                        <thead class="bg-slate-800">
+                            <tr>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Module</th>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Status</th>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800">
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">assert</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Native</span></td>
+                                <td class="px-4 py-3 text-slate-400"><a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a> compatible</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">buffer</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded">Polyfill</span></td>
+                                <td class="px-4 py-3 text-slate-400">Via nano-compat</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">crypto</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded">Partial</span></td>
+                                <td class="px-4 py-3 text-slate-400">Web Crypto + partial Node crypto</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">fs</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded">Polyfill</span></td>
+                                <td class="px-4 py-3 text-slate-300">VFS-based filesystem via nano-compat</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">http</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded">Not Available</span></td>
+                                <td class="px-4 py-3 text-slate-400">Use <a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a> fetch instead</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">path</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded">Polyfill</span></td>
+                                <td class="px-4 py-3 text-slate-400">Via nano-compat</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">stream</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded">Polyfill</span></td>
+                                <td class="px-4 py-3 text-slate-400">Via nano-compat</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">url</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Native</span></td>
+                                <td class="px-4 py-3 text-slate-400"><a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a> compatible</td>
+                            </tr>
+                            <tr>
+                <td class="px-4 py-3 font-mono text-slate-300">util</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Native</span></td>
+                                <td class="px-4 py-3 text-slate-400"><a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a> compatible</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Frameworks -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Framework Compatibility</h2>
+                <p class="text-slate-400 mb-4">NANO works with popular JavaScript frameworks that target <a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a>-compatible runtimes.</p>
+                
+                <div class="grid md:grid-cols-3 gap-6">
+                    <div class="bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+                        <h3 class="text-lg font-semibold text-white mb-2">Hono</h3>
+                        <p class="text-sm text-slate-400 mb-3">Ultra-lightweight web framework</p>
+                        <span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Fully Compatible</span>
+                    </div>
+                    <div class="bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+                        <h3 class="text-lg font-semibold text-white mb-2">Astro</h3>
+                        <p class="text-sm text-slate-400 mb-3">Static site generator with islands</p>
+                        <span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Fully Compatible</span>
+                    </div>
+                    <div class="bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+                        <h3 class="text-lg font-semibold text-white mb-2">Next.js</h3>
+                        <p class="text-sm text-slate-400 mb-3">Static export only (no SSR)</p>
+                        <span class="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded">Partial</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- WinterTC -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">What is WinterTC?</h2>
+                <p class="text-slate-400 mb-4"><a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a> (Web-interoperable Runtimes Community Group) defines standards for JavaScript runtimes that work across different environments. Unlike Node.js which has its own APIs, WinterTC runtimes use web-standard APIs.</p>
+                
+                <div class="bg-slate-800/50 rounded-lg p-6 mb-6">
+                    <h3 class="text-lg font-semibold text-white mb-3">Key Principles</h3>
+                    <ul class="space-y-2 text-slate-400">
+                        <li><strong class="text-slate-300">Web Standards First:</strong> Use fetch, Request, Response instead of Node's http module</li>
+                        <li><strong class="text-slate-300">Isomorphic Code:</strong> Same code runs in browser, edge, and serverless</li>
+                        <li><strong class="text-slate-300">Minimal Surface:</strong> Only standardized APIs, no runtime-specific extensions</li>
+                    </ul>
+                </div>
+
+                <h3 class="text-xl font-semibold text-white mb-4">WinterTC Compliance</h3>
+                <p class="text-slate-400 mb-4">NANO implements the <a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a> standard for edge runtimes.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold text-white mb-3">Implemented APIs</h3>
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <h4 class="font-semibold text-slate-300 mb-2">Fetch Standard</h4>
+                            <ul class="text-sm text-slate-400 space-y-1">
+                                <li>fetch()</li>
+                                <li>Request</li>
+                                <li>Response</li>
+                                <li>Headers</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-slate-300 mb-2">Web Standards</h4>
+                            <ul class="text-sm text-slate-400 space-y-1">
+                                <li>URL</li>
+                                <li>URLSearchParams</li>
+                                <li>TextEncoder/TextDecoder</li>
+                                <li>Web Crypto</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Navigation -->
+            <div class="flex justify-between items-center mt-12">
+                <a href="architecture.html" class="text-slate-400 hover:text-white transition">&larr; Architecture</a>
+                <a href="../index.html" class="text-slate-400 hover:text-white transition">Home &rarr;</a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-slate-900 border-t border-slate-800 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center text-sm text-slate-500">
+                <p>&copy; 2026 nano-rs project. Released under MIT License.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
