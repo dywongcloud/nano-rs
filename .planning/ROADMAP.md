@@ -288,6 +288,23 @@
 **Depends on:** Phase 25  
 **Requirements:** MSG-01, MSG-02  
 
+### Phase 27: Production Multi-Tenancy
+**Goal:** Production-grade multi-tenancy: WASM support, CPU limits with timer termination, memory monitoring with soft eviction, per-tenant metrics  
+**Depends on:** v1.2 complete  
+**Requirements:** PROD-01 through PROD-12  
+**Success Criteria** (what must be TRUE):
+  1. CPU time limits enforced with 50ms default using timer_create
+  2. Memory monitoring after each JS call with soft eviction
+  3. LRU eviction with stateless isolate preference
+  4. Per-tenant metrics collected and exported via Prometheus
+  5. WASM modules loadable and executable in isolates
+  6. WASM modules cached in sliver snapshots
+**Plans:**
+  - [ ] 27-01-PLAN.md — CPU time tracking and timer-based termination
+  - [ ] 27-02-PLAN.md — Memory monitoring and soft/LRU eviction
+  - [ ] 27-03-PLAN.md — Per-tenant metrics and observability
+  - [ ] 27-04-PLAN.md — WASM support and sliver integration
+**UI hint**: no
 
 ---
 
@@ -321,6 +338,7 @@
 | 24. Advanced Crypto | v2.0 | 0/TBD | Not started | - |
 | 25. Compression | v2.0 | 0/TBD | Not started | - |
 | 26. Inter-Isolate | v2.0 | 0/TBD | Not started | - |
+| 27. Production Multi-Tenancy | v2.0 | 0/4 | Planned | - |
 
 ---
 
@@ -341,10 +359,30 @@ Target: 90%+ (45+/50 tests passing)
 7. Node.js: setTimeout/setInterval
 8. WebCrypto: SHA-256 hashing
 
+### New Phase 27: Production Multi-Tenancy
+
+**Status:** Planned — 4 plans created  
+**Location:** `.planning/phases/27-production-multi-tenancy/`  
+
+**Features:**
+1. **CPU Time Limits** — 50ms default using Linux timer_create, V8 TerminateExecution
+2. **Memory Monitoring** — Check after each JS call, soft eviction, LRU cache
+3. **Per-Tenant Metrics** — Prometheus export, admin API, CPU/memory/request tracking
+4. **WASM Support** — WebAssembly execution, WASI, sliver integration
+
+**Plans:**
+- `27-01-PLAN.md` — CPU time tracking and timer-based termination
+- `27-02-PLAN.md` — Memory monitoring and soft/LRU eviction  
+- `27-03-PLAN.md` — Per-tenant metrics and observability
+- `27-04-PLAN.md` — WASM support and sliver integration
+
+**Requirements:** `.planning/phases/27-production-multi-tenancy/REQUIREMENTS.md`
+
 ### Commands:
 - Start Phase 21 planning: `/gsd-plan-phase 21`
+- Start Phase 27 execution: `/gsd-execute-phase 27`
 - Check progress: `/gsd-progress`
 
 ---
 
-*Roadmap updated: 2026-04-21 — v1.2 remediation 84% complete, targeting 90%+*
+*Roadmap updated: 2026-05-01 — Phase 27 planned (Production Multi-Tenancy with WASM, CPU limits, memory eviction, metrics)*
