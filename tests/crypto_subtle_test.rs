@@ -212,3 +212,148 @@ fn test_unsupported_algorithm_error() {
         result_str
     );
 }
+
+#[test]
+fn test_algorithm_properties_hmac_hash() {
+    init_platform();
+
+    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+
+    // Bind APIs
+    RuntimeAPIs::bind_all(scope, context);
+
+    // Test that HMAC algorithm includes hash property with correct structure
+    let code = r#"
+        (function() {
+            try {
+                const key = crypto.subtle.generateKey(
+                    { name: "HMAC", hash: "SHA-256" },
+                    true,
+                    ["sign"]
+                );
+                if (key instanceof Error || key.message) {
+                    return "Error: " + (key.message || key);
+                }
+                if (!key || !key.algorithm) {
+                    return "No key or algorithm";
+                }
+                const algo = key.algorithm;
+                // Verify algorithm has name and hash properties
+                return algo.name === "HMAC" &&
+                       typeof algo.hash === "object" &&
+                       algo.hash.name === "SHA-256";
+            } catch (e) {
+                return "Caught: " + e.message;
+            }
+        })()
+    "#;
+
+    let code_string = v8::String::new(scope, code).unwrap();
+    let script = v8::Script::compile(scope, code_string, None)
+        .expect("Script compilation failed");
+
+    let result = script.run(scope).expect("Script execution failed");
+    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+
+    assert_eq!(result_str, "true", "HMAC algorithm should have hash property with name");
+}
+
+#[test]
+fn test_algorithm_properties_aes_gcm_length() {
+    init_platform();
+
+    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+
+    // Bind APIs
+    RuntimeAPIs::bind_all(scope, context);
+
+    // Test that AES-GCM algorithm includes length property
+    let code = r#"
+        (function() {
+            try {
+                const key = crypto.subtle.generateKey(
+                    { name: "AES-GCM", length: 256 },
+                    true,
+                    ["encrypt"]
+                );
+                if (key instanceof Error || key.message) {
+                    return "Error: " + (key.message || key);
+                }
+                if (!key || !key.algorithm) {
+                    return "No key or algorithm";
+                }
+                const algo = key.algorithm;
+                // Verify algorithm has name and length properties
+                return algo.name === "AES-GCM" &&
+                       algo.length === 256;
+            } catch (e) {
+                return "Caught: " + e.message;
+            }
+        })()
+    "#;
+
+    let code_string = v8::String::new(scope, code).unwrap();
+    let script = v8::Script::compile(scope, code_string, None)
+        .expect("Script compilation failed");
+
+    let result = script.run(scope).expect("Script execution failed");
+    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+
+    assert_eq!(result_str, "true", "AES-GCM algorithm should have length property");
+}
+
+#[test]
+fn test_hmac_with_explicit_length() {
+    init_platform();
+
+    let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+
+    // Bind APIs
+    RuntimeAPIs::bind_all(scope, context);
+
+    // Test HMAC with explicit length property
+    let code = r#"
+        (function() {
+            try {
+                const key = crypto.subtle.generateKey(
+                    { name: "HMAC", hash: "SHA-512", length: 512 },
+                    true,
+                    ["sign"]
+                );
+                if (key instanceof Error || key.message) {
+                    return "Error: " + (key.message || key);
+                }
+                if (!key || !key.algorithm) {
+                    return "No key or algorithm";
+                }
+                const algo = key.algorithm;
+                // Verify algorithm has name, hash, and length properties
+                // Note: HMAC with SHA-512 requires minimum 512 bits (64 bytes)
+                return algo.name === "HMAC" &&
+                       typeof algo.hash === "object" &&
+                       algo.hash.name === "SHA-512" &&
+                       algo.length === 512;
+            } catch (e) {
+                return "Caught: " + e.message;
+            }
+        })()
+    "#;
+
+    let code_string = v8::String::new(scope, code).unwrap();
+    let script = v8::Script::compile(scope, code_string, None)
+        .expect("Script compilation failed");
+
+    let result = script.run(scope).expect("Script execution failed");
+    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+
+    assert_eq!(result_str, "true", "HMAC algorithm with explicit length should have all properties");
+}
