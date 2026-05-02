@@ -613,23 +613,29 @@ impl Drop for WorkerHandle {
     }
 }
 
-/// Pool of worker threads for JavaScript execution
+/// Pool of worker threads for JavaScript execution (Legacy)
+///
+/// **Deprecation Notice:** This is the original WorkerPool implementation
+/// maintained for backward compatibility with existing tests. New code
+/// should use one of:
+///
+/// - [`SliverWorkerPool`] - For production snapshot-based execution
+/// - [`EntrypointWorkerPool`] - For dynamic app loading and testing
+/// - [`WorkQueue`] - For multi-tenant hostname-based routing
+///
+/// This pool provides full features (CPU limits, memory monitoring, eviction)
+/// but lacks the clear separation of concerns of the newer pool types.
+///
+/// ## Migration Guide
+///
+/// | Current Usage | Migrate To | Reason |
+/// |-------------|-----------|--------|
+/// | `WorkerPool::new(hostname, n, mem)` | `SliverWorkerPool` | Production with slivers |
+/// | Dynamic loading | `EntrypointWorkerPool` | Async VFS creation |
+/// | Multi-tenant | `WorkQueue` | Per-hostname pools |
 ///
 /// Each worker owns one V8 isolate (thread-local). Tasks are dispatched
-/// via MPSC channels. The pool uses round-robin for initial dispatch
-/// (affine dispatch comes in later phase).
-///
-/// # VFS Integration
-///
-/// Each WorkerPool has a shared VFS backend that all workers in the pool
-/// share. This means files written by one worker are visible to other
-/// workers in the same pool (same app), but isolated from other pools.
-///
-/// # Memory Monitoring
-///
-/// Each worker has its own MemoryMonitor for post-execution heap checking.
-/// The EvictionManager is shared across workers to coordinate soft/hard
-/// eviction when memory pressure is detected.
+/// via MPSC channels. The pool uses round-robin for initial dispatch.
 pub struct WorkerPool {
     /// Worker handles for all threads in the pool
     workers: Vec<WorkerHandle>,
