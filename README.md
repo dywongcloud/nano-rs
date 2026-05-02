@@ -41,9 +41,11 @@ See [Cold Start Guide](docs/COLD_START.md) for detailed performance characterist
 
 ## Implemented APIs
 
-### WinterCG APIs (100% Complete)
+### WinterCG Minimum Common APIs
 
-All WinterCG-compatible APIs are fully implemented and tested:
+Core WinterCG-compatible APIs are fully implemented and tested.
+
+See [API Reference](docs/API.md) for detailed documentation with examples.
 
 | API | Status | Notes |
 |-----|--------|-------|
@@ -57,9 +59,11 @@ All WinterCG-compatible APIs are fully implemented and tested:
 | TextDecoder | Implemented | UTF-8 decoding from Uint8Array |
 | console | Implemented | log, error, warn methods |
 
-### WebCrypto APIs (100% Complete)
+### WebCrypto Implementation
 
-Full WebCrypto implementation via Rust crypto crates:
+WebCrypto implementation via Rust crypto crates.
+
+See [API Reference](docs/API.md) for detailed crypto documentation. RSA and ECDSA planned for v2.0.
 
 | API | Status | Algorithms |
 |-----|--------|------------|
@@ -73,9 +77,11 @@ Full WebCrypto implementation via Rust crypto crates:
 | crypto.subtle.sign | Implemented | HMAC |
 | crypto.subtle.verify | Implemented | HMAC |
 
-### Node.js Compatibility (100% Complete)
+### Node.js API Polyfills (Partial)
 
-Node.js APIs available for compatibility:
+Limited Node.js compatibility polyfills for common patterns (~55% coverage).
+
+See [Compatibility Matrix](docs/COMPATIBILITY.md) for detailed status and [Node.js Migration Guide](docs/NODEJS_COMPAT.md) for migration patterns.
 
 | API | Status | Notes |
 |-----|--------|-------|
@@ -162,9 +168,20 @@ Standard Cloudflare Workers run with minimal modifications:
 
 Cloudflare-specific APIs (KV, Durable Objects) are not supported.
 
+## Documentation
+
+- **[API Reference](docs/API.md)** — JavaScript globals, WebCrypto, WinterCG APIs
+- **[CLI Reference](docs/CLI.md)** — Command-line interface and commands
+- **[Configuration](docs/CONFIG.md)** — Configuration schema and options
+- **[Admin API](docs/ADMIN_API.md)** — Admin HTTP endpoints for monitoring
+- **[Node.js Compatibility](docs/NODEJS_COMPAT.md)** — Migration guide from Node.js
+- **[Cold Start Guide](docs/COLD_START.md)** — Performance characteristics
+- **[Compatibility Matrix](docs/COMPATIBILITY.md)** — Full API compatibility status
+- **[Architecture Decision Records](docs/ADR/)** — Key design decisions
+
 ## Test Coverage
 
-All test suites pass at 100%:
+Automated test suites verify implementation:
 
 - API Compatibility Matrix: 26/26 tests (100%)
 - Comprehensive Test Suite: 27/27 tests (100%)
