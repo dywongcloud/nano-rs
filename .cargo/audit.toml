@@ -1,0 +1,45 @@
+# Cargo Audit Configuration
+#
+# Configuration for cargo-audit security scanning.
+# See: https://github.com/rustsec/rustsec/tree/main/cargo-audit
+
+[advisories]
+# Advisory database configuration
+db-url = "https://github.com/RustSec/advisory-db"
+db-path = "~/.cargo/advisory-db"
+
+# Severity threshold for reporting
+# - None: Report all advisories
+# - Low: Report low and higher
+# - Medium: Report medium and higher  
+# - High: Report high and critical
+severity-threshold = "low"
+
+# Ignore specific advisories (with justification)
+# Each entry must include an 'id' and 'reason'
+# ignore = [
+#     # Example: Not applicable to NANO because <reason>
+#     { id = "RUSTSEC-2021-0123", reason = "NANO doesn't use the vulnerable feature" },
+# ]
+
+[output]
+# Output format: terminal, json, plain
+format = "terminal"
+
+# Quiet mode (suppress informational messages)
+quiet = false
+
+# Show inverse dependency tree
+show-tree = true
+
+[yanked]
+# Check for yanked crates
+enabled = true
+
+[network]
+# Network timeout for fetching advisory database
+timeout = 30
+
+# Use only local cached database
+# Set to true for air-gapped environments
+offline = false
