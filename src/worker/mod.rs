@@ -28,7 +28,9 @@
 
 pub mod context;
 pub mod cpu_tracker;
+pub mod eviction;
 pub mod limits;
+pub mod memory_monitor;
 pub mod oom;
 pub mod pool;
 pub mod queue;
@@ -37,7 +39,9 @@ pub mod timeout;
 // Re-export types
 pub use context::ContextManager;
 pub use cpu_tracker::{CpuTimeError, CpuTimeSnapshot, CpuTracker};
+pub use eviction::{EvictionAction, EvictionManager, EvictionPolicy, IsolateMetadata};
 pub use limits::{HeapStatistics, MemoryLimiter, OomError};
+pub use memory_monitor::{MemoryMonitor, MemoryMonitorConfig, MemoryPressureLevel, MemorySnapshot, MemoryTrend};
 pub use oom::{OomMonitor, OomMonitorBuilder};
 pub use pool::{SliverWorkerPool, WorkerHandle, WorkerPool};
 pub use queue::{hash_hostname, QueueError, QueueStats, StatsSnapshot, WorkQueue};
