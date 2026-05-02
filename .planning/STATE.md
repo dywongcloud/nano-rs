@@ -17,10 +17,10 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 **Milestone:** v1.5.0 — Production Multi-Tenancy COMPLETE
-**Phase:** Phase 27 COMPLETE (4/4 plans executed)
-**Next:** Phase 28 — v2.0 advanced features or documentation
-**Goal:** Production-grade multi-tenancy with CPU limits, memory eviction, metrics, WASM support
-**Status:** PHASE 27 COMPLETE - 4/4 plans, 981 tests passing, all success criteria met
+**Phase:** Phase 22 COMPLETE (4/4 plans executed)
+**Next:** Phase 28 — v2.0 advanced features
+**Goal:** Documentation accuracy fixes, ADRs, comprehensive API docs
+**Status:** PHASE 22 COMPLETE - 4/4 plans, all documentation artifacts created, VERIFICATION: PASSED
 
 **Progress:**
 - Test Score: 100% (981/981 tests passing)
@@ -32,6 +32,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 - Phase 21.2: 2/2 plans complete
   - 21.2-01: Fix VFS path validation for special characters (BUG 1 FIXED)
   - 21.2-02: Fix server process cleanup on error/termination (BUG 2 FIXED)
+- Phase 22: 4/4 plans complete (DOCUMENTATION & ARCHITECTURE)
+  - 22-01: Cold start terminology fix and performance docs (COLD_START.md, PERFORMANCE.md)
+  - 22-02: README accuracy fixes and compatibility matrix (COMPATIBILITY.md)
+  - 22-03: 7 Architecture Decision Records (ADRs in docs/ADR/)
+  - 22-04: API documentation (API.md, CLI.md, ADMIN_API.md, CONFIG.md, NODEJS_COMPAT.md)
 - Phase 27: 4/4 plans complete (PRODUCTION MULTI-TENANCY)
   - 27-01: CPU time tracking and timer-based termination (570 tests)
   - 27-02: Memory monitoring and soft/LRU eviction (601 tests)
