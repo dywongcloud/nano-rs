@@ -1,12 +1,66 @@
-//! Worker pool for multi-threaded JavaScript execution
+//! Worker pool architecture for multi-tenant JavaScript execution
 //!
-//! This module implements the WorkerPool architecture for NANO:
+//! This module provides worker pool implementations for NANO, managing V8 isolate
+//! execution across multiple threads with per-tenant isolation.
 //!
-//! ## Architecture
+//! ## Architecture Overview
 //!
-//! - **WorkerPool**: Manages N worker threads, each owning one V8 isolate
-//! - **WorkerHandle**: Handle to a worker thread with MPSC channel for task dispatch
-//! - **HandlerTask**: Task sent to workers containing the JavaScript entrypoint and request
+//! This module provides multiple worker pool implementations for different use cases:
+//!
+//! ### Pool Types
+//!
+//! - **SliverWorkerPool** ([`pool::SliverWorkerPool`]): For snapshot-based execution
+//!   - Restores isolates from V8 snapshots (~1-2ms cold start)
+//!   - Full feature set: CPU limits, memory monitoring, eviction
+//!   - Use when: Running from sliver files (production deployment)
+//!
+//! - **EntrypointWorkerPool** ([`queue::EntrypointWorkerPool`]): For entrypoint dispatch
+//!   - Creates fresh isolates from source files
+//!   - Supports async creation with custom VFS backends
+//!   - Use when: Dynamic app loading, development, testing
+//!
+//! - **WorkQueue** ([`queue::WorkQueue`]): Multi-hostname pool manager
+//!   - Manages multiple EntrypointWorkerPools per hostname
+//!   - Affine dispatch for cache locality
+//!   - Use when: Multi-tenant hosting with dynamic pool creation
+//!
+//! - **WorkerPool** ([`pool::WorkerPool`]): Legacy pool (backward compatibility)
+//!   - The original pool implementation from early phases
+//!   - Maintained for existing tests and backward compatibility
+//!   - New code should use SliverWorkerPool or EntrypointWorkerPool
+//!
+//! ### Trait-Based Design
+//!
+//! All pool types implement the [`WorkerPoolTrait`] for common operations:
+//! - [`WorkerPoolTrait::dispatch`]: Send tasks to workers
+//! - [`WorkerPoolTrait::shutdown`]: Graceful shutdown
+//! - [`WorkerPoolTrait::worker_count`], [`WorkerPoolTrait::hostname`]: Introspection
+//!
+//! The trait is object-safe, enabling polymorphic usage:
+//! ```rust,ignore
+//! use nano::worker::{WorkerPoolTrait, SliverWorkerPool, EntrypointWorkerPool};
+//!
+//! fn use_pool(pool: &dyn WorkerPoolTrait) {
+//!     println!("Pool {} has {} workers", pool.hostname(), pool.worker_count());
+//! }
+//! ```
+//!
+//! ### Pool Selection Guide
+//!
+//! | Use Case | Pool Type | Why |
+//! |----------|-----------|-----|
+//! | Production sliver execution | SliverWorkerPool | Fast snapshot restore, full features |
+//! | Dynamic app loading | EntrypointWorkerPool | Async creation, VFS flexibility |
+//! | Multi-tenant hosting | WorkQueue | Per-hostname pool management |
+//! | Testing/development | EntrypointWorkerPool | Simple, no snapshot needed |
+//! | Legacy compatibility | WorkerPool | Maintains backward compatibility |
+//!
+//! ### VFS Backend Configuration
+//!
+//! Both SliverWorkerPool and EntrypointWorkerPool support custom VFS backends:
+//! - [`SliverWorkerPool::with_backend`]: Snapshot execution with custom storage
+//! - [`EntrypointWorkerPool::with_backend`]: Entrypoint dispatch with custom storage
+//! - [`WorkQueue::with_vfs_config`]: Async disk backend creation for multi-tenant
 //!
 //! ## Thread Safety
 //!
@@ -16,15 +70,15 @@
 //!
 //! ## Task Flow
 //!
-//! 1. HTTP layer creates a `HandlerTask` with entrypoint, request, and response channel
+//! 1. HTTP layer creates a [`HandlerTask`] with entrypoint, request, and response channel
 //! 2. WorkerPool dispatches the task via MPSC to a worker thread
 //! 3. Worker thread executes the JavaScript handler using its isolate
 //! 4. Response is sent back via oneshot channel
 //!
 //! ## Graceful Shutdown
 //!
-//! Dropping the `WorkerPool` signals workers to exit via MPSC channel closure.
-//! All worker threads are joined to ensure clean isolate cleanup.
+//! Calling [`WorkerPoolTrait::shutdown`] or dropping the pool signals workers to exit
+//! via MPSC channel closure. All worker threads are joined to ensure clean isolate cleanup.
 
 pub mod context;
 pub mod cpu_tracker;
