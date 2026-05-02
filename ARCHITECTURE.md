@@ -4,6 +4,17 @@
 
 NANO is a single-process HTTP server that hosts multiple JavaScript applications in parallel, each isolated in its own V8 isolate. It replaces container-per-app architectures with a single binary that manages multiple isolated execution contexts.
 
+### Performance Characteristics
+
+| Metric | Time | Description |
+|--------|------|-------------|
+| Process Boot | ~60ms | One-time on binary start |
+| Sliver Restoration | ~267µs | New isolate from snapshot |
+| Context Reset | ~5ms | Between requests (same isolate) |
+| Fresh Isolate | ~50-100ms | New isolate without snapshot |
+
+See [Performance Documentation](docs/PERFORMANCE.md) for detailed benchmarks and tuning guide.
+
 ## Core Components
 
 ### 1. HTTP Server (src/http/)
@@ -27,7 +38,7 @@ Manages V8 platform and isolates.
 - **context.rs**: V8 context creation and reset between requests
 - **script.rs**: JavaScript execution and compilation
 
-Critical: V8 isolates are NOT thread-safe. Each isolate is bound to one thread for its entire lifetime. Context reset (~5ms) happens between requests instead of full isolate teardown (~50-100ms).
+Critical: V8 isolates are NOT thread-safe. Each isolate is bound to one thread for its entire lifetime. Context reset (~5ms, not full isolate recreation) happens between requests instead of fresh isolate creation (~50-100ms). See [Cold Start Guide](docs/COLD_START.md) for performance terminology.
 
 ### 3. WorkerPool (src/worker/)
 
@@ -39,7 +50,7 @@ Manages worker threads and request dispatch.
 - **oom.rs**: OOM detection and isolate termination
 - **limits.rs**: Per-app resource enforcement
 
-Thread model: One worker thread per isolate. Affine dispatch — same hostname always routes to same worker index for cache locality.
+Thread model: One worker thread per isolate. Affine dispatch — same hostname always routes to same worker index for cache locality. SliverWorkerPool enables ~267µs sliver restoration vs ~50-100ms fresh isolate creation. See [Performance Documentation](docs/PERFORMANCE.md) for benchmarks.
 
 ### 4. Runtime APIs (src/runtime/)
 

@@ -5,7 +5,13 @@ Last Updated: 2026-05-01
 
 ## Executive Summary
 
-NANO is a multi-tenant JavaScript edge runtime using V8 isolates. One OS process hosts multiple isolated apps with ~267µs cold starts via sliver snapshots.
+NANO is a multi-tenant JavaScript edge runtime using V8 isolates. One OS process hosts multiple isolated apps with:
+
+- **~267µs sliver restoration** from snapshot (new isolate ready to serve)
+- **~5ms context reset** between requests (isolation without overhead)
+- **~60ms process boot** time (one-time on server start)
+
+See [Cold Start Guide](docs/COLD_START.md) for detailed performance characteristics.
 
 **Test Status: 100% Pass Rate**
 - API Compatibility: 26/26 tests passing
@@ -179,12 +185,15 @@ Existing Cloudflare Workers can run on nano-rs with these changes:
 
 ## Performance Characteristics
 
-- Cold start from sliver: ~267µs
-- Context reset between requests: ~5ms
-- Fresh isolate creation: ~50-100ms
+- Sliver restoration: ~267µs (new isolate from snapshot)
+- Context reset: ~5ms (between requests in same isolate)
+- Process boot: ~60ms (one-time on server start)
+- Fresh isolate: ~50-100ms (new isolate without snapshot)
 - HTTP request handling: <1ms (excluding JS execution)
 - Max response body size: 100MB (configurable)
 - Default timeout: 30 seconds (configurable)
+
+See [Performance Documentation](docs/PERFORMANCE.md) for benchmarks and tuning guide.
 
 ## Architecture
 
