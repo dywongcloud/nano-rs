@@ -452,3 +452,44 @@ Proposed actions:
 - Extract common WorkerPool trait
 - Unify VFS backend creation and lifecycle
 - Document which pool type to use for each scenario
+
+### Phase 999.3: VFS Disk Backend E2E Tests (BACKLOG)
+**Goal:** Fix WASM E2E tests that require disk VFS backend file access
+**Requirements:** REQ-999-03-01: Enable per-app disk VFS backends for E2E tests, REQ-999-03-02: Ensure WASM file access works via Nano.fs.readFile()
+**Success Criteria:**
+  1. `test_wasm_cpu_timeout` passes with disk VFS backend
+  2. `test_wasm_within_cpu_limit` passes with disk VFS backend
+  3. File structure: entrypoints at temp root, VFS files in `{sanitized_hostname}/`
+  4. No workarounds - proper async pool creation with app-specific backends
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+**Context from Phase 27:**
+The WASM E2E tests fail because they need to read files via `Nano.fs.readFile()` from disk VFS backend.
+Current architecture limitation: WorkQueue uses MemoryBackend by default, and per-app disk backends require async pool creation refactoring that was identified but not implemented to avoid scope creep.
+
+### Phase 999.4: Pre-existing Technical Debt (BACKLOG)
+**Goal:** Address TODOs from previous phases identified during Phase 27
+**Requirements:** Review and resolve 4 pre-existing TODO items in codebase
+**Plans:** 0 plans
+
+TODOs identified:
+1. **src/runtime/apis.rs:1821** - "RSA and ECDSA algorithms - TODO: add specific properties"
+   - Context: Crypto API implementation for asymmetric algorithms
+   - Impact: Low (algorithms work, properties incomplete)
+
+2. **src/v8/module.rs:522** - "TODO: Implement proper ESM execution with correct lifetime management"
+   - Context: ESM module execution infrastructure
+   - Impact: Medium (current transformation approach works, proper Module API incomplete)
+
+3. **src/sliver/mod.rs:90** - "TODO: Add list_dir() method to VfsBackend trait for full implementation"
+   - Context: VFS directory listing for sliver operations
+   - Impact: Low (walk_vfs works without it)
+
+4. **src/v8/isolate.rs:176** - "TODO: Implement proper V8 snapshot validation and loading"
+   - Context: V8 snapshot integrity verification
+   - Impact: Low (snapshots work, validation missing)
+
+Note: These TODOs were NOT introduced in Phase 27. They are pre-existing technical debt from earlier phases that was identified during Phase 27 completion review. Each requires its own analysis and phase planning.

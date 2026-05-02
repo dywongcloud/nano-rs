@@ -74,7 +74,18 @@ E2E Tests:          3/5 passed
 **Required:** Lazy pool creation with app-specific VFS configurations
 **Blocker:** WorkQueue::get_or_create_pool() is synchronous, disk backend creation is async
 
-**Resolution:** Backlogged for Phase 999.2 architecture consolidation
+**Resolution:** Backlogged as Phase 999.3
+
+### Issue 3: Pre-existing Technical Debt
+**Location:** Various TODOs in codebase (not from Phase 27)
+- src/runtime/apis.rs:1821 - RSA/ECDSA algorithm properties
+- src/v8/module.rs:522 - Proper ESM execution with lifetimes  
+- src/sliver/mod.rs:90 - VFS list_dir() method
+- src/v8/isolate.rs:176 - V8 snapshot validation
+
+**Impact:** Low to Medium - workarounds exist for all items
+
+**Resolution:** Backlogged as Phase 999.4 for individual evaluation
 
 ## Key Design Decisions
 
@@ -127,6 +138,26 @@ E2E Tests:          3/5 passed
 - Implement lazy pool creation with app-specific configs
 - Document pool selection criteria for each scenario
 
+### Phase 999.3: VFS Disk Backend E2E Tests
+**Goal:** Fix WASM E2E tests requiring disk VFS backend file access  
+**Requirements:** REQ-999-03-01, REQ-999-03-02  
+**Failing Tests:** `test_wasm_cpu_timeout`, `test_wasm_within_cpu_limit`  
+**Root Cause:** Per-app disk VFS backends not fully wired for async pool creation  
+**Plans:** 0 plans
+
+**Success Criteria:**
+- Both WASM E2E tests pass without `#[ignore]`
+- All 5 E2E tests passing (3 JS + 2 WASM)
+- No workarounds - proper async architecture
+
+### Phase 999.4: Pre-existing Technical Debt
+**Goal:** Address TODOs from previous phases identified during Phase 27  
+**Items:** 4 TODOs in runtime/apis.rs, v8/module.rs, sliver/mod.rs, v8/isolate.rs  
+**Impact:** Low to Medium (workarounds exist)  
+**Plans:** 0 plans
+
+**Note:** These TODOs were NOT introduced in Phase 27. They are pre-existing technical debt from earlier phases.
+
 ## Commits
 
 1. `Phase 27 completion: CPU timeout enforcement, WASM support, and production multi-tenancy` - Initial completion
@@ -146,4 +177,6 @@ cargo test --test cpu_timeout_e2e_test -- --ignored --test-threads=1
 
 # Security tests ready for Phase 999.1
 # Architecture work queued for Phase 999.2
+# VFS disk backend E2E tests in Phase 999.3
+# Pre-existing technical debt in Phase 999.4
 ```
