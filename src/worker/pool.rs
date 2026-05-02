@@ -1631,6 +1631,46 @@ impl SliverWorkerPool {
     }
 }
 
+impl crate::worker::WorkerPool for SliverWorkerPool {
+    fn dispatch(&self, task: HandlerTask) -> Result<()> {
+        let worker_idx = self.next_worker.fetch_add(1, Ordering::SeqCst) % self.worker_count;
+        self.workers[worker_idx]
+            .send(task)
+            .map_err(|e| anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
+    }
+
+    fn shutdown(mut self) -> Result<()> {
+        info!("Shutting down SliverWorkerPool for {}", self.hostname);
+
+        let mut handles: Vec<_> = self
+            .workers
+            .drain(..)
+            .map(|mut w| (w.id, w.take_thread()))
+            .collect();
+
+        for (id, handle) in handles.drain(..) {
+            if let Some(h) = handle {
+                debug!("Waiting for sliver worker {} to exit", id);
+                match h.join() {
+                    Ok(_) => debug!("SliverWorker {} exited cleanly", id),
+                    Err(_) => warn!("SliverWorker {} panicked during shutdown", id),
+                }
+            }
+        }
+
+        info!("SliverWorkerPool for {} shut down complete", self.hostname);
+        Ok(())
+    }
+
+    fn worker_count(&self) -> usize {
+        self.worker_count
+    }
+
+    fn hostname(&self) -> &str {
+        &self.hostname
+    }
+}
+
 impl Drop for SliverWorkerPool {
     fn drop(&mut self) {
         if !self.workers.is_empty() {

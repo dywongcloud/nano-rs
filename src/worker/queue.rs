@@ -157,6 +157,8 @@ pub struct EntrypointWorkerPool {
     pub worker_count: usize,
     /// Hostname this pool serves
     pub hostname: String,
+    /// Next worker index for round-robin dispatch (atomic for thread safety)
+    next_worker: std::sync::atomic::AtomicUsize,
 }
 
 impl EntrypointWorkerPool {
@@ -300,6 +302,7 @@ impl EntrypointWorkerPool {
             workers,
             worker_count,
             hostname: hostname.to_string(),
+            next_worker: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -336,6 +339,32 @@ impl EntrypointWorkerPool {
         // Drop the workers (which drops the senders)
         // Workers will exit their loops when channels close
         drop(self.workers);
+    }
+}
+
+impl crate::worker::WorkerPool for EntrypointWorkerPool {
+    fn dispatch(&self, task: HandlerTask) -> anyhow::Result<()> {
+        // Use round-robin dispatch
+        let worker_idx = self.next_worker.fetch_add(1, Ordering::SeqCst) % self.workers.len();
+        self.workers[worker_idx]
+            .task_tx
+            .try_send(task)
+            .map_err(|e| anyhow::anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
+    }
+
+    fn shutdown(self) -> anyhow::Result<()> {
+        tracing::info!("Shutting down EntrypointWorkerPool for {}", self.hostname);
+        // Drop the workers (which drops the senders)
+        drop(self.workers);
+        Ok(())
+    }
+
+    fn worker_count(&self) -> usize {
+        self.worker_count
+    }
+
+    fn hostname(&self) -> &str {
+        &self.hostname
     }
 }
 

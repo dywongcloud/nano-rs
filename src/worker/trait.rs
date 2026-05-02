@@ -97,7 +97,7 @@ pub trait WorkerPool: Send + Sync {
 /// This struct provides a common configuration interface for all
 /// pool types. Individual pool implementations may extend this
 /// with additional configuration options.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct WorkerPoolConfig {
     /// Hostname this pool serves (tenant identifier)
     pub hostname: String,
@@ -107,6 +107,17 @@ pub struct WorkerPoolConfig {
     pub memory_limit_mb: u32,
     /// Optional custom VFS backend (None = use default MemoryBackend)
     pub vfs_backend: Option<Arc<dyn crate::vfs::VfsBackend>>,
+}
+
+impl std::fmt::Debug for WorkerPoolConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerPoolConfig")
+            .field("hostname", &self.hostname)
+            .field("worker_count", &self.worker_count)
+            .field("memory_limit_mb", &self.memory_limit_mb)
+            .field("vfs_backend", &self.vfs_backend.is_some())
+            .finish()
+    }
 }
 
 impl WorkerPoolConfig {
