@@ -565,6 +565,7 @@ impl AppState {
             work_queue: Arc::new(Mutex::new(WorkQueue::with_vfs_config(
                 workers_per_pool,
                 vfs_disk_config,
+                app_registry.clone(),
             ))),
             app_registry,
         }

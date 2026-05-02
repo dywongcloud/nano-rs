@@ -445,7 +445,8 @@ impl WorkQueue {
     /// Get or create a worker pool for a hostname
     ///
     /// Uses case-insensitive hostname hashing per D-WQ-02.
-    /// Creates disk VFS backend asynchronously if configured.
+    /// Creates disk VFS backend asynchronously based on per-app configuration from AppRegistry.
+    /// Falls back to global vfs_disk_config if no registry is available.
     ///
     /// # Arguments
     ///
@@ -459,29 +460,69 @@ impl WorkQueue {
 
         if !self.pools.contains_key(&hash) {
             tracing::info!("Creating new EntrypointWorkerPool for hostname: {}", hostname);
-            
-            // Create the appropriate VFS backend based on configuration
-            let pool = if let Some(ref disk_config) = self.vfs_disk_config {
-                // Create disk backend asynchronously
-                let base_path = disk_config.base_path.clone();
-                match BackendFactory::new()
-                    .create_backend(VfsBackendType::Disk, Some(&VfsDiskConfig { base_path }), None)
-                    .await
-                {
-                    Ok(backend) => {
-                        tracing::info!("Created disk backend for hostname: {}", hostname);
-                        EntrypointWorkerPool::with_backend(hostname, self.workers_per_pool, backend)
+
+            // Check for per-app VFS configuration from AppRegistry first
+            let pool = if let Some(ref registry) = self.app_registry {
+                if let Some(app_config) = registry.get(hostname) {
+                    match app_config.vfs_backend {
+                        VfsBackendType::Disk => {
+                            if let Some(ref disk_config) = app_config.vfs_disk {
+                                // Create disk backend with per-app config
+                                match BackendFactory::new()
+                                    .create_backend(
+                                        VfsBackendType::Disk,
+                                        Some(disk_config),
+                                        None,
+                                    )
+                                    .await
+                                {
+                                    Ok(backend) => {
+                                        tracing::info!(
+                                            "Created disk backend for hostname: {} with base_path: {}",
+                                            hostname,
+                                            disk_config.base_path
+                                        );
+                                        EntrypointWorkerPool::with_backend(
+                                            hostname,
+                                            self.workers_per_pool,
+                                            backend,
+                                        )
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Failed to create disk backend for {}, falling back to memory: {}",
+                                            hostname,
+                                            e
+                                        );
+                                        EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                                    }
+                                }
+                            } else {
+                                tracing::warn!(
+                                    "App {} has vfs_backend=disk but no vfs_disk config, using memory",
+                                    hostname
+                                );
+                                EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                            }
+                        }
+                        VfsBackendType::Memory | _ => {
+                            tracing::debug!("Using memory backend for hostname: {}", hostname);
+                            EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                        }
                     }
-                    Err(e) => {
-                        tracing::warn!("Failed to create disk backend, falling back to memory: {}", e);
-                        EntrypointWorkerPool::new(hostname, self.workers_per_pool)
-                    }
+                } else {
+                    // App not found in registry, fall back to global config or memory
+                    tracing::debug!(
+                        "Hostname {} not found in registry, using fallback",
+                        hostname
+                    );
+                    self.create_pool_with_fallback(hostname).await
                 }
             } else {
-                // Use memory backend (default)
-                EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                // No registry available, use fallback (global config or memory)
+                self.create_pool_with_fallback(hostname).await
             };
-            
+
             self.pools.insert(hash, pool);
             self.stats.active_pools.fetch_add(1, Ordering::Relaxed);
             self.stats
@@ -490,6 +531,39 @@ impl WorkQueue {
         }
 
         self.pools.get_mut(&hash).expect("Pool should exist")
+    }
+
+    /// Create a pool using global vfs_disk_config as fallback
+    ///
+    /// This is used when per-app configuration is not available.
+    async fn create_pool_with_fallback(&self, hostname: &str) -> EntrypointWorkerPool {
+        if let Some(ref disk_config) = self.vfs_disk_config {
+            // Create disk backend asynchronously using global config
+            let base_path = disk_config.base_path.clone();
+            match BackendFactory::new()
+                .create_backend(VfsBackendType::Disk, Some(&VfsDiskConfig { base_path }), None)
+                .await
+            {
+                Ok(backend) => {
+                    tracing::info!(
+                        "Created disk backend for hostname: {} (global config)",
+                        hostname
+                    );
+                    EntrypointWorkerPool::with_backend(hostname, self.workers_per_pool, backend)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to create disk backend (global config), falling back to memory: {}",
+                        e
+                    );
+                    EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                }
+            }
+        } else {
+            // Use memory backend (default)
+            tracing::debug!("Using memory backend for hostname: {} (no config)", hostname);
+            EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+        }
     }
 
     /// Dispatch a task to the appropriate worker pool
