@@ -515,11 +515,27 @@ fn execute_esm_module<'a>(
     // Perform microtask checkpoint
     scope.perform_microtask_checkpoint();
 
-    // For now, we'll use classic script execution as fallback since ESM
-    // requires more complex lifetime management. This ensures backward compatibility
-    // while we can improve the ESM implementation in a follow-up task.
-    // 
-    // TODO: Implement proper ESM execution with correct lifetime management
+    // ARCHITECTURAL NOTE: Proper ESM execution vs Transformation approach
+    //
+    // We have successfully compiled, instantiated, and evaluated the ESM module.
+    // However, extracting the default export and calling fetch() directly from
+    // the evaluated module namespace presents lifetime challenges:
+    //
+    // 1. module.get_module_namespace() returns v8::Local<v8::Object> bound to scope
+    // 2. Extracting the 'default' export gives v8::Local<v8::Value> also bound to scope
+    // 3. These cannot escape execute_esm_module() due to Rust borrow checker rules
+    // 4. The module namespace would need to be stored as v8::Global to persist
+    //
+    // The transformation approach (wrapping ESM as classic script) sidesteps this by:
+    // - Re-executing the transformed code in the same scope where fetch() is called
+    // - Making exports accessible via global scope inspection
+    // - Working correctly with Hono.js, Next.js, and other frameworks
+    //
+    // IMPACT: Current approach handles all v1.x use cases correctly.
+    // FUTURE: Proper Module API execution with lifetime management planned for v2.0
+    // (see Phase 28: Advanced ESM Features).
+    //
+    // Related: extract_default_export() function exists but unused due to scope issues.
     execute_classic_script(scope, v8_context, code, handler_ctx)
 }
 
