@@ -8,6 +8,8 @@ use crate::http::NanoResponse;
 use crate::runtime::HandlerContext;
 use crate::v8::{initialize_platform, NanoIsolate};
 use crate::worker::context::ContextManager;
+use crate::worker::eviction::{EvictionAction, EvictionManager, IsolateId, IsolateMetadata};
+use crate::worker::memory_monitor::{MemoryMonitor, MemoryPressureLevel};
 use crate::worker::oom::OomMonitorBuilder;
 use crate::worker::HandlerTask;
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
@@ -521,6 +523,12 @@ impl Drop for WorkerHandle {
 /// Each WorkerPool has a shared VFS backend that all workers in the pool
 /// share. This means files written by one worker are visible to other
 /// workers in the same pool (same app), but isolated from other pools.
+///
+/// # Memory Monitoring
+///
+/// Each worker has its own MemoryMonitor for post-execution heap checking.
+/// The EvictionManager is shared across workers to coordinate soft/hard
+/// eviction when memory pressure is detected.
 pub struct WorkerPool {
     /// Worker handles for all threads in the pool
     workers: Vec<WorkerHandle>,
@@ -532,6 +540,8 @@ pub struct WorkerPool {
     next_worker: AtomicUsize,
     /// Shared VFS backend for all workers in this pool
     vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
+    /// Memory limit per isolate in MB
+    memory_limit_mb: u32,
 }
 
 impl std::fmt::Debug for WorkerPool {
@@ -542,6 +552,7 @@ impl std::fmt::Debug for WorkerPool {
             .field("hostname", &self.hostname)
             .field("next_worker", &self.next_worker)
             .field("vfs_backend", &"<dyn VfsBackend>")
+            .field("memory_limit_mb", &self.memory_limit_mb)
             .finish()
     }
 }
@@ -630,6 +641,16 @@ impl WorkerPool {
                     None
                 };
 
+                // Create memory monitor for post-execution heap checking
+                let mut memory_monitor = if memory_limit_mb > 0 {
+                    Some(MemoryMonitor::new(memory_limit_mb))
+                } else {
+                    None
+                };
+
+                // Create eviction manager for this worker (thread-local)
+                let mut eviction_manager = EvictionManager::new();
+
                 // Create VFS for this worker with shared backend
                 let vfs = IsolateVfs::new(
                     VfsNamespace::from_hostname(&worker_hostname),
@@ -652,13 +673,39 @@ impl WorkerPool {
                     error!("Worker {} failed to create context: {}", id, e);
                     return;
                 }
-                info!("Worker {} initialized with context", id);
+
+                // Register this isolate with the eviction manager
+                let isolate_id = IsolateId::from_worker_index(id);
+                eviction_manager.register_isolate(
+                    isolate_id.clone(),
+                    IsolateMetadata::new(&worker_hostname, id),
+                );
+
+                info!("Worker {} initialized with context and memory monitoring", id);
 
                 // Event loop: receive tasks and execute
                 loop {
                     match task_rx.recv() {
                         Ok(task) => {
                             debug!("Worker {} received task for {}", id, task.entrypoint);
+
+                            // Check if isolate is in draining mode (soft eviction)
+                            if eviction_manager.is_draining(&isolate_id) {
+                                warn!("Worker {} is draining, rejecting new request", id);
+                                let _ = task.response_tx.send(Err(anyhow!(
+                                    "Service temporarily unavailable - memory pressure"
+                                )));
+                                continue;
+                            }
+
+                            // Check if isolate has been evicted
+                            if eviction_manager.is_evicted(&isolate_id) {
+                                warn!("Worker {} is evicted, rejecting request", id);
+                                let _ = task.response_tx.send(Err(anyhow!(
+                                    "Service unavailable - isolate evicted"
+                                )));
+                                continue;
+                            }
 
                             // OOM-04: Pre-request OOM check
                             if let Some(ref monitor) = oom_monitor {
@@ -694,6 +741,11 @@ impl WorkerPool {
                                                 }
                                                 // Reset OOM monitor for fresh isolate
                                                 monitor.reset();
+                                                // Reactivate isolate in eviction manager
+                                                eviction_manager.reactivate_isolate(
+                                                    isolate_id.clone(),
+                                                    IsolateMetadata::new(&worker_hostname, id),
+                                                );
                                                 info!(
                                                     "Worker {} created fresh isolate after OOM",
                                                     id
@@ -708,6 +760,9 @@ impl WorkerPool {
                                     }
                                 }
                             }
+
+                            // Mark active request in eviction manager
+                            eviction_manager.mark_active(&isolate_id);
 
                             // POOL-04: Reset context before each request
                             match context_manager.reset_context() {
@@ -726,6 +781,7 @@ impl WorkerPool {
                                     error!("Worker {} context reset failed: {}", id, e);
                                     let _ =
                                         task.response_tx.send(Err(anyhow!("Context reset failed")));
+                                    eviction_manager.mark_complete(&isolate_id);
                                     continue;
                                 }
                             }
@@ -739,6 +795,69 @@ impl WorkerPool {
                             // Execute handler with fresh context scope
                             let result =
                                 execute_with_context_manager(&mut context_manager, &handler_ctx);
+
+                            // Mark request complete in eviction manager
+                            eviction_manager.mark_complete(&isolate_id);
+
+                            // Post-execution memory monitoring (27-02)
+                            if let Some(ref mut mem_monitor) = memory_monitor {
+                                let isolate_ref = context_manager.isolate_mut().isolate();
+                                let snapshot = mem_monitor.check_after(isolate_ref);
+
+                                // Update eviction manager with usage data
+                                eviction_manager.record_usage(&isolate_id, snapshot.total_memory_bytes());
+
+                                // Handle pressure levels
+                                match snapshot.pressure_level {
+                                    MemoryPressureLevel::Normal => {
+                                        // No action needed
+                                    }
+                                    MemoryPressureLevel::Warning => {
+                                        // Log warning for elevated memory
+                                        warn!(
+                                            "Worker {} memory warning: {:.1}MB ({}% of limit)",
+                                            id,
+                                            snapshot.total_memory_mb(),
+                                            (snapshot.total_memory_mb() / memory_limit_mb as f64 * 100.0) as u32
+                                        );
+                                    }
+                                    MemoryPressureLevel::Critical | MemoryPressureLevel::Emergency => {
+                                        // Trigger soft eviction
+                                        let action = eviction_manager.evaluate_pressure(
+                                            snapshot.pressure_level,
+                                            None,
+                                        );
+
+                                        match action {
+                                            EvictionAction::SoftEvict(_) => {
+                                                warn!(
+                                                    "Worker {} memory pressure detected ({}), initiating soft eviction",
+                                                    id,
+                                                    snapshot.pressure_level.description()
+                                                );
+                                                eviction_manager.initiate_soft_eviction(&isolate_id);
+                                            }
+                                            EvictionAction::HardEvict(_) => {
+                                                // Emergency - dispose isolate immediately
+                                                error!(
+                                                    "Worker {} emergency memory pressure, disposing isolate",
+                                                    id
+                                                );
+                                                eviction_manager.hard_evict(&isolate_id);
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+
+                                // Check for memory leak trends
+                                if mem_monitor.is_trending_to_leak() {
+                                    warn!(
+                                        "Worker {} memory leak detected, isolate may need disposal",
+                                        id
+                                    );
+                                }
+                            }
 
                             // Post-request OOM check (optional - catches runaway memory during request)
                             if let Some(ref monitor) = oom_monitor {
@@ -764,6 +883,11 @@ impl WorkerPool {
                                                 break;
                                             }
                                             monitor.reset();
+                                            // Reactivate in eviction manager
+                                            eviction_manager.reactivate_isolate(
+                                                isolate_id.clone(),
+                                                IsolateMetadata::new(&worker_hostname, id),
+                                            );
                                             info!("Worker {} created fresh isolate after post-request OOM", id);
                                         }
                                         Err(e) => {
@@ -786,11 +910,13 @@ impl WorkerPool {
                 }
 
                 // Isolate is dropped here when worker thread exits
+                let eviction_stats = eviction_manager.state_counts();
                 info!(
-                    "Worker {} shutting down (avg context reset: {:.2}ms, OOM events: {})",
+                    "Worker {} shutting down (avg context reset: {:.2}ms, OOM events: {}, evictions: {})",
                     id,
                     context_manager.average_reset_time_ms(),
-                    oom_monitor.map(|m| m.oom_count()).unwrap_or(0)
+                    oom_monitor.map(|m| m.oom_count()).unwrap_or(0),
+                    eviction_stats.2 // evicted count
                 );
             });
 
@@ -812,6 +938,7 @@ impl WorkerPool {
             hostname,
             next_worker: AtomicUsize::new(0),
             vfs_backend,
+            memory_limit_mb,
         }
     }
 
