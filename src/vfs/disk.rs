@@ -430,6 +430,53 @@ impl VfsBackend for DiskBackend {
         })
     }
 
+    async fn list_dir(&self, path: &VfsPath) -> VfsResult<Vec<VfsPath>> {
+        let fs_path = self.to_filesystem_path(path);
+
+        let mut entries = fs::read_dir(&fs_path)
+            .await
+            .map_err(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => VfsError::NotFound {
+                    path: path.to_string(),
+                },
+                std::io::ErrorKind::PermissionDenied => VfsError::PermissionDenied {
+                    path: path.to_string(),
+                },
+                _ => VfsError::IoError(format!("Failed to read directory: {e}")),
+            })?;
+
+        let mut paths = Vec::new();
+
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| VfsError::IoError(format!("Failed to read directory entry: {e}")))?
+        {
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
+
+            // Skip hidden files and special entries
+            if name.starts_with('.') {
+                continue;
+            }
+
+            let child_path = if path.as_str().ends_with('/') {
+                format!("{}{}", path.as_str(), name)
+            } else {
+                format!("{}/{}", path.as_str(), name)
+            };
+
+            paths.push(VfsPath::new(&child_path).map_err(|e| {
+                VfsError::InvalidPath {
+                    path: child_path.clone(),
+                    reason: format!("Invalid path generated: {e}"),
+                }
+            })?);
+        }
+
+        Ok(paths)
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

@@ -82,13 +82,44 @@ pub async fn walk_vfs_for_snapshot<B>(backend: &B) -> crate::vfs::VfsResult<Vec<
 where
     B: crate::vfs::VfsBackend,
 {
-    // Note: This is a simplified implementation.
-    // A full implementation would need to list all files in the backend.
-    // For now, we return an empty list as the snapshot feature
-    // will need additional backend methods to list files.
-    
-    // TODO: Add list_dir() method to VfsBackend trait for full implementation
-    Ok(vec![])
+    let mut result = Vec::new();
+    let mut to_process = vec![crate::vfs::VfsPath::new("/").unwrap()];
+
+    while let Some(path) = to_process.pop() {
+        // Try to list directory contents
+        match backend.list_dir(&path).await {
+            Ok(entries) => {
+                for entry in entries {
+                    // Check if entry is a file by trying to get metadata
+                    match backend.metadata(&entry).await {
+                        Ok(_) => {
+                            // It's a file - read it and add to result
+                            match backend.read(&entry).await {
+                                Ok(content) => {
+                                    result.push((entry, crate::vfs::VfsFile::new(content)));
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to read file {}: {}", entry.as_str(), e);
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            // Might be a directory - add to queue for processing
+                            to_process.push(entry);
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                // Not a directory or empty - try as a file directly
+                if let Ok(content) = backend.read(&path).await {
+                    result.push((path, crate::vfs::VfsFile::new(content)));
+                }
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 /// Build a manifest string from a list of archive entries

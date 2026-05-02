@@ -298,7 +298,7 @@ pub fn get_runtime_v8_version() -> String {
 }
 
 /// Check if a sliver can be restored with fallback
-pub fn can_restore_with_fallback(metadata: &SliverMetadata) -> bool {
+pub fn can_restore_with_fallback(_metadata: &SliverMetadata) -> bool {
     // Can restore with fallback if we have an entrypoint
     // or if the snapshot fails but we can create fresh
     true // Simplified - actual logic depends on context

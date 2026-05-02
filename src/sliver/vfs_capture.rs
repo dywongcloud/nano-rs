@@ -115,8 +115,8 @@ pub async fn capture_vfs(vfs: &IsolateVfs) -> VfsResult<VfsCapture> {
 
 /// Attempt to capture from a MemoryBackend
 async fn capture_memory_backend(
-    vfs: &IsolateVfs,
-    capture: &mut VfsCapture,
+    _vfs: &IsolateVfs,
+    _capture: &mut VfsCapture,
 ) -> VfsResult<()> {
     // For now, we use the VFS read operations to collect files
     // This works with any backend that supports read operations

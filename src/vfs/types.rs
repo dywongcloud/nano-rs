@@ -193,6 +193,10 @@ pub enum VfsError {
     /// Generic I/O error (EIO)
     #[error("EIO: I/O error: {0}")]
     IoError(String),
+
+    /// Operation not supported (ENOTSUP)
+    #[error("ENOTSUP: operation not supported: {feature}")]
+    NotSupported { feature: String },
 }
 
 impl VfsError {
@@ -205,9 +209,10 @@ impl VfsError {
             Self::InvalidPath { .. } => "EINVAL",
             Self::QuotaExceeded { .. } => "EQUOTA",
             Self::IoError(..) => "EIO",
+            Self::NotSupported { .. } => "ENOTSUP",
         }
     }
-    
+
     /// Get the path associated with this error, if any
     pub fn path(&self) -> Option<&str> {
         match self {

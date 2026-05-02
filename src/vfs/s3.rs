@@ -367,6 +367,19 @@ impl VfsBackend for S3Backend {
         })
     }
 
+    async fn list_dir(&self, _path: &VfsPath) -> VfsResult<Vec<VfsPath>> {
+        // S3 doesn't have native directories — would need ListObjectsV2 with prefix/delimiter
+        // This requires complex handling of common prefixes ("subdirectories") and contents (files)
+        // For now, return NotSupported. Full implementation would:
+        // 1. Use bucket.list() with the path as prefix and "/" as delimiter
+        // 2. Parse common_prefixes as subdirectories
+        // 3. Parse contents as files
+        // 4. Convert S3 keys back to VfsPath format
+        Err(VfsError::NotSupported {
+            feature: "list_dir on S3 backend".to_string(),
+        })
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

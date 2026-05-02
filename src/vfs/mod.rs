@@ -65,6 +65,14 @@ pub trait VfsBackend: Send + Sync {
     /// Get file metadata
     async fn metadata(&self, path: &VfsPath) -> VfsResult<VfsFile>;
 
+    /// List directory entries at the given path
+    ///
+    /// Returns a list of all direct children (files and subdirectories).
+    /// The path should be a directory path (typically ending with "/").
+    /// For backends without native directory support, this returns
+    /// all keys/paths that are direct children of the given prefix.
+    async fn list_dir(&self, path: &VfsPath) -> VfsResult<Vec<VfsPath>>;
+
     /// Get a reference to Any for downcasting
     ///
     /// This method allows downcasting the backend to its concrete type

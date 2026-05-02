@@ -73,7 +73,7 @@ impl MemoryBackend {
     }
 
     /// Check if we can write a file of the given size
-    fn check_write_limits(&self, path: &VfsPath, content_len: usize, is_new: bool, old_size: usize) -> VfsResult<()> {
+    fn check_write_limits(&self, _path: &VfsPath, content_len: usize, is_new: bool, old_size: usize) -> VfsResult<()> {
         // Check file size limit
         if content_len > self.limits.max_file_size {
             return Err(VfsError::QuotaExceeded {
@@ -248,6 +248,43 @@ impl VfsBackend for MemoryBackend {
                 path: path.to_string(),
             }),
         }
+    }
+
+    async fn list_dir(&self, path: &VfsPath) -> VfsResult<Vec<VfsPath>> {
+        let prefix = path.as_str();
+        let prefix_with_slash = if prefix.ends_with('/') {
+            prefix.to_string()
+        } else {
+            format!("{}/", prefix)
+        };
+
+        let mut entries = std::collections::HashSet::new();
+
+        for key in self.storage.iter() {
+            let key_str = key.key();
+            if key_str.starts_with(&prefix_with_slash) {
+                // Get the remaining path after prefix
+                let remaining = &key_str[prefix_with_slash.len()..];
+                // Get first segment (immediate child)
+                if let Some(slash_pos) = remaining.find('/') {
+                    let child = &remaining[..slash_pos];
+                    entries.insert(child.to_string());
+                } else if !remaining.is_empty() {
+                    // Direct file in this directory
+                    entries.insert(remaining.to_string());
+                }
+            }
+        }
+
+        let paths: Vec<VfsPath> = entries
+            .into_iter()
+            .map(|name| {
+                let full_path = format!("{}{}", prefix_with_slash, name);
+                VfsPath::new(full_path).unwrap()
+            })
+            .collect();
+
+        Ok(paths)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
