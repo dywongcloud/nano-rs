@@ -425,13 +425,13 @@ Create Makefile targets:
 
 Mark all security tests as blocking for releases.
 
-### Phase 999.2: WorkerPool Architecture Consolidation (BACKLOG)
+### Phase 999.2: WorkerPool Architecture Consolidation (PLANNED)
 **Goal:** Merge or separate duplicate WorkerPool implementations, unify VFS backend lifecycle  
 **Requirements:** Architecture review of pool.rs vs queue.rs, trait extraction, VFS unification  
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
+- [ ] 999.2-01-PLAN.md — Create WorkerPool trait and separate SliverWorkerPool/EntrypointWorkerPool implementations
 
 ### 999.y - WorkerPool Architecture Review
 **Status:** Identified from Phase 27  
