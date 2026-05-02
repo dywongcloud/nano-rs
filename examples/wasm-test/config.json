@@ -1,0 +1,19 @@
+{
+  "apps": [
+    {
+      "hostname": "wasm.local",
+      "entrypoint": "./handler.js",
+      "limits": {
+        "memory_mb": 128,
+        "timeout_secs": 30,
+        "workers": 4,
+        "cpu_time_ms": 50,
+        "cpu_time_enabled": true
+      }
+    }
+  ],
+  "server": {
+    "port": 8080,
+    "host": "127.0.0.1"
+  }
+}
