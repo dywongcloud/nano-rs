@@ -389,6 +389,14 @@ Target: 90%+ (45+/50 tests passing)
 
 ## Backlog Items
 
+### Phase 999.1: Adversarial Security Testing Suite (BACKLOG)
+**Goal:** Security gateway test suite for adversarial attacks and CVE monitoring  
+**Requirements:** Research CVE databases, design attack scenarios, implement test harness  
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
 ### 999.x - Adversarial Security Testing Suite
 **Status:** Proposed  
 **Priority:** Security Gateway
@@ -416,6 +424,14 @@ Create Makefile targets:
 - `make test-all`: Run unit, integration, and adversarial tests
 
 Mark all security tests as blocking for releases.
+
+### Phase 999.2: WorkerPool Architecture Consolidation (BACKLOG)
+**Goal:** Merge or separate duplicate WorkerPool implementations, unify VFS backend lifecycle  
+**Requirements:** Architecture review of pool.rs vs queue.rs, trait extraction, VFS unification  
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
 
 ### 999.y - WorkerPool Architecture Review
 **Status:** Identified from Phase 27  
