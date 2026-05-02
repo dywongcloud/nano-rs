@@ -40,6 +40,7 @@ use crate::http::{NanoRequest, NanoResponse, NanoHeaders, NanoUrl, content_type_
 use crate::worker::{HandlerTask, QueueError, WorkQueue};
 use crate::logging::create_request_span;
 use crate::metrics::METRICS;
+use crate::app::registry::AppRegistry;
 use uuid::Uuid;
 
 /// Entrypoint type for automatic file type detection
@@ -506,12 +507,24 @@ impl Default for VirtualHostRouter {
 ///
 /// Contains the virtual host router and WorkQueue for request dispatch.
 /// Wrapped in Arc for thread-safe sharing across requests.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AppState {
     /// The virtual host router for hostname-based request routing
     pub router: VirtualHostRouter,
     /// The WorkQueue for dispatching requests to worker pools
     pub work_queue: Arc<Mutex<WorkQueue>>,
+    /// Optional AppRegistry for looking up app limits
+    app_registry: Option<Arc<AppRegistry>>,
+}
+
+impl std::fmt::Debug for AppState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppState")
+            .field("router", &self.router)
+            .field("work_queue", &self.work_queue)
+            .field("has_app_registry", &self.app_registry.is_some())
+            .finish()
+    }
 }
 
 impl AppState {
@@ -526,7 +539,7 @@ impl AppState {
     ///
     /// A new `AppState` with initialized WorkQueue (uses memory VFS backend)
     pub fn new(router: VirtualHostRouter, workers_per_pool: usize) -> Self {
-        Self::with_vfs_config(router, workers_per_pool, None)
+        Self::with_vfs_config(router, workers_per_pool, None, None)
     }
 
     /// Create a new AppState with VFS disk backend configuration
@@ -536,6 +549,7 @@ impl AppState {
     /// * `router` - The virtual host router
     /// * `workers_per_pool` - Number of workers to create per hostname pool
     /// * `vfs_disk_config` - Optional disk backend configuration for VFS
+    /// * `app_registry` - Optional AppRegistry for looking up app limits
     ///
     /// # Returns
     ///
@@ -544,6 +558,7 @@ impl AppState {
         router: VirtualHostRouter,
         workers_per_pool: usize,
         vfs_disk_config: Option<crate::config::VfsDiskConfig>,
+        app_registry: Option<Arc<AppRegistry>>,
     ) -> Self {
         Self {
             router,
@@ -551,6 +566,30 @@ impl AppState {
                 workers_per_pool,
                 vfs_disk_config,
             ))),
+            app_registry,
+        }
+    }
+
+    /// Get CPU time limit for a hostname from the app registry
+    ///
+    /// Returns the configured CPU time limit in milliseconds if the app
+    /// is found and CPU time tracking is enabled. Returns 0 if disabled
+    /// or app not found (no limit).
+    fn get_cpu_time_limit_ms(&self, hostname: &str) -> u32 {
+        match &self.app_registry {
+            None => 0,
+            Some(registry) => {
+                match registry.get(hostname) {
+                    None => 0,
+                    Some(app_config) => {
+                        if app_config.limits.cpu_time_enabled {
+                            app_config.limits.cpu_time_ms
+                        } else {
+                            0
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -843,21 +882,22 @@ pub async fn dispatch_to_worker_pool(
     // Create oneshot channel for response
     let (tx, rx) = tokio::sync::oneshot::channel();
 
+    // Get CPU time limit from app registry (0 means no limit)
+    let cpu_time_limit_ms = state.get_cpu_time_limit_ms(&host);
+
     // Create handler task with hostname for metrics tracking
-    // CPU time limit is passed through the task - 0 means no limit (default)
-    // In production, this should come from app configuration
     let task = HandlerTask {
         entrypoint,
         request: nano_request,
         response_tx: tx,
         hostname: host.clone(),
         start_time: std::time::Instant::now(),
-        cpu_time_limit_ms: 0, // TODO: Get from app config
+        cpu_time_limit_ms,
     };
 
     // Dispatch to WorkQueue (async Mutex lock)
     let mut queue = state.work_queue.lock().await;
-    let response = match queue.dispatch(&host, task) {
+    let response = match queue.dispatch(&host, task).await {
         Ok(()) => {
             // Wait for response from worker
             match rx.await {

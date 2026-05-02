@@ -374,6 +374,7 @@ impl WorkQueue {
     /// Get or create a worker pool for a hostname
     ///
     /// Uses case-insensitive hostname hashing per D-WQ-02.
+    /// Creates disk VFS backend asynchronously if configured.
     ///
     /// # Arguments
     ///
@@ -382,17 +383,33 @@ impl WorkQueue {
     /// # Returns
     ///
     /// A mutable reference to the `WorkerPool` for this hostname
-    pub fn get_or_create_pool(&mut self, hostname: &str) -> &mut WorkerPool {
+    pub async fn get_or_create_pool(&mut self, hostname: &str) -> &mut WorkerPool {
         let hash = hash_hostname(hostname);
 
         if !self.pools.contains_key(&hash) {
             tracing::info!("Creating new WorkerPool for hostname: {}", hostname);
             
             // Create the appropriate VFS backend based on configuration
-            // For now, always use memory backend to avoid blocking issues
-            // TODO: Properly implement per-hostname disk backend creation
-            // This requires architectural changes to make WorkQueue async
-            let pool = WorkerPool::new(hostname, self.workers_per_pool);
+            let pool = if let Some(ref disk_config) = self.vfs_disk_config {
+                // Create disk backend asynchronously
+                let base_path = disk_config.base_path.clone();
+                match BackendFactory::new()
+                    .create_backend(VfsBackendType::Disk, Some(&VfsDiskConfig { base_path }), None)
+                    .await
+                {
+                    Ok(backend) => {
+                        tracing::info!("Created disk backend for hostname: {}", hostname);
+                        WorkerPool::with_backend(hostname, self.workers_per_pool, backend)
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to create disk backend, falling back to memory: {}", e);
+                        WorkerPool::new(hostname, self.workers_per_pool)
+                    }
+                }
+            } else {
+                // Use memory backend (default)
+                WorkerPool::new(hostname, self.workers_per_pool)
+            };
             
             self.pools.insert(hash, pool);
             self.stats.active_pools.fetch_add(1, Ordering::Relaxed);
@@ -408,6 +425,7 @@ impl WorkQueue {
     ///
     /// Uses affine dispatch: same hostname always routes to same worker index.
     /// Returns HTTP 503 when channel is full (backpressure protection).
+    /// Creates pool asynchronously if it doesn't exist (supports disk VFS backends).
     ///
     /// # Arguments
     ///
@@ -417,12 +435,12 @@ impl WorkQueue {
     /// # Returns
     ///
     /// `Ok(())` if dispatched, `Err(QueueError::ChannelFull)` for backpressure
-    pub fn dispatch(&mut self, hostname: &str, task: HandlerTask) -> Result<(), QueueError> {
+    pub async fn dispatch(&mut self, hostname: &str, task: HandlerTask) -> Result<(), QueueError> {
         // Calculate worker index first (doesn't need pool reference)
         let hostname_hash = hash_hostname(hostname);
 
-        // Get or create pool for this hostname
-        let pool = self.get_or_create_pool(hostname);
+        // Get or create pool for this hostname (async for disk backend creation)
+        let pool = self.get_or_create_pool(hostname).await;
         let worker_index = (hostname_hash % pool.worker_count as u64) as usize;
 
         // Try dispatch with bounded channel (consume the pool reference)
@@ -736,17 +754,17 @@ mod tests {
         assert_eq!(queue.pools.len(), 0);
     }
 
-    #[test]
-    fn test_get_or_create_pool() {
+    #[tokio::test]
+    async fn test_get_or_create_pool() {
         let mut queue = WorkQueue::new(2);
 
         // Create pool for hostname
-        let pool = queue.get_or_create_pool("test.example.com");
+        let pool = queue.get_or_create_pool("test.example.com").await;
         assert_eq!(pool.hostname, "test.example.com");
         assert_eq!(pool.worker_count, 2);
 
         // Same hostname returns same pool
-        let pool2 = queue.get_or_create_pool("test.example.com");
+        let pool2 = queue.get_or_create_pool("test.example.com").await;
         assert_eq!(pool2.hostname, "test.example.com");
 
         // Stats updated
@@ -764,24 +782,24 @@ mod tests {
         assert_eq!(hash2, hash3, "Hostname hashing should be case-insensitive");
     }
 
-    #[test]
-    fn test_multiple_hostname_pools() {
+    #[tokio::test]
+    async fn test_multiple_hostname_pools() {
         let mut queue = WorkQueue::new(2);
 
         // Create pools for different hostnames
-        queue.get_or_create_pool("app1.example.com");
-        queue.get_or_create_pool("app2.example.com");
+        queue.get_or_create_pool("app1.example.com").await;
+        queue.get_or_create_pool("app2.example.com").await;
 
         assert_eq!(queue.stats.active_pools.load(Ordering::Relaxed), 2);
         assert_eq!(queue.stats.active_workers.load(Ordering::Relaxed), 4);
     }
 
-    #[test]
-    fn test_affine_dispatch_consistency() {
+    #[tokio::test]
+    async fn test_affine_dispatch_consistency() {
         let mut queue = WorkQueue::new(4); // 4 workers per pool
 
         // Create pool
-        let pool = queue.get_or_create_pool("app.example.com");
+        let pool = queue.get_or_create_pool("app.example.com").await;
         let worker_count = pool.worker_count;
 
         // Calculate expected worker index for hostname

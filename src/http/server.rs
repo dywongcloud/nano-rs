@@ -772,12 +772,15 @@ pub async fn start_server_with_config(
         }
     });
     
-    // Create app state with the router and optional disk VFS config
+    // Wrap registry in Arc for sharing with AppState
+    let registry_arc = Arc::new(registry);
+
+    // Create app state with the router, optional disk VFS config, and app registry
     let app_state = if let Some(ref disk) = disk_config {
         tracing::info!("Using disk VFS backend with base_path: {}", disk.base_path);
-        AppState::with_vfs_config(router, 4, Some(disk.clone()))
+        AppState::with_vfs_config(router, 4, Some(disk.clone()), Some(registry_arc))
     } else {
-        AppState::new(router, 4)
+        AppState::with_vfs_config(router, 4, None, Some(registry_arc))
     };
     let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
 
