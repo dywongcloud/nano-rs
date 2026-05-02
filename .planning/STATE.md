@@ -1,7 +1,7 @@
 # NANO Project State
 
 **Project:** nano-rs — Edge JavaScript Runtime  
-**Version:** v2.0 — Production Multi-Tenancy ✅ COMPLETE  
+**Version:** v1.5.0 — Production Multi-Tenancy ✅ COMPLETE  
 **Created:** 2026-04-19  
 **Updated:** 2026-05-01 — Phase 27 COMPLETE ✅ - Production multi-tenancy with CPU limits, memory eviction, metrics, WASM  
 **Mode:** YOLO (auto-approve execution)
@@ -20,7 +20,7 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 
 ## Current Position
 
-**Milestone:** v2.0 — Production Multi-Tenancy ✅ COMPLETE  
+**Milestone:** v1.5.0 — Production Multi-Tenancy ✅ COMPLETE  
 **Phase:** Phase 27 COMPLETE (4/4 plans executed)  
 **Next:** Phase 28 — v2.0 advanced features or documentation  
 **Goal:** Production-grade multi-tenancy with CPU limits, memory eviction, metrics, WASM support  

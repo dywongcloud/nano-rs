@@ -1,6 +1,6 @@
 # NANO Runtime Technical Documentation
 
-Version: 2.0.0  
+Version: 1.5.0  
 Last Updated: 2026-05-01
 
 ## Executive Summary
@@ -116,7 +116,7 @@ Full sliver snapshot implementation:
 | Sliver inspection | Implemented | CLI command |
 | Sliver deletion | Implemented | CLI command |
 
-### Production Multi-Tenancy (v2.0 - 100% Complete)
+### Production Multi-Tenancy (v1.5.0 - 100% Complete)
 
 Phase 27 production-grade multi-tenancy features:
 

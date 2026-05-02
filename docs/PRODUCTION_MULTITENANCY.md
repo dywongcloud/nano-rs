@@ -1,6 +1,6 @@
 # Production Multi-Tenancy (Phase 27)
 
-**Status:** ✅ Complete (v2.0)  
+**Status:** ✅ Complete (v1.5.0)  
 **Phase:** 27-production-multi-tenancy  
 **Completed:** 2026-05-01
 
