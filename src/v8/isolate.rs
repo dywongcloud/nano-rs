@@ -179,40 +179,55 @@ impl NanoIsolate {
             return Self::new_with_vfs(vfs);
         }
 
-        // Check if the data looks like a valid V8 snapshot
-        // V8 snapshots have a specific magic number at the start
-        // Real V8 snapshot integration requires more careful handling
+        // PROPER V8 SNAPSHOT VALIDATION
+        //
+        // V8 snapshots have a specific structure that we can validate:
+        // - Magic number: 0xD7 0x3C 0xD7 0x3C (first 4 bytes, little-endian)
+        // - Version info follows magic number
+        // - Must match V8 runtime version to be usable
+        //
+        // NOTE: rusty_v8's StartupData can only be created via SnapshotCreator::create_blob(),
+        // not from external byte slices. We validate the magic number to detect corrupted
+        // snapshots, but the actual snapshot restoration requires rusty_v8 API support
+        // for external snapshot data (not currently exposed).
 
-        // SAFETY NOTE: Current validation is INTENTIONALLY LIMITED
-        //
-        // The rusty_v8 crate doesn't expose snapshot validation APIs:
-        // - No SnapshotBlob::IsValid() function
-        // - No version extraction from snapshot bytes
-        // - No built-in checksum verification
-        //
-        // Current protections (ALREADY IMPLEMENTED):
-        // 1. Size check (< 8 bytes rejected) - catches obvious corruption
-        // 2. Placeholder detection - handles legacy sliver format
-        // 3. V8 internal validation - SnapshotBlob::CreateExternal() validates
-        // 4. Graceful fallback - any failure creates fresh isolate
-        //
-        // RISK ASSESSMENT: Low
-        // - Snapshots are internal data, not user/attacker controlled
-        // - Corrupted snapshots result in fresh isolate (not crash)
-        // - Production slivers use placeholder format (no validation needed)
-        // - Real V8 snapshots (when available) have internal V8 validation
-        //
-        // FUTURE: Proper validation when rusty_v8 API supports it:
-        // - Magic number verification (0xD7 0x3C 0xD7 0x3C for V8 snapshots)
-        // - Version compatibility check (snapshot V8 vs runtime V8)
-        // - Optional: SHA-256 checksum in sliver metadata
-        //
-        // See: docs/TECHNICAL_DEBT.md SNAP-01 for full context
-        tracing::warn!("Non-placeholder snapshot detected ({} bytes) - V8 snapshot integration requires valid snapshot blob",
-            snapshot_data.len());
+        // Validate V8 snapshot magic number
+        const V8_SNAPSHOT_MAGIC: [u8; 4] = [0xD7, 0x3C, 0xD7, 0x3C];
+        let has_magic = snapshot_data.len() >= 4 && &snapshot_data[0..4] == &V8_SNAPSHOT_MAGIC[..];
 
-        // Graceful fallback: create fresh isolate rather than risk crash
-        // This is the SAFE choice given limited validation capabilities
+        if !has_magic {
+            tracing::warn!(
+                "Snapshot missing V8 magic number (first 4 bytes: {:02X?}, expected: {:02X?}) - creating fresh isolate",
+                &snapshot_data[0..4.min(snapshot_data.len())],
+                V8_SNAPSHOT_MAGIC
+            );
+            return Self::new_with_vfs(vfs);
+        }
+
+        tracing::info!("V8 snapshot magic number validated successfully");
+
+        // V8 snapshot version info is at bytes 4-7 (varies by V8 version)
+        // rusty_v8 handles version compatibility internally when snapshot API is used
+
+        // SNAPSHOT LOADING LIMITATION:
+        // rusty_v8's StartupData type has private fields and can only be created via
+        // SnapshotCreator::create_blob(). There is no public API to create StartupData
+        // from external bytes. Therefore, we cannot actually load external V8 snapshots
+        // in this version of rusty_v8.
+        //
+        // MAGIC NUMBER VALIDATION IS STILL VALUABLE:
+        // - Detects corrupted or non-snapshot data
+        // - Provides clear error messages vs cryptic V8 crashes
+        // - Documents the snapshot format for future reference
+        //
+        // See: docs/TECHNICAL_DEBT.md SNAP-01
+        tracing::info!(
+            "External V8 snapshot detected ({} bytes, magic validated). Loading from external snapshots not supported in current rusty_v8 - creating fresh isolate with VFS",
+            snapshot_data.len()
+        );
+
+        // Graceful fallback: create fresh isolate rather than attempting to use
+        // unsupported external snapshot loading APIs
         Self::new_with_vfs(vfs)
     }
 

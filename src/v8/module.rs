@@ -515,28 +515,148 @@ fn execute_esm_module<'a>(
     // Perform microtask checkpoint
     scope.perform_microtask_checkpoint();
 
-    // ARCHITECTURAL NOTE: Proper ESM execution vs Transformation approach
+    // PROPER ESM EXECUTION: Extract and call default export directly
+    // Using v8::Global to escape scope lifetime limitations
     //
-    // We have successfully compiled, instantiated, and evaluated the ESM module.
-    // However, extracting the default export and calling fetch() directly from
-    // the evaluated module namespace presents lifetime challenges:
-    //
-    // 1. module.get_module_namespace() returns v8::Local<v8::Object> bound to scope
-    // 2. Extracting the 'default' export gives v8::Local<v8::Value> also bound to scope
-    // 3. These cannot escape execute_esm_module() due to Rust borrow checker rules
-    // 4. The module namespace would need to be stored as v8::Global to persist
-    //
-    // The transformation approach (wrapping ESM as classic script) sidesteps this by:
-    // - Re-executing the transformed code in the same scope where fetch() is called
-    // - Making exports accessible via global scope inspection
-    // - Working correctly with Hono.js, Next.js, and other frameworks
-    //
-    // IMPACT: Current approach handles all v1.x use cases correctly.
-    // FUTURE: Proper Module API execution with lifetime management planned for v2.0
-    // (see Phase 28: Advanced ESM Features).
-    //
-    // Related: extract_default_export() function exists but unused due to scope issues.
-    execute_classic_script(scope, v8_context, code, handler_ctx)
+    // Step 1: Extract fetch function and default object as v8::Global
+    let (fetch_global, default_global) = {
+        let namespace = module.get_module_namespace();
+        let obj = namespace
+            .to_object(scope)
+            .ok_or_else(|| anyhow!("Module namespace is not an object"))?;
+
+        // Get 'default' export
+        let default_key = v8::String::new(scope, "default").unwrap();
+        let default_val = obj
+            .get(scope, default_key.into())
+            .ok_or_else(|| anyhow!("No default export found"))?;
+
+        // Check if default is an object with fetch method
+        let result = if let Some(default_obj) = default_val.to_object(scope) {
+            let fetch_key = v8::String::new(scope, "fetch").unwrap();
+            if let Some(fetch_val) = default_obj.get(scope, fetch_key.into()) {
+                if fetch_val.is_function() {
+                    let fetch_fn = fetch_val.cast::<v8::Function>();
+                    Some((
+                        v8::Global::new(scope, fetch_fn),
+                        Some(v8::Global::new(scope, default_obj)),
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(r) = result {
+            r
+        } else if default_val.is_function() {
+            // Check if default is directly a function
+            let fetch_fn = default_val.cast::<v8::Function>();
+            (v8::Global::new(scope, fetch_fn), None)
+        } else {
+            return Err(anyhow!(
+                "Default export must be an object with fetch method or a function"
+            ));
+        }
+    };
+
+    // Step 2: Create JS Request object
+    let js_request = {
+        let global = scope.get_current_context().global(scope);
+        let request_json = serialize_request_to_json(&handler_ctx.request);
+        let request_str = v8::String::new(scope, &request_json)
+            .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
+
+        // Get JSON.parse
+        let json_key = v8::String::new(scope, "JSON").unwrap();
+        let json_val = global
+            .get(scope, json_key.into())
+            .ok_or_else(|| anyhow!("JSON not found"))?;
+        let json_obj = json_val
+            .to_object(scope)
+            .ok_or_else(|| anyhow!("JSON is not an object"))?;
+        let parse_key = v8::String::new(scope, "parse").unwrap();
+        let parse_val = json_obj
+            .get(scope, parse_key.into())
+            .filter(|v| v.is_function())
+            .ok_or_else(|| anyhow!("JSON.parse not found or not a function"))?;
+        let parse_fn = parse_val.cast::<v8::Function>();
+
+        parse_fn
+            .call(scope, json_val.into(), &[request_str.into()])
+            .ok_or_else(|| anyhow!("Failed to parse request JSON"))?
+    };
+
+    // Step 3: Call fetch function
+    let response_val = {
+        let fetch_fn = v8::Local::new(scope, fetch_global);
+        let recv: v8::Local<v8::Value> = if let Some(default_global) = default_global {
+            let default_obj = v8::Local::new(scope, default_global);
+            default_obj.into()
+        } else {
+            v8::undefined(scope).into()
+        };
+
+        fetch_fn.call(scope, recv, &[js_request.into()])
+    };
+
+    // Step 4 & 5: Resolve Promise if needed and extract response
+    // Must inline promise resolution to avoid intermediate v8::Local borrows
+    {
+        let response = match response_val {
+            Some(val) => val,
+            None => return Err(anyhow!("Handler returned None")),
+        };
+
+        let resolved_val = if response.is_promise() {
+            let promise = response.cast::<v8::Promise>();
+
+            match promise.state() {
+                v8::PromiseState::Fulfilled => promise.result(scope),
+                v8::PromiseState::Rejected => {
+                    let error = promise.result(scope);
+                    let error_str = error
+                        .to_string(scope)
+                        .map(|s| s.to_rust_string_lossy(scope))
+                        .unwrap_or_else(|| "Promise rejected".to_string());
+                    return Err(anyhow!("Promise rejected: {}", error_str));
+                }
+                v8::PromiseState::Pending => {
+                    // Run microtasks to try to settle the promise
+                    scope.perform_microtask_checkpoint();
+
+                    // Check again
+                    match promise.state() {
+                        v8::PromiseState::Fulfilled => promise.result(scope),
+                        v8::PromiseState::Rejected => {
+                            let error = promise.result(scope);
+                            let error_str = error
+                                .to_string(scope)
+                                .map(|s| s.to_rust_string_lossy(scope))
+                                .unwrap_or_else(|| "Promise rejected".to_string());
+                            return Err(anyhow!("Promise rejected: {}", error_str));
+                        }
+                        v8::PromiseState::Pending => {
+                            return Err(anyhow!(
+                                "Promise still pending - async execution incomplete"
+                            ));
+                        }
+                    }
+                }
+            }
+        } else {
+            response
+        };
+
+        // Convert to Global to escape borrow, then back to Local for extraction
+        let resolved_global = v8::Global::new(scope, resolved_val);
+        let resolved_local = v8::Local::new(scope, resolved_global);
+        extract_js_response(scope, resolved_local)
+    }
 }
 
 /// Extract the default export from a module
