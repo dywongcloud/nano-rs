@@ -130,8 +130,27 @@ pub struct WorkerHandle {
 }
 
 /// A pool of worker threads for a specific hostname
+///
+/// This pool is designed for entrypoint-based dispatch where each worker
+/// creates a fresh V8 isolate from source files. For snapshot-based execution,
+/// see `SliverWorkerPool` in the `pool` module.
+///
+/// ## Features
+///
+/// - Async creation with custom VFS backends
+/// - Round-robin task dispatch
+/// - Bounded MPSC channels (256 slots per POOL-02)
+///
+/// ## When to Use
+///
+/// Use EntrypointWorkerPool when:
+/// - Loading JavaScript from source files dynamically
+/// - Development or testing scenarios
+/// - Custom VFS backend configuration needed
+///
+/// For production snapshot execution, use `SliverWorkerPool` instead.
 #[derive(Debug)]
-pub struct WorkerPool {
+pub struct EntrypointWorkerPool {
     /// Worker threads in this pool
     pub workers: Vec<WorkerHandle>,
     /// Number of workers in pool
@@ -140,7 +159,7 @@ pub struct WorkerPool {
     pub hostname: String,
 }
 
-impl WorkerPool {
+impl EntrypointWorkerPool {
     /// Create a new worker pool with specified number of workers
     ///
     /// Each worker gets a bounded channel with 256-slot capacity per POOL-02.
@@ -153,7 +172,7 @@ impl WorkerPool {
     ///
     /// # Returns
     ///
-    /// A new `WorkerPool` with workers ready to receive tasks
+    /// A new `EntrypointWorkerPool` with workers ready to receive tasks
     pub fn new(hostname: &str, worker_count: usize) -> Self {
         Self::with_backend(hostname, worker_count, Arc::new(MemoryBackend::new()))
     }
@@ -168,7 +187,7 @@ impl WorkerPool {
     ///
     /// # Returns
     ///
-    /// A new `WorkerPool` with workers ready to receive tasks
+    /// A new `EntrypointWorkerPool` with workers ready to receive tasks
     pub fn with_backend(hostname: &str, worker_count: usize, vfs_backend: Arc<dyn VfsBackend>) -> Self {
         let mut workers = Vec::with_capacity(worker_count);
         let channel_capacity = 256; // POOL-02 requirement
@@ -312,7 +331,7 @@ impl WorkerPool {
     /// Drops the senders, causing worker threads to exit after processing
     /// any pending tasks.
     pub fn shutdown(self) {
-        tracing::info!("Shutting down WorkerPool for {}", self.hostname);
+        tracing::info!("Shutting down EntrypointWorkerPool for {}", self.hostname);
 
         // Drop the workers (which drops the senders)
         // Workers will exit their loops when channels close
@@ -326,7 +345,7 @@ impl WorkerPool {
 #[derive(Debug)]
 pub struct WorkQueue {
     /// Map of hostname hash to worker pool
-    pools: HashMap<u64, WorkerPool>,
+    pools: HashMap<u64, EntrypointWorkerPool>,
     /// Default number of workers per pool
     workers_per_pool: usize,
     /// Bounded channel capacity (256 slots per POOL-02)
@@ -382,12 +401,12 @@ impl WorkQueue {
     ///
     /// # Returns
     ///
-    /// A mutable reference to the `WorkerPool` for this hostname
-    pub async fn get_or_create_pool(&mut self, hostname: &str) -> &mut WorkerPool {
+    /// A mutable reference to the `EntrypointWorkerPool` for this hostname
+    pub async fn get_or_create_pool(&mut self, hostname: &str) -> &mut EntrypointWorkerPool {
         let hash = hash_hostname(hostname);
 
         if !self.pools.contains_key(&hash) {
-            tracing::info!("Creating new WorkerPool for hostname: {}", hostname);
+            tracing::info!("Creating new EntrypointWorkerPool for hostname: {}", hostname);
             
             // Create the appropriate VFS backend based on configuration
             let pool = if let Some(ref disk_config) = self.vfs_disk_config {
@@ -399,16 +418,16 @@ impl WorkQueue {
                 {
                     Ok(backend) => {
                         tracing::info!("Created disk backend for hostname: {}", hostname);
-                        WorkerPool::with_backend(hostname, self.workers_per_pool, backend)
+                        EntrypointWorkerPool::with_backend(hostname, self.workers_per_pool, backend)
                     }
                     Err(e) => {
                         tracing::warn!("Failed to create disk backend, falling back to memory: {}", e);
-                        WorkerPool::new(hostname, self.workers_per_pool)
+                        EntrypointWorkerPool::new(hostname, self.workers_per_pool)
                     }
                 }
             } else {
                 // Use memory backend (default)
-                WorkerPool::new(hostname, self.workers_per_pool)
+                EntrypointWorkerPool::new(hostname, self.workers_per_pool)
             };
             
             self.pools.insert(hash, pool);
@@ -464,7 +483,7 @@ impl WorkQueue {
     }
 
     /// Get pool for a hostname (returns None if not found)
-    pub fn get_pool(&self, hostname: &str) -> Option<&WorkerPool> {
+    pub fn get_pool(&self, hostname: &str) -> Option<&EntrypointWorkerPool> {
         let hash = hash_hostname(hostname);
         self.pools.get(&hash)
     }
@@ -473,7 +492,7 @@ impl WorkQueue {
     pub fn shutdown(self) {
         tracing::info!("Shutting down WorkQueue with {} pools", self.pools.len());
         for (hash, pool) in self.pools {
-            tracing::debug!("Shutting down pool with hash: {}", hash);
+            tracing::debug!("Shutting down EntrypointWorkerPool with hash: {}", hash);
             pool.shutdown();
         }
     }
@@ -851,7 +870,7 @@ mod tests {
 
     #[test]
     fn test_worker_pool_try_dispatch() {
-        let pool = WorkerPool::new("test.local", 2);
+        let pool = EntrypointWorkerPool::new("test.local", 2);
 
         let (tx, _rx) = oneshot::channel();
         let task = HandlerTask {
