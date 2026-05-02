@@ -63,6 +63,9 @@ lazy_static = "1.4"
 # Async blocking for timer callbacks
 pollster = "0.4"
 
+# Signal handling for timeout timer (async-safe)
+signal-hook = "0.3"
+
 # HTTP client for outbound fetch()
 hyper = { version = "1.4", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["client", "tokio"] }
@@ -89,7 +92,12 @@ signature = "2.2"
 # Workaround for Rust version compatibility
 home = "=0.5.11"
 
-# FFI support for V8 external data pointers
+# FFI support for V8 external data pointers and POSIX timers
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+nix = { version = "0.29", features = ["signal"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
 libc = "0.2"
 
 # Async trait for VFS backends
