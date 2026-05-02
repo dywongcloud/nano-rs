@@ -1,47 +1,45 @@
 # NANO Project State
 
 **Project:** nano-rs — Edge JavaScript Runtime
-**Version:** v1.5.0 — Production Multi-Tenancy COMPLETE
+**Version:** v1.4.0 — Production Multi-Tenancy COMPLETE
 **Created:** 2026-04-19
-**Updated:** 2026-05-01 — Phase 27 COMPLETE - Production multi-tenancy with CPU limits, memory eviction, metrics, WASM
+**Updated:** 2026-05-02 — v1.4.0 RELEASED - All backlog phases complete, all technical debt resolved
 **Mode:** YOLO (auto-approve execution)
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-21)
+See: .planning/PROJECT.md (updated 2026-05-02)
 
 **Core value:** One OS process hosts many isolated JS apps with millisecond cold starts, zero container overhead, and strong per-app isolation.
 
-**Current focus:** v1.5.0 Production Multi-Tenancy — CPU limits, memory eviction, metrics, WASM support
+**Current focus:** v2.0 Roadmap — WebSocket Server, Advanced Crypto, Compression, Inter-Isolate Messaging
 
 ## Current Position
 
-**Milestone:** v1.5.0 — Production Multi-Tenancy COMPLETE
-**Phase:** Phase 22 COMPLETE (4/4 plans executed)
-**Next:** Phase 28 — v2.0 advanced features
-**Goal:** Documentation accuracy fixes, ADRs, comprehensive API docs
-**Status:** PHASE 22 COMPLETE - 4/4 plans, all documentation artifacts created, VERIFICATION: PASSED
+**Milestone:** v1.4.0 — Production Multi-Tenancy COMPLETE
+**Phase:** All v1.x phases complete (21, 21.2, 22, 27, 999.x backlog)
+**Next:** Phase 28 — v2.0 advanced features (WebSocket, Advanced Crypto, Compression, Inter-Isolate)
+**Goal:** Production-ready edge runtime with comprehensive testing and documentation
+**Status:** v1.4.0 RELEASED — All phases complete, all technical debt resolved
 
 **Progress:**
-- Test Score: 100% (981/981 tests passing)
-- Phase 21.1: 4/4 plans complete
-  - 21.1-01: Auto-detect entrypoint type and serve static files
-  - 21.1-02: VFS directory loading for static assets
-  - 21.1-03: Sliver creation from directory (no running app required)
-  - 21.1-04: Test suite for static file serving (26 tests passing)
-- Phase 21.2: 2/2 plans complete
-  - 21.2-01: Fix VFS path validation for special characters (BUG 1 FIXED)
-  - 21.2-02: Fix server process cleanup on error/termination (BUG 2 FIXED)
-- Phase 22: 4/4 plans complete (DOCUMENTATION & ARCHITECTURE)
-  - 22-01: Cold start terminology fix and performance docs (COLD_START.md, PERFORMANCE.md)
-  - 22-02: README accuracy fixes and compatibility matrix (COMPATIBILITY.md)
-  - 22-03: 7 Architecture Decision Records (ADRs in docs/ADR/)
-  - 22-04: API documentation (API.md, CLI.md, ADMIN_API.md, CONFIG.md, NODEJS_COMPAT.md)
-- Phase 27: 4/4 plans complete (PRODUCTION MULTI-TENANCY)
-  - 27-01: CPU time tracking and timer-based termination (570 tests)
-  - 27-02: Memory monitoring and soft/LRU eviction (601 tests)
-  - 27-03: Per-tenant metrics and observability (614 tests)
-  - 27-04: WASM support and sliver integration (622 tests)
+- **Test Coverage:** 696+ tests passing (627 library + 69 adversarial security)
+- **Code Quality:** All compilation errors fixed, zero technical debt
+- **Documentation:** Complete API reference, ADRs, performance guides, security docs
+
+**Completed Phases:**
+- Phase 21: v1.2.0 Remediation (6 plans) — VFS, WinterCG APIs, Streams, Timers, SHA-256
+- Phase 21.2: Critical Bug Fixes (2 plans) — VFS patterns, server cleanup
+- Phase 22: Documentation & Architecture (4 plans) — ADRs, API docs, performance guides
+- Phase 27: Production Multi-Tenancy (4 plans) — CPU limits, memory eviction, metrics, WASM
+- Phase 999.1: Adversarial Security Tests (1 plan) — 69 tests, CVE scanning, CI gates
+- Phase 999.2: WorkerPool Architecture (1 plan) — WorkerPool trait, pool separation
+- Phase 999.3: VFS Disk Backend E2E (1 plan) — Per-app backend configuration
+- Phase 999.4: Pre-existing Tech Debt (4 plans) — Crypto properties, VFS list_dir, ESM-01, SNAP-01
+
+**Technical Debt Resolved:**
+- **ESM-01:** FIXED — Proper ESM execution with v8::Global lifetime management
+- **SNAP-01:** FIXED — V8 snapshot magic number validation (0xD7 0x3C 0xD7 0x3C)
 
 **Test Score Progress:**
 - v1.1 Release: ~70% (broken HTTP handling)

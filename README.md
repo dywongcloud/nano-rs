@@ -1,7 +1,7 @@
 # NANO Runtime Technical Documentation
 
-Version: 1.5.0  
-Last Updated: 2026-05-01
+Version: 1.4.0  
+Last Updated: 2026-05-02
 
 ## Executive Summary
 
