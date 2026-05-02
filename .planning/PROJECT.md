@@ -281,9 +281,16 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 ## Known Limitations
 
 1. **V8 Snapshot API:** rusty_v8 135 has limited SnapshotCreator API — uses placeholder (real capture when API available)
-2. **VFS Directory Operations:** `list_dir()` not yet implemented on backends — full capture needs this
+   - Related: SNAP-01 technical debt — limited snapshot validation due to rusty_v8 API constraints
+   - Current validation: size check + placeholder detection + V8 internal validation
+   - Full validation: magic number, version check, checksum (deferred until API available)
+2. **VFS Directory Operations:** `list_dir()` now implemented on all backends (COMPLETED in Phase 999.4)
 3. **S3 Backend:** Feature-gated due to rust-s3 Rust 1.88 requirement
 4. **Live Migration:** Not supported (would require freeze/thaw)
+5. **ESM Module Execution:** Uses transformation approach rather than full Module API
+   - Related: ESM-01 technical debt — lifetime management challenges with V8/Rust
+   - Current approach works for all v1.x use cases (Hono.js, Next.js, Astro)
+   - Full Module API execution planned for v2.0 Phase 28
 
 ---
 
