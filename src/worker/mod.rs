@@ -27,6 +27,7 @@
 //! All worker threads are joined to ensure clean isolate cleanup.
 
 pub mod context;
+pub mod cpu_tracker;
 pub mod limits;
 pub mod oom;
 pub mod pool;
@@ -34,6 +35,7 @@ pub mod queue;
 
 // Re-export types
 pub use context::ContextManager;
+pub use cpu_tracker::{CpuTimeError, CpuTimeSnapshot, CpuTracker};
 pub use limits::{HeapStatistics, MemoryLimiter, OomError};
 pub use oom::{OomMonitor, OomMonitorBuilder};
 pub use pool::{SliverWorkerPool, WorkerHandle, WorkerPool};
