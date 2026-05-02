@@ -3,19 +3,16 @@
 //! These tests spawn the NANO binary and verify actual timeout behavior.
 //! Run with: cargo test --test cpu_timeout_e2e_test -- --test-threads=1
 //!
-//! NOTE: WASM file access tests require the disk VFS backend, but the current
-//! architecture uses MemoryBackend by default for worker pools. The WASM tests
-//! that read files via Nano.fs.readFile() are expected to fail until the VFS
-//! backend configuration from config is fully wired up.
+//! NOTE: All tests use the disk VFS backend for per-app VFS configuration.
+//! The WASM tests that read files via Nano.fs.readFile() require the disk
+//! VFS backend to be properly configured via the AppRegistry.
 //! 
-//! Working tests:
+//! All tests:
 //! - test_js_cpu_timeout: JavaScript infinite loop termination
 //! - test_js_within_cpu_limit: Normal JS execution within limits  
 //! - test_cpu_limit_per_isolate: Per-isolate CPU limits
-//!
-//! Failing tests (architecture limitation):
-//! - test_wasm_cpu_timeout: WASM with file read (needs disk VFS)
-//! - test_wasm_within_cpu_limit: WASM with file read (needs disk VFS)
+//! - test_wasm_cpu_timeout: WASM with file read (disk VFS)
+//! - test_wasm_within_cpu_limit: WASM with file read (disk VFS)
 
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -203,7 +200,6 @@ impl Drop for NanoProcess {
 }
 
 #[tokio::test]
-#[ignore = "E2E test - run manually with: cargo test --test cpu_timeout_e2e_test -- --ignored --test-threads=1"]
 async fn test_js_cpu_timeout() {
     let port = find_available_port();
     let js_content = br#"export default {
@@ -250,7 +246,6 @@ async fn test_js_cpu_timeout() {
 }
 
 #[tokio::test]
-#[ignore = "E2E test - run manually with: cargo test --test cpu_timeout_e2e_test -- --ignored --test-threads=1"]
 async fn test_js_within_cpu_limit() {
     let port = find_available_port();
     let js_content = br#"export default {
@@ -298,7 +293,6 @@ async fn test_js_within_cpu_limit() {
 }
 
 #[tokio::test]
-#[ignore = "E2E test - run manually with: cargo test --test cpu_timeout_e2e_test -- --ignored --test-threads=1"]
 async fn test_wasm_cpu_timeout() {
     let port = find_available_port();
     let wasm_bytes = include_bytes!("../examples/wasm-test/add.wasm");
@@ -355,7 +349,6 @@ async fn test_wasm_cpu_timeout() {
 }
 
 #[tokio::test]
-#[ignore = "E2E test - run manually with: cargo test --test cpu_timeout_e2e_test -- --ignored --test-threads=1"]
 async fn test_wasm_within_cpu_limit() {
     let port = find_available_port();
     let wasm_bytes = include_bytes!("../examples/wasm-test/add.wasm");
@@ -421,7 +414,6 @@ async fn test_wasm_within_cpu_limit() {
 }
 
 #[tokio::test]
-#[ignore = "E2E test - run manually with: cargo test --test cpu_timeout_e2e_test -- --ignored --test-threads=1"]
 async fn test_cpu_limit_per_isolate() {
     let port = find_available_port();
     let js_content = br#"export default {
