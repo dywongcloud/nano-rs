@@ -389,13 +389,15 @@ Target: 90%+ (45+/50 tests passing)
 
 ## Backlog Items
 
-### Phase 999.1: Adversarial Security Testing Suite (BACKLOG)
+### Phase 999.1: Adversarial Security Testing Suite (PLANNED)
 **Goal:** Security gateway test suite for adversarial attacks and CVE monitoring  
 **Requirements:** Research CVE databases, design attack scenarios, implement test harness  
-**Plans:** 0 plans
+**Plans:** 1 plan created
 
 Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
+- [x] 999.1-01-PLAN.md — Comprehensive adversarial security test suite (62+ tests, 8 attack vectors, CVE scanning, CI security gates)
+
+**Security Review Required:** Execution blocked pending security expert approval per SPEC.md notes
 
 ### 999.x - Adversarial Security Testing Suite
 **Status:** Proposed  
@@ -470,26 +472,38 @@ Plans:
 The WASM E2E tests fail because they need to read files via `Nano.fs.readFile()` from disk VFS backend.
 Current architecture limitation: WorkQueue uses MemoryBackend by default, and per-app disk backends require async pool creation refactoring that was identified but not implemented to avoid scope creep.
 
-### Phase 999.4: Pre-existing Technical Debt (BACKLOG)
+### Phase 999.4: Pre-existing Technical Debt (📋 PLANNED)
 **Goal:** Address TODOs from previous phases identified during Phase 27
 **Requirements:** Review and resolve 4 pre-existing TODO items in codebase
-**Plans:** 0 plans
+**Plans:** 4 plans created
+
+Plans:
+- [ ] 999.4-01-PLAN.md — RSA/ECDSA algorithm properties (Web Crypto spec compliance)
+- [ ] 999.4-02-PLAN.md — VFS list_dir() implementation for snapshot capture
+- [ ] 999.4-03-PLAN.md — ESM execution architecture documentation (accepted technical debt)
+- [ ] 999.4-04-PLAN.md — V8 snapshot validation documentation (accepted technical debt)
 
 TODOs identified:
-1. **src/runtime/apis.rs:1821** - "RSA and ECDSA algorithms - TODO: add specific properties"
-   - Context: Crypto API implementation for asymmetric algorithms
-   - Impact: Low (algorithms work, properties incomplete)
+1. **src/runtime/apis.rs:1821** — "RSA and ECDSA algorithms - TODO: add specific properties"
+   - Decision: FIX — High value, low effort (spec compliance for v2.0 crypto)
+   - Plan: 999.4-01 — Add hash property for RSA, namedCurve for ECDSA
 
-2. **src/v8/module.rs:522** - "TODO: Implement proper ESM execution with correct lifetime management"
-   - Context: ESM module execution infrastructure
-   - Impact: Medium (current transformation approach works, proper Module API incomplete)
+2. **src/v8/module.rs:522** — "TODO: Implement proper ESM execution with correct lifetime management"
+   - Decision: DOCUMENT as accepted — Transformation approach works, proper Module API deferred to v2.0
+   - Plan: 999.4-03 — Document architectural decision and rationale
 
-3. **src/sliver/mod.rs:90** - "TODO: Add list_dir() method to VfsBackend trait for full implementation"
-   - Context: VFS directory listing for sliver operations
-   - Impact: Low (walk_vfs works without it)
+3. **src/sliver/mod.rs:90** — "TODO: Add list_dir() method to VfsBackend trait for full implementation"
+   - Decision: FIX — Core VFS functionality needed for complete sliver snapshots
+   - Plan: 999.4-02 — Implement list_dir() on all backends, enable walk_vfs_for_snapshot()
 
-4. **src/v8/isolate.rs:176** - "TODO: Implement proper V8 snapshot validation and loading"
-   - Context: V8 snapshot integrity verification
-   - Impact: Low (snapshots work, validation missing)
+4. **src/v8/isolate.rs:176** — "TODO: Implement proper V8 snapshot validation and loading"
+   - Decision: DOCUMENT as accepted — Current validation sufficient, rusty_v8 API limits full implementation
+   - Plan: 999.4-04 — Document safety rationale and V8 magic number constant for future use
 
-Note: These TODOs were NOT introduced in Phase 27. They are pre-existing technical debt from earlier phases that was identified during Phase 27 completion review. Each requires its own analysis and phase planning.
+**Summary:**
+- 2 FIX plans (high value fixes): 999.4-01 (crypto properties), 999.4-02 (VFS list_dir)
+- 2 DOCUMENT plans (intentional debt): 999.4-03 (ESM architecture), 999.4-04 (snapshot validation)
+- Total effort: ~1 day for fixes, ~2 hours for documentation
+- Result: Spec-compliant crypto, complete VFS, documented technical debt decisions
+
+Note: These TODOs were NOT introduced in Phase 27. They are pre-existing technical debt from earlier phases that was identified during Phase 27 completion review. Each analyzed and planned individually with appropriate fix vs document decisions.
