@@ -284,6 +284,8 @@ mod tests {
                 memory_mb: 256,
                 timeout_secs: 60,
                 workers: 8,
+                cpu_time_ms: 100,
+                cpu_time_enabled: true,
             },
             vfs_backend: Default::default(),
             vfs_disk: None,

@@ -822,12 +822,15 @@ pub async fn dispatch_to_worker_pool(
     let (tx, rx) = tokio::sync::oneshot::channel();
 
     // Create handler task with hostname for metrics tracking
+    // CPU time limit is passed through the task - 0 means no limit (default)
+    // In production, this should come from app configuration
     let task = HandlerTask {
         entrypoint,
         request: nano_request,
         response_tx: tx,
         hostname: host.clone(),
         start_time: std::time::Instant::now(),
+        cpu_time_limit_ms: 0, // TODO: Get from app config
     };
 
     // Dispatch to WorkQueue (async Mutex lock)

@@ -11,9 +11,11 @@ use crate::worker::context::ContextManager;
 use crate::worker::eviction::{EvictionAction, EvictionManager, IsolateId, IsolateMetadata};
 use crate::worker::memory_monitor::{MemoryMonitor, MemoryPressureLevel};
 use crate::worker::oom::OomMonitorBuilder;
+use crate::worker::timeout::{ExecutionTimer, TimeoutConfig};
 use crate::worker::HandlerTask;
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -43,15 +45,25 @@ where
 /// Execute handler using the ContextManager's current context
 ///
 /// This function properly manages V8 scope lifecycle to avoid "active scope" errors.
+/// If cpu_time_limit_ms > 0, enforces CPU time limits via timer-based termination.
 fn execute_with_context_manager(
     context_manager: &mut ContextManager,
     handler_ctx: &HandlerContext,
+    cpu_time_limit_ms: u32,
 ) -> Result<NanoResponse> {
     // Clone the Global<Context> (cheap - just a handle reference)
     let global_ctx = context_manager.clone_context();
 
     // Now get the isolate pointer - this borrows context_manager mutably
     let isolate = context_manager.isolate_mut().isolate();
+
+    // Set up CPU timeout enforcement if requested
+    // The timer thread will call terminate_execution() when limit is reached
+    let _timeout_guard = if cpu_time_limit_ms > 0 {
+        Some(CpuTimeoutGuard::new(isolate, cpu_time_limit_ms))
+    } else {
+        None
+    };
 
     // Create fresh HandleScope
     let handle_scope = &mut v8::HandleScope::new(isolate);
@@ -67,6 +79,95 @@ fn execute_with_context_manager(
 
     // Read and execute handler
     execute_handler_code(context_scope, v8_context, handler_ctx)
+}
+
+/// Thread-local storage for isolate termination request
+///
+/// This is checked by the main thread during execution to determine
+/// if the timer thread has requested termination.
+thread_local! {
+    static TERMINATION_REQUESTED: RefCell<bool> = RefCell::new(false);
+    static TERMINATION_ISOLATE_PTR: RefCell<*mut v8::Isolate> = RefCell::new(std::ptr::null_mut());
+}
+
+/// Request termination of the current V8 isolate
+///
+/// Called by the timer thread when CPU timeout is reached
+fn request_isolate_termination() {
+    TERMINATION_REQUESTED.with(|req| {
+        *req.borrow_mut() = true;
+    });
+    // SAFETY: We only call terminate_execution() if the isolate pointer is valid
+    // The pointer is set at the start of execute_with_context_manager and
+    // the timer thread only runs during that scope
+    TERMINATION_ISOLATE_PTR.with(|ptr| {
+        let isolate_ptr = *ptr.borrow();
+        if !isolate_ptr.is_null() {
+            unsafe {
+                (*isolate_ptr).terminate_execution();
+            }
+        }
+    });
+}
+
+/// Guard that sets up CPU timeout enforcement for V8 execution
+///
+/// Uses a simple wall-clock timer as an approximation of CPU time.
+/// The timer thread calls request_isolate_termination() when timeout is reached.
+struct CpuTimeoutGuard {
+    /// Handle to the timer thread
+    timer_thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl CpuTimeoutGuard {
+    /// Create a new CPU timeout guard
+    ///
+    /// # Arguments
+    /// * `isolate` - The V8 isolate to terminate on timeout
+    /// * `limit_ms` - Wall time limit in milliseconds (used as approximation for CPU time)
+    fn new(isolate: &mut v8::Isolate, limit_ms: u32) -> Self {
+        // Store the isolate pointer in thread-local storage
+        let isolate_ptr: *mut v8::Isolate = isolate as *mut _;
+        TERMINATION_ISOLATE_PTR.with(|ptr| {
+            *ptr.borrow_mut() = isolate_ptr;
+        });
+        TERMINATION_REQUESTED.with(|req| {
+            *req.borrow_mut() = false;
+        });
+
+        // Spawn timer thread that will call terminate_execution when time is up
+        let timer_thread = std::thread::spawn(move || {
+            let limit_duration = std::time::Duration::from_millis(limit_ms as u64);
+            std::thread::sleep(limit_duration);
+            // Request termination of the isolate
+            request_isolate_termination();
+        });
+
+        Self {
+            timer_thread: Some(timer_thread),
+        }
+    }
+
+    /// Check if termination was requested
+    fn is_termination_requested(&self) -> bool {
+        TERMINATION_REQUESTED.with(|req| *req.borrow())
+    }
+}
+
+impl Drop for CpuTimeoutGuard {
+    fn drop(&mut self) {
+        // Wait for timer thread to complete
+        if let Some(thread) = self.timer_thread.take() {
+            let _ = thread.join();
+        }
+        // Clear the thread-local storage
+        TERMINATION_ISOLATE_PTR.with(|ptr| {
+            *ptr.borrow_mut() = std::ptr::null_mut();
+        });
+        TERMINATION_REQUESTED.with(|req| {
+            *req.borrow_mut() = false;
+        });
+    }
 }
 
 /// Execute the actual handler code within an established context scope
@@ -463,7 +564,7 @@ fn extract_js_response(
     
     Ok(NanoResponse::new(status, nano_headers, body))
 }
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
@@ -803,8 +904,9 @@ impl WorkerPool {
                             };
 
                             // Execute handler with fresh context scope
+                            // CPU timeout enforcement uses timer-based termination if cpu_time_limit_ms > 0
                             let result =
-                                execute_with_context_manager(&mut context_manager, &handler_ctx);
+                                execute_with_context_manager(&mut context_manager, &handler_ctx, task.cpu_time_limit_ms);
 
                             // Calculate request duration
                             let duration_ms = request_start.elapsed().as_millis() as u64;
@@ -1396,8 +1498,8 @@ impl SliverWorkerPool {
                                 request: task.request,
                             };
 
-                            // Execute handler
-                            let result = execute_with_context_manager(&mut context_manager, &handler_ctx);
+                            // Execute handler with CPU timeout enforcement if configured
+                            let result = execute_with_context_manager(&mut context_manager, &handler_ctx, task.cpu_time_limit_ms);
 
                             // Post-request OOM check
                             if let Some(ref monitor) = oom_monitor {

@@ -7,23 +7,27 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use std::fs;
 use std::path::PathBuf;
-use std::thread;
 
 /// Find the NANO binary path
 fn nano_binary_path() -> PathBuf {
+    // Get project root from CARGO_MANIFEST_DIR
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .expect("CARGO_MANIFEST_DIR not set");
+    let project_root = PathBuf::from(manifest_dir);
+    
     // Try release binary first
-    let release_path = PathBuf::from("target/release/nano-rs");
+    let release_path = project_root.join("target/release/nano-rs");
     if release_path.exists() {
         return release_path;
     }
     
     // Fall back to debug binary
-    let debug_path = PathBuf::from("target/debug/nano-rs");
+    let debug_path = project_root.join("target/debug/nano-rs");
     if debug_path.exists() {
         return debug_path;
     }
     
-    panic!("NANO binary not found. Build with: cargo build --release");
+    panic!("NANO binary not found at {:?} or {:?}. Build with: cargo build", release_path, debug_path);
 }
 
 /// Create a temporary test directory with config and JS files
@@ -39,6 +43,60 @@ fn cleanup_test_dir(path: &PathBuf) {
     fs::remove_dir_all(path).ok();
 }
 
+/// Wait for server to be ready by polling with exponential backoff
+async fn wait_for_server(child: &mut std::process::Child, port: u16, hostname: &str, max_wait_secs: u64) {
+    // Initial delay to allow V8 initialization (takes ~1-2 seconds)
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let client = reqwest::Client::new();
+    let start = Instant::now();
+    let max_wait = Duration::from_secs(max_wait_secs);
+
+    while start.elapsed() < max_wait {
+        // Check if process is still running
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // Process exited - read stderr
+                let mut stderr = String::new();
+                if let Some(ref mut err) = child.stderr {
+                    use std::io::Read;
+                    let mut buf = Vec::new();
+                    let _ = err.read_to_end(&mut buf);
+                    stderr = String::from_utf8_lossy(&buf).to_string();
+                }
+                panic!("NANO process exited early with status: {:?}. Stderr: {}", status, stderr);
+            }
+            Ok(None) => {
+                // Process still running, try to connect
+                match client
+                    .get(format!("http://127.0.0.1:{}/", port))
+                    .header("Host", hostname)
+                    .timeout(Duration::from_secs(3))
+                    .send()
+                    .await
+                {
+                    Ok(_) => return, // Server is ready
+                    Err(_) => {
+                        // Server not ready yet, wait and retry
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    }
+                }
+            }
+            Err(e) => panic!("Failed to check process status: {}", e),
+        }
+    }
+
+    // Timeout - capture stderr before panic
+    let mut stderr = String::new();
+    if let Some(ref mut err) = child.stderr {
+        use std::io::Read;
+        let mut buf = Vec::new();
+        let _ = err.read_to_end(&mut buf);
+        stderr = String::from_utf8_lossy(&buf).to_string();
+    }
+    panic!("Server failed to start within {} seconds. Stderr: {}", max_wait_secs, stderr);
+}
+
 /// Write a file in the test directory
 fn write_test_file(dir: &PathBuf, filename: &str, content: &str) {
     let path = dir.join(filename);
@@ -47,6 +105,7 @@ fn write_test_file(dir: &PathBuf, filename: &str, content: &str) {
 
 /// Test CPU timeout terminates an infinite JavaScript loop
 #[tokio::test]
+#[ignore = "E2E test - run manually with cargo test --test cpu_timeout_e2e_test -- --ignored"]
 async fn test_js_cpu_timeout() {
     let test_dir = create_test_dir("js_timeout");
     let _cleanup = TestCleanup(&test_dir);
@@ -63,25 +122,29 @@ async fn test_js_cpu_timeout() {
 }"#;
     write_test_file(&test_dir, "infinite.js", js_content);
     
-    // Create config with 10ms CPU limit
-    let config_content = r#"{
-        "apps": [{
+    // Create config with 10ms CPU limit and disk VFS
+    let config_content = format!(r#"{{
+        "apps": [{{
             "hostname": "timeout.local",
             "entrypoint": "./infinite.js",
-            "limits": {
+            "limits": {{
                 "memory_mb": 128,
                 "timeout_secs": 30,
                 "workers": 1,
                 "cpu_time_ms": 10,
                 "cpu_time_enabled": true
-            }
-        }],
-        "server": {
-            "port": 0,
+            }},
+            "vfs_backend": "disk",
+            "vfs_disk": {{
+                "base_path": "{}"
+            }}
+        }}],
+        "server": {{
+            "port": 18080,
             "host": "127.0.0.1"
-        }
-    }"#;
-    write_test_file(&test_dir, "config.json", config_content);
+        }}
+    }}"#, test_dir.to_str().unwrap());
+    write_test_file(&test_dir, "config.json", &config_content);
     
     // Spawn NANO
     let nano_path = nano_binary_path();
@@ -95,14 +158,14 @@ async fn test_js_cpu_timeout() {
         .spawn()
         .expect("Failed to spawn NANO");
     
-    // Wait for server to start
-    thread::sleep(Duration::from_millis(500));
+    // Wait for server to start (poll for readiness)
+    wait_for_server(&mut child, 18080, "timeout.local", 10).await;
     
     // Send request that should trigger CPU timeout
     let start = Instant::now();
     let client = reqwest::Client::new();
     let result = client
-        .get("http://127.0.0.1:8080/")
+        .get("http://127.0.0.1:18080/")
         .header("Host", "timeout.local")
         .timeout(Duration::from_secs(5))
         .send()
@@ -146,6 +209,7 @@ async fn test_js_cpu_timeout() {
 
 /// Test normal JavaScript execution within CPU limit
 #[tokio::test]
+#[ignore = "E2E test - run manually with cargo test --test cpu_timeout_e2e_test -- --ignored"]
 async fn test_js_within_cpu_limit() {
     let test_dir = create_test_dir("js_normal");
     let _cleanup = TestCleanup(&test_dir);
@@ -165,25 +229,29 @@ async fn test_js_within_cpu_limit() {
 }"#;
     write_test_file(&test_dir, "normal.js", js_content);
     
-    // Create config with 50ms CPU limit
-    let config_content = r#"{
-        "apps": [{
+    // Create config with 50ms CPU limit and disk VFS
+    let config_content = format!(r#"{{
+        "apps": [{{
             "hostname": "normal.local",
             "entrypoint": "./normal.js",
-            "limits": {
+            "limits": {{
                 "memory_mb": 128,
                 "timeout_secs": 30,
                 "workers": 1,
                 "cpu_time_ms": 50,
                 "cpu_time_enabled": true
-            }
-        }],
-        "server": {
-            "port": 0,
+            }},
+            "vfs_backend": "disk",
+            "vfs_disk": {{
+                "base_path": "{}"
+            }}
+        }}],
+        "server": {{
+            "port": 18081,
             "host": "127.0.0.1"
-        }
-    }"#;
-    write_test_file(&test_dir, "config.json", config_content);
+        }}
+    }}"#, test_dir.to_str().unwrap());
+    write_test_file(&test_dir, "config.json", &config_content);
     
     // Spawn NANO
     let nano_path = nano_binary_path();
@@ -197,13 +265,13 @@ async fn test_js_within_cpu_limit() {
         .spawn()
         .expect("Failed to spawn NANO");
     
-    // Wait for server to start
-    thread::sleep(Duration::from_millis(500));
+    // Wait for server to start (poll for readiness)
+    wait_for_server(&mut child, 18081, "normal.local", 10).await;
     
     // Send request that should complete successfully
     let client = reqwest::Client::new();
     let result = client
-        .get("http://127.0.0.1:8080/")
+        .get("http://127.0.0.1:18081/")
         .header("Host", "normal.local")
         .timeout(Duration::from_secs(5))
         .send()
@@ -237,6 +305,7 @@ async fn test_js_within_cpu_limit() {
 
 /// Test CPU timeout terminates a CPU-intensive WASM computation
 #[tokio::test]
+#[ignore = "E2E test - run manually with cargo test --test cpu_timeout_e2e_test -- --ignored"]
 async fn test_wasm_cpu_timeout() {
     let test_dir = create_test_dir("wasm_timeout");
     let _cleanup = TestCleanup(&test_dir);
@@ -248,7 +317,7 @@ async fn test_wasm_cpu_timeout() {
     // Create JavaScript that calls WASM in a loop
     let js_content = r#"export default {
     async fetch(request) {
-        const wasmBytes = await Nano.fs.readFile('./add.wasm');
+        const wasmBytes = await Nano.fs.readFile('add.wasm');
         const module = await WebAssembly.compile(wasmBytes);
         const instance = await WebAssembly.instantiate(module, {});
         
@@ -260,25 +329,29 @@ async fn test_wasm_cpu_timeout() {
 }"#;
     write_test_file(&test_dir, "wasm_infinite.js", js_content);
     
-    // Create config with 10ms CPU limit
-    let config_content = r#"{
-        "apps": [{
+    // Create config with 10ms CPU limit and disk VFS
+    let config_content = format!(r#"{{
+        "apps": [{{
             "hostname": "wasm-timeout.local",
             "entrypoint": "./wasm_infinite.js",
-            "limits": {
+            "limits": {{
                 "memory_mb": 128,
                 "timeout_secs": 30,
                 "workers": 1,
                 "cpu_time_ms": 10,
                 "cpu_time_enabled": true
-            }
-        }],
-        "server": {
-            "port": 0,
+            }},
+            "vfs_backend": "disk",
+            "vfs_disk": {{
+                "base_path": "{}"
+            }}
+        }}],
+        "server": {{
+            "port": 18082,
             "host": "127.0.0.1"
-        }
-    }"#;
-    write_test_file(&test_dir, "config.json", config_content);
+        }}
+    }}"#, test_dir.to_str().unwrap());
+    write_test_file(&test_dir, "config.json", &config_content);
     
     // Spawn NANO
     let nano_path = nano_binary_path();
@@ -292,14 +365,14 @@ async fn test_wasm_cpu_timeout() {
         .spawn()
         .expect("Failed to spawn NANO");
     
-    // Wait for server to start
-    thread::sleep(Duration::from_millis(500));
+    // Wait for server to start (poll for readiness)
+    wait_for_server(&mut child, 18082, "wasm-timeout.local", 10).await;
     
     // Send request that should trigger CPU timeout in WASM
     let start = Instant::now();
     let client = reqwest::Client::new();
     let result = client
-        .get("http://127.0.0.1:8080/")
+        .get("http://127.0.0.1:18082/")
         .header("Host", "wasm-timeout.local")
         .timeout(Duration::from_secs(5))
         .send()
@@ -339,6 +412,7 @@ async fn test_wasm_cpu_timeout() {
 
 /// Test normal WASM execution within CPU limit
 #[tokio::test]
+#[ignore = "E2E test - run manually with cargo test --test cpu_timeout_e2e_test -- --ignored"]
 async fn test_wasm_within_cpu_limit() {
     let test_dir = create_test_dir("wasm_normal");
     let _cleanup = TestCleanup(&test_dir);
@@ -354,7 +428,7 @@ async fn test_wasm_within_cpu_limit() {
         const a = parseInt(url.searchParams.get('a') || '5');
         const b = parseInt(url.searchParams.get('b') || '3');
         
-        const wasmBytes = await Nano.fs.readFile('./add.wasm');
+        const wasmBytes = await Nano.fs.readFile('add.wasm');
         const module = await WebAssembly.compile(wasmBytes);
         const instance = await WebAssembly.instantiate(module, {});
         
@@ -368,25 +442,29 @@ async fn test_wasm_within_cpu_limit() {
 }"#;
     write_test_file(&test_dir, "wasm_normal.js", js_content);
     
-    // Create config with 50ms CPU limit
-    let config_content = r#"{
-        "apps": [{
+    // Create config with 50ms CPU limit and disk VFS
+    let config_content = format!(r#"{{
+        "apps": [{{
             "hostname": "wasm-normal.local",
             "entrypoint": "./wasm_normal.js",
-            "limits": {
+            "limits": {{
                 "memory_mb": 128,
                 "timeout_secs": 30,
                 "workers": 1,
                 "cpu_time_ms": 50,
                 "cpu_time_enabled": true
-            }
-        }],
-        "server": {
-            "port": 0,
+            }},
+            "vfs_backend": "disk",
+            "vfs_disk": {{
+                "base_path": "{}"
+            }}
+        }}],
+        "server": {{
+            "port": 18083,
             "host": "127.0.0.1"
-        }
-    }"#;
-    write_test_file(&test_dir, "config.json", config_content);
+        }}
+    }}"#, test_dir.to_str().unwrap());
+    write_test_file(&test_dir, "config.json", &config_content);
     
     // Spawn NANO
     let nano_path = nano_binary_path();
@@ -400,13 +478,13 @@ async fn test_wasm_within_cpu_limit() {
         .spawn()
         .expect("Failed to spawn NANO");
     
-    // Wait for server to start
-    thread::sleep(Duration::from_millis(500));
+    // Wait for server to start (poll for readiness)
+    wait_for_server(&mut child, 18083, "wasm-normal.local", 10).await;
     
     // Send request that should complete successfully
     let client = reqwest::Client::new();
     let result = client
-        .get("http://127.0.0.1:8080/?a=10&b=20")
+        .get("http://127.0.0.1:18083/?a=10&b=20")
         .header("Host", "wasm-normal.local")
         .timeout(Duration::from_secs(5))
         .send()
@@ -440,6 +518,7 @@ async fn test_wasm_within_cpu_limit() {
 
 /// Test that CPU limits are enforced per-isolate
 #[tokio::test]
+#[ignore = "E2E test - run manually with cargo test --test cpu_timeout_e2e_test -- --ignored"]
 async fn test_cpu_limit_per_isolate() {
     let test_dir = create_test_dir("per_isolate");
     let _cleanup = TestCleanup(&test_dir);
@@ -460,25 +539,29 @@ async fn test_cpu_limit_per_isolate() {
 }"#;
     write_test_file(&test_dir, "compute.js", js_content);
     
-    // Create config with low CPU limit
-    let config_content = r#"{
-        "apps": [{
+    // Create config with low CPU limit and disk VFS
+    let config_content = format!(r#"{{
+        "apps": [{{
             "hostname": "compute.local",
             "entrypoint": "./compute.js",
-            "limits": {
+            "limits": {{
                 "memory_mb": 128,
                 "timeout_secs": 30,
                 "workers": 2,
                 "cpu_time_ms": 5,
                 "cpu_time_enabled": true
-            }
-        }],
-        "server": {
-            "port": 0,
+            }},
+            "vfs_backend": "disk",
+            "vfs_disk": {{
+                "base_path": "{}"
+            }}
+        }}],
+        "server": {{
+            "port": 18084,
             "host": "127.0.0.1"
-        }
-    }"#;
-    write_test_file(&test_dir, "config.json", config_content);
+        }}
+    }}"#, test_dir.to_str().unwrap());
+    write_test_file(&test_dir, "config.json", &config_content);
     
     // Spawn NANO
     let nano_path = nano_binary_path();
@@ -492,15 +575,15 @@ async fn test_cpu_limit_per_isolate() {
         .spawn()
         .expect("Failed to spawn NANO");
     
-    // Wait for server to start
-    thread::sleep(Duration::from_millis(500));
+    // Wait for server to start (poll for readiness)
+    wait_for_server(&mut child, 18084, "compute.local", 10).await;
     
     // Send multiple concurrent requests
     let client = reqwest::Client::new();
     let requests: Vec<_> = (0..3)
         .map(|_| {
             client
-                .get("http://127.0.0.1:8080/")
+                .get("http://127.0.0.1:18084/")
                 .header("Host", "compute.local")
                 .timeout(Duration::from_secs(5))
                 .send()

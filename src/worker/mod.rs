@@ -66,6 +66,8 @@ pub struct HandlerTask {
     pub hostname: String,
     /// Start time for request duration tracking
     pub start_time: std::time::Instant,
+    /// CPU time limit in milliseconds (0 = no limit)
+    pub cpu_time_limit_ms: u32,
 }
 
 // Safety: NanoRequest is Clone + contains String/Bytes which are Send
@@ -91,6 +93,7 @@ impl HandlerTask {
             response_tx,
             hostname: String::new(),
             start_time: std::time::Instant::now(),
+            cpu_time_limit_ms: 0,
         }
     }
 
@@ -114,7 +117,40 @@ impl HandlerTask {
             response_tx,
             hostname,
             start_time: std::time::Instant::now(),
+            cpu_time_limit_ms: 0,
         }
+    }
+
+    /// Create a new handler task with hostname and CPU limits
+    ///
+    /// # Arguments
+    ///
+    /// * `entrypoint` - Path to the JavaScript file
+    /// * `request` - The HTTP request to process
+    /// * `response_tx` - Oneshot channel sender for the response
+    /// * `hostname` - Tenant hostname for metrics tracking
+    /// * `cpu_time_limit_ms` - CPU time limit in milliseconds (0 = no limit)
+    pub fn with_hostname_and_limits(
+        entrypoint: String,
+        request: NanoRequest,
+        response_tx: oneshot::Sender<anyhow::Result<NanoResponse>>,
+        hostname: String,
+        cpu_time_limit_ms: u32,
+    ) -> Self {
+        Self {
+            entrypoint,
+            request,
+            response_tx,
+            hostname,
+            start_time: std::time::Instant::now(),
+            cpu_time_limit_ms,
+        }
+    }
+
+    /// Set CPU time limit
+    pub fn with_cpu_limit(mut self, cpu_time_limit_ms: u32) -> Self {
+        self.cpu_time_limit_ms = cpu_time_limit_ms;
+        self
     }
 }
 

@@ -967,3 +967,4 @@ mod tests {
         assert!(matches!(cli.unwrap().command, None));
     }
 }
+// force rebuild

@@ -682,6 +682,7 @@ mod tests {
             response_tx: tx,
             hostname: "test.example.com".to_string(),
             start_time: std::time::Instant::now(),
+            cpu_time_limit_ms: 0, // 0 means no limit for tests
         }
     }
 
@@ -799,6 +800,7 @@ mod tests {
             response_tx: tx,
             hostname: "test.local".to_string(),
             start_time: std::time::Instant::now(),
+            cpu_time_limit_ms: 0, // 0 means no limit for tests
         };
 
         // Should succeed (channel is empty)
