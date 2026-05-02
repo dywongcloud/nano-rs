@@ -1,9 +1,9 @@
 # NANO Project State
 
 **Project:** nano-rs — Edge JavaScript Runtime  
-**Version:** v1.2 — Remediation ✅ COMPLETE  
+**Version:** v2.0 — Production Multi-Tenancy ✅ COMPLETE  
 **Created:** 2026-04-19  
-**Updated:** 2026-04-23 — Phase 21.2 COMPLETE ✅ - Both bugs fixed, sliver creation working, 49/50 tests passing  
+**Updated:** 2026-05-01 — Phase 27 COMPLETE ✅ - Production multi-tenancy with CPU limits, memory eviction, metrics, WASM  
 **Mode:** YOLO (auto-approve execution)
 
 ---
@@ -20,11 +20,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 
 ## Current Position
 
-**Milestone:** v1.2.2 — Critical Bug Fixes ✅ COMPLETE  
-**Phase:** Phase 21.2 COMPLETE (2/2 plans executed)  
-**Next:** Phase 22 — Documentation or v1.2.2 release  
-**Goal:** v1.2.2 patch with runtime bug fixes discovered by test suite  
-**Status:** ✅ **ALL BUGS FIXED** - Both VFS paths and server cleanup resolved
+**Milestone:** v2.0 — Production Multi-Tenancy ✅ COMPLETE  
+**Phase:** Phase 27 COMPLETE (4/4 plans executed)  
+**Next:** Phase 28 — v2.0 advanced features or documentation  
+**Goal:** Production-grade multi-tenancy with CPU limits, memory eviction, metrics, WASM support  
+**Status:** ✅ **PHASE 27 COMPLETE** - 4/4 plans, 981 tests passing, all success criteria met
 
 **Progress:**
 ```
@@ -40,6 +40,11 @@ Phase 21.1: 4/4 plans complete
 Phase 21.2: 2/2 plans complete
   ✅ 21.2-01: Fix VFS path validation for special characters (BUG #1 FIXED)
   ✅ 21.2-02: Fix server process cleanup on error/termination (BUG #2 FIXED)
+Phase 27: 4/4 plans complete (PRODUCTION MULTI-TENANCY)
+  ✅ 27-01: CPU time tracking and timer-based termination (570 tests)
+  ✅ 27-02: Memory monitoring and soft/LRU eviction (601 tests)
+  ✅ 27-03: Per-tenant metrics and observability (614 tests)
+  ✅ 27-04: WASM support and sliver integration (622 tests)
 ```
 
 **Test Score Progress:**

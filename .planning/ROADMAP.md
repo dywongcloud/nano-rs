@@ -300,10 +300,10 @@
   5. WASM modules loadable and executable in isolates
   6. WASM modules cached in sliver snapshots
 **Plans:**
-  - [ ] 27-01-PLAN.md — CPU time tracking and timer-based termination
-  - [ ] 27-02-PLAN.md — Memory monitoring and soft/LRU eviction
-  - [ ] 27-03-PLAN.md — Per-tenant metrics and observability
-  - [ ] 27-04-PLAN.md — WASM support and sliver integration
+  - [x] 27-01-PLAN.md — CPU time tracking and timer-based termination (COMPLETE 2026-05-01)
+  - [x] 27-02-PLAN.md — Memory monitoring and soft/LRU eviction (COMPLETE 2026-05-01)
+  - [x] 27-03-PLAN.md — Per-tenant metrics and observability (COMPLETE 2026-05-01)
+  - [x] 27-04-PLAN.md — WASM support and sliver integration (COMPLETE 2026-05-01)
 **UI hint**: no
 
 ---
@@ -338,7 +338,7 @@
 | 24. Advanced Crypto | v2.0 | 0/TBD | Not started | - |
 | 25. Compression | v2.0 | 0/TBD | Not started | - |
 | 26. Inter-Isolate | v2.0 | 0/TBD | Not started | - |
-| 27. Production Multi-Tenancy | v2.0 | 0/4 | Planned | - |
+| 27. Production Multi-Tenancy | v2.0 | 4/4 | Complete | 2026-05-01 |
 
 ---
 
