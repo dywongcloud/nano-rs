@@ -386,3 +386,53 @@ Target: 90%+ (45+/50 tests passing)
 ---
 
 *Roadmap updated: 2026-05-01 — Phase 27 planned (Production Multi-Tenancy with WASM, CPU limits, memory eviction, metrics)*
+
+## Backlog Items
+
+### 999.x - Adversarial Security Testing Suite
+**Status:** Proposed  
+**Priority:** Security Gateway
+
+Write extensive adversarial tests for nano-rs covering:
+- CPU exhaustion attacks (infinite loops, pathological regex)
+- Memory exhaustion attacks (large allocations, memory leaks)
+- VFS escape attempts (path traversal, symlink attacks)
+- Network-based attacks (DNS rebinding, request flooding)
+- JavaScript injection via input validation bypasses
+- WebAssembly validation bypasses and malicious modules
+- Multi-tenant isolation breaches (cross-tenant data access)
+- Cryptographic attacks (weak key generation, timing attacks)
+
+Research CVEs associated with:
+- V8 engine vulnerabilities
+- Rust async runtime issues  
+- HTTP parsing libraries (axum, hyper)
+- VFS path sanitization bypasses
+- WebAssembly runtime exploits
+
+Create Makefile targets:
+- `make test-security`: Run adversarial tests with security gateway
+- `make test-cve-check`: Scan dependencies against CVE databases
+- `make test-all`: Run unit, integration, and adversarial tests
+
+Mark all security tests as blocking for releases.
+
+### 999.y - WorkerPool Architecture Review
+**Status:** Identified from Phase 27  
+**Priority:** Architecture Debt
+
+Review duplicate WorkerPool implementations:
+- `src/worker/pool.rs` - Complex pool with sliver support, CPU timeout
+- `src/worker/queue.rs` - Simpler pool for entrypoint dispatch
+
+Issues identified:
+- Two pools don't communicate or share code
+- pool.rs has with_backend but queue.rs reimplements WorkerPool
+- VFS backend configuration needs unification
+- Architecture makes per-app VFS backends difficult
+
+Proposed actions:
+- Merge or clearly separate responsibilities
+- Extract common WorkerPool trait
+- Unify VFS backend creation and lifecycle
+- Document which pool type to use for each scenario
