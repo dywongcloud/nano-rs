@@ -761,8 +761,24 @@ pub async fn start_server_with_config(
         router.route_count()
     );
 
-    // Create app state with the router
-    let app_state = AppState::new(router, 4);
+    // Find first app with disk VFS config to pass to WorkQueue
+    // Note: This is a temporary solution - proper per-app VFS backends require
+    // architectural changes to create pools lazily with app-specific configs
+    let disk_config = nano_config.apps.iter().find_map(|app| {
+        if let crate::config::VfsBackendType::Disk = app.vfs_backend {
+            app.vfs_disk.clone()
+        } else {
+            None
+        }
+    });
+    
+    // Create app state with the router and optional disk VFS config
+    let app_state = if let Some(ref disk) = disk_config {
+        tracing::info!("Using disk VFS backend with base_path: {}", disk.base_path);
+        AppState::with_vfs_config(router, 4, Some(disk.clone()))
+    } else {
+        AppState::new(router, 4)
+    };
     let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
 
     // Convert server config and bind

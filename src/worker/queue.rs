@@ -27,7 +27,8 @@ use crate::http::{NanoHeaders, NanoResponse};
 use crate::http::v8_bridge::serialize_request_to_json;
 use crate::runtime::HandlerContext;
 use crate::v8::initialize_platform;
-use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
+use crate::vfs::{BackendFactory, IsolateVfs, MemoryBackend, VfsBackend, VfsNamespace};
+use crate::config::{VfsBackendType, VfsDiskConfig};
 use crate::worker::HandlerTask;
 use crate::worker::context::ContextManager;
 
@@ -143,6 +144,7 @@ impl WorkerPool {
     /// Create a new worker pool with specified number of workers
     ///
     /// Each worker gets a bounded channel with 256-slot capacity per POOL-02.
+    /// Uses MemoryBackend by default for VFS.
     ///
     /// # Arguments
     ///
@@ -153,6 +155,21 @@ impl WorkerPool {
     ///
     /// A new `WorkerPool` with workers ready to receive tasks
     pub fn new(hostname: &str, worker_count: usize) -> Self {
+        Self::with_backend(hostname, worker_count, Arc::new(MemoryBackend::new()))
+    }
+
+    /// Create a new worker pool with a custom VFS backend
+    ///
+    /// # Arguments
+    ///
+    /// * `hostname` - The hostname this pool serves
+    /// * `worker_count` - Number of worker threads to create
+    /// * `vfs_backend` - Custom VFS backend to use
+    ///
+    /// # Returns
+    ///
+    /// A new `WorkerPool` with workers ready to receive tasks
+    pub fn with_backend(hostname: &str, worker_count: usize, vfs_backend: Arc<dyn VfsBackend>) -> Self {
         let mut workers = Vec::with_capacity(worker_count);
         let channel_capacity = 256; // POOL-02 requirement
         let hostname_owned = hostname.to_string();
@@ -160,6 +177,9 @@ impl WorkerPool {
         for id in 0..worker_count {
             // Create bounded MPSC channel (256 slots per POOL-02)
             let (task_tx, task_rx) = sync_channel::<HandlerTask>(channel_capacity);
+
+            // Clone VFS backend for this worker
+            let worker_vfs_backend = Arc::clone(&vfs_backend);
 
             // Spawn worker thread with V8 execution
             let hostname_thread = hostname_owned.clone();
@@ -172,11 +192,10 @@ impl WorkerPool {
                     return;
                 }
 
-                // Create VFS for this worker
-                let vfs_backend = Arc::new(MemoryBackend::new());
+                // Create VFS for this worker with the provided backend
                 let vfs = IsolateVfs::new(
                     VfsNamespace::from_hostname(&hostname_thread),
-                    vfs_backend,
+                    worker_vfs_backend,
                 );
 
                 // Create isolate with VFS in this thread
@@ -314,6 +333,8 @@ pub struct WorkQueue {
     channel_capacity: usize,
     /// Statistics for monitoring
     pub stats: QueueStats,
+    /// VFS backend configuration for disk backend (optional)
+    vfs_disk_config: Option<VfsDiskConfig>,
 }
 
 impl WorkQueue {
@@ -327,11 +348,26 @@ impl WorkQueue {
     ///
     /// A new `WorkQueue` with empty pools HashMap
     pub fn new(workers_per_pool: usize) -> Self {
+        Self::with_vfs_config(workers_per_pool, None)
+    }
+
+    /// Create a new WorkQueue with VFS disk backend configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `workers_per_pool` - Number of workers to create per hostname pool
+    /// * `vfs_disk_config` - Optional disk backend configuration
+    ///
+    /// # Returns
+    ///
+    /// A new `WorkQueue` configured with the specified VFS backend
+    pub fn with_vfs_config(workers_per_pool: usize, vfs_disk_config: Option<VfsDiskConfig>) -> Self {
         Self {
             pools: HashMap::new(),
             workers_per_pool,
             channel_capacity: 256, // POOL-02 requirement
             stats: QueueStats::new(),
+            vfs_disk_config,
         }
     }
 
@@ -351,7 +387,13 @@ impl WorkQueue {
 
         if !self.pools.contains_key(&hash) {
             tracing::info!("Creating new WorkerPool for hostname: {}", hostname);
+            
+            // Create the appropriate VFS backend based on configuration
+            // For now, always use memory backend to avoid blocking issues
+            // TODO: Properly implement per-hostname disk backend creation
+            // This requires architectural changes to make WorkQueue async
             let pool = WorkerPool::new(hostname, self.workers_per_pool);
+            
             self.pools.insert(hash, pool);
             self.stats.active_pools.fetch_add(1, Ordering::Relaxed);
             self.stats

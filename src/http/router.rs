@@ -524,11 +524,33 @@ impl AppState {
     ///
     /// # Returns
     ///
-    /// A new `AppState` with initialized WorkQueue
+    /// A new `AppState` with initialized WorkQueue (uses memory VFS backend)
     pub fn new(router: VirtualHostRouter, workers_per_pool: usize) -> Self {
+        Self::with_vfs_config(router, workers_per_pool, None)
+    }
+
+    /// Create a new AppState with VFS disk backend configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `router` - The virtual host router
+    /// * `workers_per_pool` - Number of workers to create per hostname pool
+    /// * `vfs_disk_config` - Optional disk backend configuration for VFS
+    ///
+    /// # Returns
+    ///
+    /// A new `AppState` with configured WorkQueue
+    pub fn with_vfs_config(
+        router: VirtualHostRouter,
+        workers_per_pool: usize,
+        vfs_disk_config: Option<crate::config::VfsDiskConfig>,
+    ) -> Self {
         Self {
             router,
-            work_queue: Arc::new(Mutex::new(WorkQueue::new(workers_per_pool))),
+            work_queue: Arc::new(Mutex::new(WorkQueue::with_vfs_config(
+                workers_per_pool,
+                vfs_disk_config,
+            ))),
         }
     }
 }
