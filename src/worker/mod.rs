@@ -62,6 +62,10 @@ pub struct HandlerTask {
     pub request: NanoRequest,
     /// Channel to send the response back to the caller
     pub response_tx: oneshot::Sender<anyhow::Result<NanoResponse>>,
+    /// Hostname (tenant identifier) for metrics tracking
+    pub hostname: String,
+    /// Start time for request duration tracking
+    pub start_time: std::time::Instant,
 }
 
 // Safety: NanoRequest is Clone + contains String/Bytes which are Send
@@ -85,6 +89,31 @@ impl HandlerTask {
             entrypoint,
             request,
             response_tx,
+            hostname: String::new(),
+            start_time: std::time::Instant::now(),
+        }
+    }
+
+    /// Create a new handler task with hostname for metrics tracking
+    ///
+    /// # Arguments
+    ///
+    /// * `entrypoint` - Path to the JavaScript file
+    /// * `request` - The HTTP request to process
+    /// * `response_tx` - Oneshot channel sender for the response
+    /// * `hostname` - Tenant hostname for metrics tracking
+    pub fn with_hostname(
+        entrypoint: String,
+        request: NanoRequest,
+        response_tx: oneshot::Sender<anyhow::Result<NanoResponse>>,
+        hostname: String,
+    ) -> Self {
+        Self {
+            entrypoint,
+            request,
+            response_tx,
+            hostname,
+            start_time: std::time::Instant::now(),
         }
     }
 }

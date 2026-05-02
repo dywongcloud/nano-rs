@@ -821,11 +821,13 @@ pub async fn dispatch_to_worker_pool(
     // Create oneshot channel for response
     let (tx, rx) = tokio::sync::oneshot::channel();
 
-    // Create handler task
+    // Create handler task with hostname for metrics tracking
     let task = HandlerTask {
         entrypoint,
         request: nano_request,
         response_tx: tx,
+        hostname: host.clone(),
+        start_time: std::time::Instant::now(),
     };
 
     // Dispatch to WorkQueue (async Mutex lock)

@@ -91,11 +91,12 @@ pub async fn sliver_js_handler(
     // Create oneshot channel for response
     let (tx, rx) = oneshot::channel();
     
-    // Create handler task
-    let task = HandlerTask::new(
+    // Create handler task with hostname for metrics tracking
+    let task = HandlerTask::with_hostname(
         state.entrypoint.clone(),
         nano_request,
         tx,
+        state.worker_pool.hostname.clone(),
     );
     
     // Dispatch to worker pool

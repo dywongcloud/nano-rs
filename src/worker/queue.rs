@@ -680,6 +680,8 @@ mod tests {
             entrypoint: "/dev/null".to_string(),
             request: create_dummy_request(),
             response_tx: tx,
+            hostname: "test.example.com".to_string(),
+            start_time: std::time::Instant::now(),
         }
     }
 
@@ -795,6 +797,8 @@ mod tests {
             entrypoint: "/dev/null".to_string(),
             request: create_dummy_request(),
             response_tx: tx,
+            hostname: "test.local".to_string(),
+            start_time: std::time::Instant::now(),
         };
 
         // Should succeed (channel is empty)
