@@ -571,4 +571,41 @@ mod tests {
         let users = new_backend.read(&VfsPath::new("data/users.txt").unwrap()).await.unwrap();
         assert_eq!(users, b"user1\nuser2");
     }
+
+    #[tokio::test]
+    async fn test_list_dir_returns_immediate_children_only() {
+        let backend = MemoryBackend::default();
+
+        // Create deeply nested structure
+        backend.write(&VfsPath::new("a/b/c/deep.txt").unwrap(), b"deep").await.unwrap();
+
+        // List 'a' directory - should only show 'a/b'
+        let a_dir = VfsPath::new("a").unwrap();
+        let a_entries = backend.list_dir(&a_dir).await.unwrap();
+        assert_eq!(a_entries.len(), 1);
+        assert!(a_entries[0].as_str().contains("b"));
+
+        // List 'a/b' directory - should only show 'a/b/c'
+        let b_dir = VfsPath::new("a/b").unwrap();
+        let b_entries = backend.list_dir(&b_dir).await.unwrap();
+        assert_eq!(b_entries.len(), 1);
+        assert!(b_entries[0].as_str().contains("c"));
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_nested_directory() {
+        let backend = MemoryBackend::default();
+
+        // Create nested files
+        backend.write(&VfsPath::new("data/file1.txt").unwrap(), b"content1").await.unwrap();
+        backend.write(&VfsPath::new("data/file2.txt").unwrap(), b"content2").await.unwrap();
+        backend.write(&VfsPath::new("data/subdir/nested.txt").unwrap(), b"nested").await.unwrap();
+
+        // List data directory
+        let data_dir = VfsPath::new("data").unwrap();
+        let entries = backend.list_dir(&data_dir).await.unwrap();
+
+        // Should have file1.txt, file2.txt, and subdir (3 entries)
+        assert_eq!(entries.len(), 3);
+    }
 }
