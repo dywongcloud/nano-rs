@@ -44,9 +44,9 @@ pub use eviction::{EvictionAction, EvictionManager, EvictionPolicy, IsolateMetad
 pub use limits::{HeapStatistics, MemoryLimiter, OomError};
 pub use memory_monitor::{MemoryMonitor, MemoryMonitorConfig, MemoryPressureLevel, MemorySnapshot, MemoryTrend};
 pub use oom::{OomMonitor, OomMonitorBuilder};
-pub use pool::{SliverWorkerPool, WorkerHandle, WorkerPool as PoolWorkerPool};
+pub use pool::{SliverWorkerPool, WorkerHandle, WorkerPool};
 pub use queue::{hash_hostname, EntrypointWorkerPool, QueueError, QueueStats, StatsSnapshot, WorkQueue};
-pub use r#trait::{BoxedWorkerPool, WorkerPool, WorkerPoolConfig};
+pub use r#trait::{BoxedWorkerPool, WorkerPool as WorkerPoolTrait, WorkerPoolConfig};
 pub use timeout::{ExecutionTimer, TimeoutConfig, TimeoutError};
 
 use crate::http::{NanoRequest, NanoResponse};

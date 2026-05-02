@@ -1631,7 +1631,7 @@ impl SliverWorkerPool {
     }
 }
 
-impl crate::worker::WorkerPool for SliverWorkerPool {
+impl crate::worker::r#trait::WorkerPool for SliverWorkerPool {
     fn dispatch(&self, task: HandlerTask) -> Result<()> {
         let worker_idx = self.next_worker.fetch_add(1, Ordering::SeqCst) % self.worker_count;
         self.workers[worker_idx]

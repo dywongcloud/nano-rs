@@ -342,7 +342,7 @@ impl EntrypointWorkerPool {
     }
 }
 
-impl crate::worker::WorkerPool for EntrypointWorkerPool {
+impl crate::worker::r#trait::WorkerPool for EntrypointWorkerPool {
     fn dispatch(&self, task: HandlerTask) -> anyhow::Result<()> {
         // Use round-robin dispatch
         let worker_idx = self.next_worker.fetch_add(1, Ordering::SeqCst) % self.workers.len();
