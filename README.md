@@ -1,7 +1,7 @@
 # NANO Runtime Technical Documentation
 
-Version: 1.2.4  
-Last Updated: 2026-04-26
+Version: 2.0.0  
+Last Updated: 2026-05-01
 
 ## Executive Summary
 
@@ -12,6 +12,8 @@ NANO is a multi-tenant JavaScript edge runtime using V8 isolates. One OS process
 - Comprehensive Suite: 27/27 tests passing
 - CRUD Operations: 6/6 tests passing
 - Cloudflare Worker: 6/6 tests passing
+- **Phase 27 (Production Multi-Tenancy): 91/91 new tests passing**
+- **Total: 981 tests passing**
 
 ## Architecture
 
@@ -114,6 +116,25 @@ Full sliver snapshot implementation:
 | Sliver inspection | Implemented | CLI command |
 | Sliver deletion | Implemented | CLI command |
 
+### Production Multi-Tenancy (v2.0 - 100% Complete)
+
+Phase 27 production-grade multi-tenancy features:
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| CPU Time Tracking | Implemented | Microsecond precision per request |
+| CPU Time Limits | Implemented | 50ms default (Cloudflare-style) |
+| Timer-based Termination | Implemented | Linux timer_create + V8 terminate |
+| Memory Monitoring | Implemented | 4-tier pressure levels |
+| Soft Eviction | Implemented | Graceful isolate draining |
+| LRU Eviction | Implemented | Least Recently Used policy |
+| Per-Tenant Metrics | Implemented | Auto-collected per hostname |
+| Prometheus Export | Implemented | /admin/metrics endpoint |
+| Admin Metrics API | Implemented | JSON endpoints for all metrics |
+| WASM Support | Implemented | Load, compile, execute |
+| WASM JS API | Implemented | WebAssembly.* full API |
+| WASM Sliver Support | Implemented | Cached compiled modules |
+
 ## Limitations (By Design)
 
 The following are intentionally not supported for WinterCG compatibility:
@@ -173,6 +194,10 @@ Existing Cloudflare Workers can run on nano-rs with these changes:
 - Context reset between requests for isolation
 - VFS provides per-isolate filesystem namespaces
 - Sliver snapshots enable sub-millisecond cold starts
+- **CPU time limits prevent runaway scripts (50ms default)**
+- **Memory pressure monitoring with automatic eviction**
+- **Per-tenant metrics with Prometheus export**
+- **WASM module support for compute-heavy workloads**
 
 ## Security Model
 

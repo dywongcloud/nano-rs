@@ -61,6 +61,8 @@ Each app in the `apps` array defines a hosted application:
   - **memory_mb**: Maximum memory in MB (16-2048, default: 128)
   - **timeout_secs**: Request timeout in seconds (1-300, default: 30)
   - **workers**: Number of worker threads (1-32, default: 4)
+  - **cpu_time_ms**: CPU time limit per request in milliseconds (1-1000, default: 50)
+  - **cpu_time_enabled**: Enable CPU time tracking and termination (default: true)
 
 ## Server Configuration
 
@@ -89,14 +91,25 @@ Each app operates within its configured limits:
 ### Memory Limits
 - Sliver-based apps: Enforced via OOM monitor per worker isolate
 - Entrypoint apps: Inherits global worker pool memory settings
+- Soft eviction at 85% memory usage (allows current requests to complete)
+- Hard eviction at 95% memory usage (immediate termination)
+
+### CPU Time Limits
+- Per-request CPU time tracking with microsecond precision
+- Cloudflare-style 50ms default limit (configurable 1-1000ms)
+- Timer-based termination using Linux timer_create syscall
+- V8 TerminateExecution called on CPU timeout
+- Distinguishes CPU timeout from wall-clock timeout
 
 ### Worker Count
 - Creates N dedicated worker threads per app
 - Workers handle requests in parallel with context reset between requests
+- LRU eviction prefers stateless isolates when memory pressure detected
 
 ### Timeout
 - Configured timeout is validated at startup
 - Per-request timeout enforcement uses Tower middleware (30s default)
+- Separate from CPU time limits (wall-clock vs CPU time)
 
 ## Example Configurations
 
