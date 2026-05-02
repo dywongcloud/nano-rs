@@ -453,7 +453,7 @@ Proposed actions:
 - Unify VFS backend creation and lifecycle
 - Document which pool type to use for each scenario
 
-### Phase 999.3: VFS Disk Backend E2E Tests (BACKLOG)
+### Phase 999.3: VFS Disk Backend E2E Tests (PLANNED)
 **Goal:** Fix WASM E2E tests that require disk VFS backend file access
 **Requirements:** REQ-999-03-01: Enable per-app disk VFS backends for E2E tests, REQ-999-03-02: Ensure WASM file access works via Nano.fs.readFile()
 **Success Criteria:**
@@ -461,10 +461,10 @@ Proposed actions:
   2. `test_wasm_within_cpu_limit` passes with disk VFS backend
   3. File structure: entrypoints at temp root, VFS files in `{sanitized_hostname}/`
   4. No workarounds - proper async pool creation with app-specific backends
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
+- [ ] `999.3-01-PLAN.md` — Wire per-app disk VFS backends from AppRegistry to WorkQueue
 
 **Context from Phase 27:**
 The WASM E2E tests fail because they need to read files via `Nano.fs.readFile()` from disk VFS backend.
