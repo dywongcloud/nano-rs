@@ -1,7 +1,13 @@
 # Phase 27 Completion Report
 
 ## Summary
-Phase 27 (Production Multi-Tenancy) delivered CPU timeout enforcement, WebAssembly support, memory monitoring, and E2E testing infrastructure. All compilation errors resolved, 622 library tests passing, 3/5 E2E tests passing.
+Phase 27 (Production Multi-Tenancy) delivered CPU timeout enforcement, WebAssembly support, memory monitoring, and E2E testing infrastructure. All compilation errors resolved, 622 library tests passing, 3/5 E2E tests passing. Final fix: CPU time limits now properly wired from app config to execution.
+
+## Post-Session Fix (2025-05-02)
+**Issue:** `cpu_time_limit_ms: 0` was hardcoded in router.rs with TODO comment  
+**Solution:** Added `AppRegistry` to `AppState`, implemented `get_cpu_time_limit_ms()` to lookup limits from config  
+**Files:** `src/http/router.rs`, `src/http/server.rs`  
+**Status:** Fixed, tested, committed
 
 ## Files Changed
 
@@ -15,8 +21,8 @@ Phase 27 (Production Multi-Tenancy) delivered CPU timeout enforcement, WebAssemb
 | File | Changes |
 |------|---------|
 | `src/worker/queue.rs` | Added VFS backend configuration support: `WorkQueue::with_vfs_config()`, `WorkerPool::with_backend()`, imports for `VfsDiskConfig`, `VfsBackendType` |
-| `src/http/router.rs` | Added `AppState::with_vfs_config()` for disk backend configuration |
-| `src/http/server.rs` | Updated `start_server_with_config()` to extract and pass disk VFS config |
+| `src/http/router.rs` | Added `AppState::with_vfs_config()` for disk backend configuration; Added `AppRegistry` integration and `get_cpu_time_limit_ms()` |
+| `src/http/server.rs` | Updated `start_server_with_config()` to extract and pass disk VFS config and AppRegistry |
 
 ### Test Infrastructure
 | File | Changes |
