@@ -171,6 +171,12 @@ pub struct AppLimits {
     /// Number of worker threads (1-32, default: 4)
     #[serde(default = "default_workers")]
     pub workers: usize,
+    /// CPU time limit in milliseconds (1-1000, default: 50 like Cloudflare Workers)
+    #[serde(default = "default_cpu_time_ms")]
+    pub cpu_time_ms: u32,
+    /// Whether CPU time tracking is enabled (default: true)
+    #[serde(default = "default_cpu_time_enabled")]
+    pub cpu_time_enabled: bool,
 }
 
 impl Default for AppLimits {
@@ -179,6 +185,8 @@ impl Default for AppLimits {
             memory_mb: default_memory_limit(),
             timeout_secs: default_timeout_secs(),
             workers: default_workers(),
+            cpu_time_ms: default_cpu_time_ms(),
+            cpu_time_enabled: default_cpu_time_enabled(),
         }
     }
 }
@@ -193,6 +201,14 @@ fn default_timeout_secs() -> u32 {
 
 fn default_workers() -> usize {
     4 // 4 workers default
+}
+
+fn default_cpu_time_ms() -> u32 {
+    50 // 50ms default like Cloudflare Workers
+}
+
+fn default_cpu_time_enabled() -> bool {
+    true // CPU time tracking enabled by default
 }
 
 /// Server configuration section
