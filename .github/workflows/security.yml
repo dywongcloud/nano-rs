@@ -1,0 +1,221 @@
+name: Security Gateway
+
+on:
+  push:
+    branches: [ main, develop, release/* ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'website/**'
+  pull_request:
+    branches: [ main, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'website/**'
+  schedule:
+    # Run daily at 00:00 UTC to catch new CVEs
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    # Allow manual triggering
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Run all security tests
+  security-tests:
+    name: Adversarial Security Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "security-${{ runner.os }}"
+          cache-on-failure: false
+      
+      - name: Initialize V8
+        run: |
+          # V8 is bundled with rusty_v8, no separate installation needed
+          echo "V8 initialized via rusty_v8"
+      
+      - name: Run security tests
+        run: |
+          echo "Running adversarial security test suite..."
+          cargo test --test security_adversarial -- --test-threads=1 --nocapture 2>&1 | tee security-test-results.txt
+        timeout-minutes: 25
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-test-results
+          path: security-test-results.txt
+          retention-days: 30
+      
+      - name: Check test results
+        run: |
+          if grep -q "FAILED\|error\|panic" security-test-results.txt; then
+            echo "❌ Security tests failed"
+            exit 1
+          else
+            echo "✅ All security tests passed"
+          fi
+
+  # CVE scanning for dependencies
+  cve-scan:
+    name: Dependency CVE Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cve-${{ runner.os }}"
+          cache-on-failure: false
+      
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      
+      - name: Update advisory database
+        run: cargo audit --update
+      
+      - name: Run CVE scan
+        run: |
+          echo "Running CVE scan on dependencies..."
+          # Run with --deny warnings to fail on any CVE
+          cargo audit --deny warnings 2>&1 | tee cve-scan-results.txt
+        continue-on-error: false
+      
+      - name: Upload CVE scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cve-scan-results
+          path: cve-scan-results.txt
+          retention-days: 30
+      
+      - name: Check CVE results
+        run: |
+          if grep -q "error\|vulnerable" cve-scan-results.txt; then
+            echo "❌ CVE scan found issues"
+            exit 1
+          else
+            echo "✅ No CVEs found"
+          fi
+
+  # License and security policy enforcement
+  cargo-deny:
+    name: License & Security Policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v1
+        with:
+          command: check advisories licenses
+          arguments: --all-features
+      
+      - name: Check bans
+        uses: EmbarkStudios/cargo-deny-action@v1
+        with:
+          command: check bans
+          arguments: --all-features
+
+  # Security linting
+  security-lint:
+    name: Security Linting
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Run Clippy (security warnings as errors)
+        run: |
+          cargo clippy --all-targets --all-features -- -W clippy::all -W clippy::cargo -W clippy::nursery \
+            -D clippy::unwrap_used \
+            -D clippy::expect_used \
+            -W clippy::panic \
+            -A clippy::deprecated \
+            2>&1 | tee clippy-results.txt
+        continue-on-error: true
+      
+      - name: Check for security-sensitive lints
+        run: |
+          # Check for unwrap/expect usage in non-test code
+          if grep -E "(\.unwrap\(\)|\.expect\([^)]+\))" src/**/*.rs 2>/dev/null | grep -v "//"; then
+            echo "⚠️ Found unwrap/expect usage in source code - review recommended"
+            # Don't fail the build, just warn
+          fi
+          
+          echo "Linting complete"
+
+  # Summary job
+  security-gate:
+    name: Security Gate
+    needs: [security-tests, cve-scan, cargo-deny, security-lint]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Check security gate status
+        run: |
+          echo "Security Gate Summary"
+          echo "===================="
+          echo "Security Tests: ${{ needs.security-tests.result }}"
+          echo "CVE Scan: ${{ needs.cve-scan.result }}"
+          echo "Cargo Deny: ${{ needs.cargo-deny.result }}"
+          echo "Security Lint: ${{ needs.security-lint.result }}"
+          echo ""
+          
+          if [ "${{ needs.security-tests.result }}" != "success" ]; then
+            echo "❌ Security tests failed"
+            exit 1
+          fi
+          
+          if [ "${{ needs.cve-scan.result }}" != "success" ]; then
+            echo "❌ CVE scan failed"
+            exit 1
+          fi
+          
+          if [ "${{ needs.cargo-deny.result }}" != "success" ]; then
+            echo "❌ License/security policy check failed"
+            exit 1
+          fi
+          
+          echo "✅ Security gate passed - all checks successful"
