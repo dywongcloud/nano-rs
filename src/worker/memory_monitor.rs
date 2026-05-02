@@ -34,7 +34,7 @@ use std::time::{Duration, Instant};
 /// - Warning: Log and monitor closely
 /// - Critical: Begin soft eviction
 /// - Emergency: Hard eviction required
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MemoryPressureLevel {
     /// <70% of limit - normal operation
     Normal = 0,

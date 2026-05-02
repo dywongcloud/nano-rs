@@ -22,10 +22,12 @@
 
 pub mod collector;
 pub mod exporter;
+pub mod tenant;
 pub mod types;
 
 pub use collector::MetricsRegistry;
 pub use exporter::PrometheusExporter;
+pub use tenant::{TenantMetrics, TenantMetricsCollector, MetricsSnapshot, RequestResult};
 pub use types::{Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec, MetricLabels};
 
 use std::sync::LazyLock;
@@ -83,3 +85,25 @@ mod tests {
         }
     }
 }
+
+/// Global tenant metrics collector singleton
+///
+/// This provides per-tenant metrics collection across the entire runtime.
+/// Use this to record metrics for specific hostnames during request handling.
+///
+/// # Example
+///
+/// ```ignore
+/// use nano::metrics::TENANT_METRICS;
+/// use nano::metrics::tenant::RequestResult;
+///
+/// TENANT_METRICS.record_request(
+///     "api.example.com",
+///     RequestResult::Success,
+///     5000,    // CPU time in microseconds
+///     1024,    // Memory in bytes
+///     10       // Duration in milliseconds
+/// );
+/// ```
+pub static TENANT_METRICS: LazyLock<TenantMetricsCollector> = 
+    LazyLock::new(TenantMetricsCollector::new);
