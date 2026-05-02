@@ -19,6 +19,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::worker::timeout::TimeoutConfig;
+
 /// Environment variables for an application
 ///
 /// Type alias for per-app environment variables. Only variables explicitly
@@ -44,6 +46,14 @@ pub struct AppLimits {
     /// Number of worker threads (1-32, default: 4)
     #[serde(default = "default_workers")]
     pub workers: usize,
+
+    /// CPU time limit in milliseconds (1-1000, default: 50 like Cloudflare Workers)
+    #[serde(default = "default_cpu_time_ms")]
+    pub cpu_time_ms: u32,
+
+    /// Whether CPU time tracking is enabled (default: true)
+    #[serde(default = "default_cpu_time_enabled")]
+    pub cpu_time_enabled: bool,
 }
 
 impl Default for AppLimits {
@@ -52,6 +62,8 @@ impl Default for AppLimits {
             memory_mb: default_memory_mb(),
             timeout_secs: default_timeout_secs(),
             workers: default_workers(),
+            cpu_time_ms: default_cpu_time_ms(),
+            cpu_time_enabled: default_cpu_time_enabled(),
         }
     }
 }
@@ -66,6 +78,28 @@ fn default_timeout_secs() -> u32 {
 
 fn default_workers() -> usize {
     4
+}
+
+fn default_cpu_time_ms() -> u32 {
+    50 // 50ms default like Cloudflare Workers
+}
+
+fn default_cpu_time_enabled() -> bool {
+    true
+}
+
+impl AppLimits {
+    /// Convert to TimeoutConfig for use with ExecutionTimer
+    ///
+    /// Creates a TimeoutConfig from the AppLimits settings.
+    /// Uses cpu_time_ms for CPU limit and timeout_secs for wall clock limit.
+    pub fn to_timeout_config(&self) -> TimeoutConfig {
+        TimeoutConfig {
+            cpu_time_limit_ms: if self.cpu_time_enabled { self.cpu_time_ms } else { 1000 }, // Use 1s if disabled
+            wall_clock_limit_ms: self.timeout_secs * 1000,
+            termination_grace_us: 100,
+        }
+    }
 }
 
 /// VFS backend type selection
@@ -375,6 +409,14 @@ pub fn validate_config(
         errors.add(format!(
             "workers must be between 1 and 32, got {}",
             config.limits.workers
+        ));
+    }
+
+    // Validate CPU time limits (1-1000ms)
+    if config.limits.cpu_time_ms < 1 || config.limits.cpu_time_ms > 1000 {
+        errors.add(format!(
+            "cpu_time_ms must be between 1 and 1000, got {}",
+            config.limits.cpu_time_ms
         ));
     }
 
@@ -692,6 +734,8 @@ mod tests {
                 memory_mb: 5, // too low
                 timeout_secs: 30,
                 workers: 4,
+                cpu_time_ms: 50,
+                cpu_time_enabled: true,
             },
             ..Default::default()
         };
@@ -712,6 +756,8 @@ mod tests {
                 memory_mb: 128,
                 timeout_secs: 0, // too low
                 workers: 4,
+                cpu_time_ms: 50,
+                cpu_time_enabled: true,
             },
             ..Default::default()
         };
@@ -732,6 +778,8 @@ mod tests {
                 memory_mb: 128,
                 timeout_secs: 30,
                 workers: 100, // too high
+                cpu_time_ms: 50,
+                cpu_time_enabled: true,
             },
             ..Default::default()
         };
@@ -1117,5 +1165,133 @@ mod tests {
         assert_eq!(config.hostname, "api.example.com");
         assert_eq!(config.sliver, Some("./api-v1.sliver".to_string()));
         assert!(config.entrypoint.is_empty());
+    }
+
+    #[test]
+    fn test_app_limits_cpu_time_defaults() {
+        let limits = AppLimits::default();
+        assert_eq!(limits.cpu_time_ms, 50); // Cloudflare default
+        assert!(limits.cpu_time_enabled); // Enabled by default
+    }
+
+    #[test]
+    fn test_app_limits_deserialization_with_cpu_time() {
+        let json = r#"{
+            "memory_mb": 128,
+            "timeout_secs": 30,
+            "workers": 4,
+            "cpu_time_ms": 100,
+            "cpu_time_enabled": false
+        }"#;
+
+        let limits: AppLimits = serde_json::from_str(json).unwrap();
+        assert_eq!(limits.cpu_time_ms, 100);
+        assert!(!limits.cpu_time_enabled);
+    }
+
+    #[test]
+    fn test_app_limits_deserialization_defaults() {
+        let json = r#"{
+            "memory_mb": 128
+        }"#;
+
+        let limits: AppLimits = serde_json::from_str(json).unwrap();
+        assert_eq!(limits.cpu_time_ms, 50); // Default
+        assert!(limits.cpu_time_enabled); // Default
+    }
+
+    #[test]
+    fn test_validation_rejects_invalid_cpu_time_low() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "/app/index.js".to_string(),
+            env_vars: Default::default(),
+            limits: AppLimits {
+                memory_mb: 128,
+                timeout_secs: 30,
+                workers: 4,
+                cpu_time_ms: 0, // too low
+                cpu_time_enabled: true,
+            },
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.errors.iter().any(|e| e.contains("cpu_time_ms")));
+    }
+
+    #[test]
+    fn test_validation_rejects_invalid_cpu_time_high() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "/app/index.js".to_string(),
+            env_vars: Default::default(),
+            limits: AppLimits {
+                memory_mb: 128,
+                timeout_secs: 30,
+                workers: 4,
+                cpu_time_ms: 2000, // too high
+                cpu_time_enabled: true,
+            },
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.errors.iter().any(|e| e.contains("cpu_time_ms")));
+    }
+
+    #[test]
+    fn test_validation_accepts_valid_cpu_time() {
+        let config = AppConfig {
+            hostname: "api.example.com".to_string(),
+            entrypoint: "/app/index.js".to_string(),
+            env_vars: Default::default(),
+            limits: AppLimits {
+                memory_mb: 128,
+                timeout_secs: 30,
+                workers: 4,
+                cpu_time_ms: 50,
+                cpu_time_enabled: true,
+            },
+            ..Default::default()
+        };
+
+        let result = validate_config(&config, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_app_limits_to_timeout_config() {
+        let limits = AppLimits {
+            memory_mb: 128,
+            timeout_secs: 30,
+            workers: 4,
+            cpu_time_ms: 100,
+            cpu_time_enabled: true,
+        };
+
+        let timeout_config = limits.to_timeout_config();
+        assert_eq!(timeout_config.cpu_time_limit_ms, 100);
+        assert_eq!(timeout_config.wall_clock_limit_ms, 30_000); // 30 seconds
+    }
+
+    #[test]
+    fn test_app_limits_to_timeout_config_disabled() {
+        let limits = AppLimits {
+            memory_mb: 128,
+            timeout_secs: 30,
+            workers: 4,
+            cpu_time_ms: 50,
+            cpu_time_enabled: false,
+        };
+
+        let timeout_config = limits.to_timeout_config();
+        // When disabled, uses 1000ms (1 second) as the effective limit
+        assert_eq!(timeout_config.cpu_time_limit_ms, 1000);
+        assert_eq!(timeout_config.wall_clock_limit_ms, 30_000);
     }
 }
