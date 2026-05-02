@@ -45,9 +45,9 @@ use tower_http::trace::TraceLayer;
 
 use crate::admin::auth::{api_key_middleware, AdminAuth};
 use crate::admin::handlers::{
-    activate_app, create_app, delete_app, disable_app, drain_app, enable_app,
-    get_app, health_handler, list_apps, list_isolates, ready_handler, reload_app,
-    scale_app, update_app,
+    activate_app, app_metrics_handler, create_app, delete_app, disable_app, drain_app, enable_app,
+    get_app, health_handler, list_apps, list_isolates, metrics_summary, prometheus_metrics_handler,
+    ready_handler, reload_app, scale_app, tenant_metrics_json, update_app,
 };
 use crate::app::registry::AppRegistry;
 use crate::metrics::MetricsRegistry;
@@ -318,8 +318,12 @@ pub fn create_admin_router(auth: Arc<AdminAuth>, state: AdminState) -> Router {
         .route("/admin/apps/{hostname}/reload", post(reload_app_handler))
         .route("/admin/apps/{hostname}/scale", post(scale_app_handler))
         .route("/admin/apps/{hostname}/drain", post(drain_app_handler))
-        // Metrics - simple handler without external state dependency
-        .route("/admin/metrics", get(admin_metrics_handler))
+        // Metrics - Prometheus format (includes global + per-tenant metrics)
+        .route("/admin/metrics", get(prometheus_metrics_handler))
+        // Metrics - JSON endpoints for programmatic access
+        .route("/admin/metrics/tenants", get(tenant_metrics_json_handler))
+        .route("/admin/metrics/summary", get(metrics_summary_handler))
+        .route("/admin/metrics/apps/{hostname}", get(app_metrics_handler))
         // Apply auth middleware to protected routes
         .layer(middleware::from_fn_with_state(auth, api_key_middleware))
         // Add state to protected routes
@@ -418,25 +422,14 @@ async fn drain_app_handler(
     drain_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
 }
 
-/// Admin metrics handler that doesn't require external state
-async fn admin_metrics_handler() -> impl axum::response::IntoResponse {
-    use crate::metrics::{PrometheusExporter, METRICS};
-    use axum::http::header;
-    use axum::response::Response;
-    
-    // Update uptime before export
-    METRICS.update_uptime();
-    
-    // Export metrics in Prometheus format
-    let exporter = PrometheusExporter::new();
-    let output = exporter.export(&METRICS);
-    
-    // Build response with correct content type
-    Response::builder()
-        .status(axum::http::StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")
-        .body(output)
-        .unwrap()
+/// Handler wrapper for tenant metrics JSON endpoint
+async fn tenant_metrics_json_handler() -> impl axum::response::IntoResponse {
+    tenant_metrics_json().await
+}
+
+/// Handler wrapper for metrics summary endpoint
+async fn metrics_summary_handler() -> impl axum::response::IntoResponse {
+    metrics_summary().await
 }
 
 /// Start the admin server

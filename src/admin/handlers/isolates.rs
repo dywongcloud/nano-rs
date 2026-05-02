@@ -324,6 +324,262 @@ pub async fn get_isolates_by_hostname(
     Ok(Json(response))
 }
 
+/// Prometheus metrics endpoint handler
+///
+/// Returns all metrics in Prometheus text format 0.0.4.
+/// Combines global metrics and per-tenant metrics.
+///
+/// # Example
+///
+/// ```text
+/// GET /admin/metrics
+///
+/// Response:
+/// # HELP nano_requests_total Total HTTP requests
+/// # TYPE nano_requests_total counter
+/// nano_requests_total{hostname="api.example.com",status="200"} 1423
+///
+/// # HELP nano_tenant_requests_total Total requests per tenant
+/// nano_tenant_requests_total{hostname="api.example.com"} 1423
+/// ```
+pub async fn prometheus_metrics_handler() -> impl axum::response::IntoResponse {
+    use crate::metrics::{PrometheusExporter, METRICS, TENANT_METRICS};
+    use axum::http::header;
+    use axum::response::Response;
+
+    // Update uptime before export
+    METRICS.update_uptime();
+
+    // Export global metrics in Prometheus format
+    let exporter = PrometheusExporter::new();
+    let mut output = exporter.export(&METRICS);
+
+    // Add per-tenant metrics
+    output.push('\n');
+    output.push_str(&TENANT_METRICS.to_prometheus());
+
+    // Build response with correct content type
+    Response::builder()
+        .status(axum::http::StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")
+        .body(output)
+        .unwrap()
+}
+
+/// Tenant metrics JSON endpoint handler
+///
+/// Returns per-tenant metrics in JSON format for programmatic access.
+///
+/// # Example
+///
+/// ```text
+/// GET /admin/metrics/tenants
+///
+/// Response:
+/// {
+///   "tenants": [
+///     {
+///       "hostname": "api.example.com",
+///       "requests": {
+///         "total": 1423,
+///         "success": 1400,
+///         "error": 20,
+///         "timeout": 3,
+///         "active": 5
+///       },
+///       "cpu": {
+///         "total_seconds": 45.5,
+///         "avg_per_request_ms": 32.0
+///       },
+///       "memory": {
+///         "current_bytes": 16777216,
+///         "external_bytes": 2097152,
+///         "peak_bytes": 33554432
+///       },
+///       "latency": {
+///         "p50_ms": 25.0,
+///         "p95_ms": 75.0,
+///         "p99_ms": 150.0
+///       }
+///     }
+///   ],
+///   "summary": {
+///     "total_tenants": 1,
+///     "total_requests": 1423,
+///     "total_cpu_seconds": 45.5
+///   }
+/// }
+/// ```
+pub async fn tenant_metrics_json() -> Json<serde_json::Value> {
+    use crate::metrics::TENANT_METRICS;
+
+    let snapshot = TENANT_METRICS.snapshot();
+
+    let tenants: Vec<serde_json::Value> = snapshot
+        .tenants
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "hostname": t.hostname,
+                "requests": {
+                    "total": t.requests_total,
+                    "success": t.requests_success,
+                    "error": t.requests_error,
+                    "timeout": t.requests_timeout,
+                    "active": t.requests_active,
+                },
+                "cpu": {
+                    "total_seconds": t.cpu_seconds_total,
+                    "avg_per_request_ms": t.cpu_avg_ms,
+                },
+                "memory": {
+                    "current_bytes": t.memory_used_bytes,
+                    "external_bytes": t.memory_external_bytes,
+                    "peak_bytes": t.memory_peak_bytes,
+                },
+                "latency": {
+                    "p50_ms": t.latency_p50_ms,
+                    "p95_ms": t.latency_p95_ms,
+                    "p99_ms": t.latency_p99_ms,
+                },
+                "context_resets": t.context_resets_total,
+                "isolates_active": t.isolates_active,
+            })
+        })
+        .collect();
+
+    Json(serde_json::json!({
+        "tenants": tenants,
+        "summary": {
+            "total_tenants": snapshot.tenants.len(),
+            "total_requests": snapshot.total_requests,
+            "total_cpu_seconds": snapshot.total_cpu_seconds,
+        },
+        "timestamp": current_timestamp(),
+    }))
+}
+
+/// Metrics summary endpoint handler
+///
+/// Returns high-level overview of system metrics.
+///
+/// # Example
+///
+/// ```text
+/// GET /admin/metrics/summary
+///
+/// Response:
+/// {
+///   "global": {
+///     "total_requests": 1523,
+///     "requests_per_second": 45.2
+///   },
+///   "tenants": {
+///     "count": 5,
+///     "top_by_requests": [
+///       ["api.example.com", 892],
+///       ["blog.example.com", 631]
+///     ],
+///     "top_by_cpu": [
+///       ["api.example.com", 30.5],
+///       ["blog.example.com", 15.0]
+///     ]
+///   },
+///   "system": {
+///     "timestamp": "2026-04-20T12:34:56.789Z",
+///     "version": "1.2.0"
+///   }
+/// }
+/// ```
+pub async fn metrics_summary() -> Json<serde_json::Value> {
+    use crate::metrics::{METRICS, TENANT_METRICS};
+
+    // Calculate RPS approximation (requests since startup / uptime)
+    let uptime_secs = METRICS.uptime_seconds();
+    let global_requests = METRICS.requests_total.get_all()
+        .iter()
+        .map(|(_, v)| *v)
+        .sum::<u64>();
+    let rps = if uptime_secs > 0 {
+        global_requests as f64 / uptime_secs as f64
+    } else {
+        0.0
+    };
+
+    Json(serde_json::json!({
+        "global": {
+            "total_requests": global_requests,
+            "requests_per_second": rps,
+            "uptime_seconds": uptime_secs,
+        },
+        "tenants": {
+            "count": TENANT_METRICS.tenant_count(),
+            "hostnames": TENANT_METRICS.tenant_hostnames(),
+            "top_by_requests": TENANT_METRICS.top_tenants_by_requests(10),
+            "top_by_cpu": TENANT_METRICS.top_tenants_by_cpu(10),
+        },
+        "system": {
+            "timestamp": current_timestamp(),
+            "version": env!("CARGO_PKG_VERSION"),
+        }
+    }))
+}
+
+/// Get metrics for a specific app/hostname
+///
+/// Returns detailed metrics for a single tenant.
+///
+/// # Arguments
+///
+/// * `hostname` - The hostname to get metrics for
+///
+/// # Returns
+///
+/// JSON response with tenant metrics or 404 if not found.
+///
+/// # Example
+///
+/// ```text
+/// GET /admin/metrics/apps/api.example.com
+///
+/// Response:
+/// {
+///   "hostname": "api.example.com",
+///   "requests_total": 1423,
+///   "requests_per_second": 45.2,
+///   "cpu_seconds_total": 45.5,
+///   "memory_bytes": 16777216,
+///   "request_duration_p99": 150.0
+/// }
+/// ```
+pub async fn app_metrics_handler(
+    axum::extract::Path(hostname): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::metrics::TENANT_METRICS;
+
+    match TENANT_METRICS.get_tenant(&hostname) {
+        Some(metrics) => {
+            let m = metrics.read().unwrap();
+            Ok(Json(serde_json::json!({
+                "hostname": hostname,
+                "requests_total": m.requests_total.get(),
+                "requests_success": m.requests_success.get(),
+                "requests_error": m.requests_error.get(),
+                "requests_timeout": m.requests_timeout.get(),
+                "requests_active": m.requests_active.get(),
+                "cpu_seconds_total": m.cpu_seconds_total.get(),
+                "memory_used_bytes": m.memory_used_bytes.get(),
+                "memory_external_bytes": m.memory_external_bytes.get(),
+                "memory_peak_bytes": m.memory_peak_bytes(),
+                "context_resets_total": m.context_resets_total.get(),
+                "request_duration_p99_ms": m.request_duration_p99() * 1000.0,
+                "isolates_active": m.isolates_active.get(),
+            })))
+        }
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

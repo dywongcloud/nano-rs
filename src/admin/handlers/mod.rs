@@ -21,5 +21,7 @@ pub use health::{
     health_handler, ready_handler, ready_handler_with_state, HealthResponse, ReadyResponse,
 };
 pub use isolates::{
-    get_isolates_by_hostname, list_isolates, AppSummary, IsolatesError, IsolatesListResponse,
+    app_metrics_handler, get_isolates_by_hostname, list_isolates, metrics_summary,
+    prometheus_metrics_handler, tenant_metrics_json, AppSummary, IsolatesError,
+    IsolatesListResponse,
 };
