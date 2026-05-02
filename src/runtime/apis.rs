@@ -51,6 +51,7 @@ impl RuntimeAPIs {
         Self::bind_timers(scope, context);
         Self::bind_buffer(scope, context);
         Self::bind_streams(scope, context);
+        Self::bind_wasm(scope, context);
     }
 
     /// Bind Streams API (ReadableStream, WritableStream)
@@ -447,6 +448,12 @@ impl RuntimeAPIs {
             let key = v8::String::new(scope, "clearInterval").unwrap();
             global.set(scope, key.into(), clear_interval.into());
         }
+    }
+
+    /// Bind WebAssembly API to context
+    fn bind_wasm(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+        crate::wasm::WebAssemblyAPI::bind(scope, context);
+        tracing::debug!("Bound WebAssembly API");
     }
 
     /// Bind Node.js Buffer API
