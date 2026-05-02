@@ -31,6 +31,7 @@ use crate::vfs::{BackendFactory, IsolateVfs, MemoryBackend, VfsBackend, VfsNames
 use crate::config::{VfsBackendType, VfsDiskConfig};
 use crate::worker::HandlerTask;
 use crate::worker::context::ContextManager;
+use crate::app::registry::AppRegistry;
 
 use anyhow::anyhow;
 
@@ -383,6 +384,8 @@ pub struct WorkQueue {
     pub stats: QueueStats,
     /// VFS backend configuration for disk backend (optional)
     vfs_disk_config: Option<VfsDiskConfig>,
+    /// AppRegistry for per-app configuration lookup (optional)
+    app_registry: Option<Arc<AppRegistry>>,
 }
 
 impl WorkQueue {
@@ -396,7 +399,7 @@ impl WorkQueue {
     ///
     /// A new `WorkQueue` with empty pools HashMap
     pub fn new(workers_per_pool: usize) -> Self {
-        Self::with_vfs_config(workers_per_pool, None)
+        Self::with_vfs_config(workers_per_pool, None, None)
     }
 
     /// Create a new WorkQueue with VFS disk backend configuration
@@ -405,18 +408,38 @@ impl WorkQueue {
     ///
     /// * `workers_per_pool` - Number of workers to create per hostname pool
     /// * `vfs_disk_config` - Optional disk backend configuration
+    /// * `app_registry` - Optional AppRegistry for per-app VFS configuration
     ///
     /// # Returns
     ///
     /// A new `WorkQueue` configured with the specified VFS backend
-    pub fn with_vfs_config(workers_per_pool: usize, vfs_disk_config: Option<VfsDiskConfig>) -> Self {
+    pub fn with_vfs_config(
+        workers_per_pool: usize,
+        vfs_disk_config: Option<VfsDiskConfig>,
+        app_registry: Option<Arc<AppRegistry>>,
+    ) -> Self {
         Self {
             pools: HashMap::new(),
             workers_per_pool,
             channel_capacity: 256, // POOL-02 requirement
             stats: QueueStats::new(),
             vfs_disk_config,
+            app_registry,
         }
+    }
+
+    /// Set the AppRegistry for per-app configuration lookup
+    ///
+    /// # Arguments
+    ///
+    /// * `app_registry` - The AppRegistry to use for per-app VFS configuration
+    ///
+    /// # Returns
+    ///
+    /// Self for builder pattern
+    pub fn with_registry(mut self, app_registry: Arc<AppRegistry>) -> Self {
+        self.app_registry = Some(app_registry);
+        self
     }
 
     /// Get or create a worker pool for a hostname
