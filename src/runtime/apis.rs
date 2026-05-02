@@ -1817,9 +1817,51 @@ fn create_algorithm_js<'s>(
                 obj.set(scope, length_key.into(), length_val.into());
             }
         }
-        _ => {
-            // RSA and ECDSA algorithms - TODO: add specific properties
-            // For now, just return the algorithm name without extra properties
+        crate::runtime::crypto::AlgorithmIdentifier::RsaOaep { hash } => {
+            // RSA-OAEP requires hash property per Web Crypto spec
+            let hash_key = v8::String::new(scope, "hash").unwrap();
+            let hash_obj = v8::Object::new(scope);
+            let hash_name_key = v8::String::new(scope, "name").unwrap();
+            let hash_name_val = v8::String::new(scope, hash.name()).unwrap();
+            hash_obj.set(scope, hash_name_key.into(), hash_name_val.into());
+            obj.set(scope, hash_key.into(), hash_obj.into());
+        }
+        crate::runtime::crypto::AlgorithmIdentifier::RsaPss { hash, salt_length } => {
+            // RSA-PSS requires hash property and optional saltLength per Web Crypto spec
+            let hash_key = v8::String::new(scope, "hash").unwrap();
+            let hash_obj = v8::Object::new(scope);
+            let hash_name_key = v8::String::new(scope, "name").unwrap();
+            let hash_name_val = v8::String::new(scope, hash.name()).unwrap();
+            hash_obj.set(scope, hash_name_key.into(), hash_name_val.into());
+            obj.set(scope, hash_key.into(), hash_obj.into());
+
+            // Set saltLength if present
+            if let Some(salt_len) = salt_length {
+                let salt_length_key = v8::String::new(scope, "saltLength").unwrap();
+                let salt_length_val = v8::Number::new(scope, *salt_len as f64);
+                obj.set(scope, salt_length_key.into(), salt_length_val.into());
+            }
+        }
+        crate::runtime::crypto::AlgorithmIdentifier::RsaSsaPkcs1V1_5 { hash } => {
+            // RSASSA-PKCS1-v1_5 requires hash property per Web Crypto spec
+            let hash_key = v8::String::new(scope, "hash").unwrap();
+            let hash_obj = v8::Object::new(scope);
+            let hash_name_key = v8::String::new(scope, "name").unwrap();
+            let hash_name_val = v8::String::new(scope, hash.name()).unwrap();
+            hash_obj.set(scope, hash_name_key.into(), hash_name_val.into());
+            obj.set(scope, hash_key.into(), hash_obj.into());
+        }
+        crate::runtime::crypto::AlgorithmIdentifier::Ecdsa { named_curve, .. } => {
+            // ECDSA requires namedCurve property per Web Crypto spec
+            let named_curve_key = v8::String::new(scope, "namedCurve").unwrap();
+            let named_curve_val = v8::String::new(scope, named_curve.as_str()).unwrap();
+            obj.set(scope, named_curve_key.into(), named_curve_val.into());
+        }
+        crate::runtime::crypto::AlgorithmIdentifier::Ecdh { named_curve } => {
+            // ECDH requires namedCurve property per Web Crypto spec
+            let named_curve_key = v8::String::new(scope, "namedCurve").unwrap();
+            let named_curve_val = v8::String::new(scope, named_curve.as_str()).unwrap();
+            obj.set(scope, named_curve_key.into(), named_curve_val.into());
         }
     }
     
