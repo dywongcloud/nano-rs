@@ -775,7 +775,7 @@ mod tests {
 
         let vfs = Arc::new(IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default()),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
         ));
         set_current_vfs(Some(vfs));
 

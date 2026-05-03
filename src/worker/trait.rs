@@ -106,7 +106,7 @@ pub struct WorkerPoolConfig {
     /// Memory limit per isolate in MB
     pub memory_limit_mb: u32,
     /// Optional custom VFS backend (None = use default MemoryBackend)
-    pub vfs_backend: Option<Arc<dyn crate::vfs::VfsBackend>>,
+    pub vfs_backend: Option<crate::vfs::VfsBackendEnum>,
 }
 
 impl std::fmt::Debug for WorkerPoolConfig {
@@ -143,7 +143,7 @@ impl WorkerPoolConfig {
     }
 
     /// Set custom VFS backend
-    pub fn with_vfs_backend(mut self, backend: Arc<dyn crate::vfs::VfsBackend>) -> Self {
+    pub fn with_vfs_backend(mut self, backend: crate::vfs::VfsBackendEnum) -> Self {
         self.vfs_backend = Some(backend);
         self
     }
@@ -187,7 +187,7 @@ mod tests {
         
         let config = WorkerPoolConfig::new("test.example.com", 4)
             .with_memory_limit(256)
-            .with_vfs_backend(Arc::new(MemoryBackend::new()));
+            .with_vfs_backend(crate::vfs::VfsBackendEnum::memory(MemoryBackend::new()));
         
         assert_eq!(config.memory_limit_mb, 256);
         assert!(config.vfs_backend.is_some());

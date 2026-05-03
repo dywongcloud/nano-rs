@@ -2337,7 +2337,7 @@ fn extract_crypto_key(
     let external_val = obj.get(scope, external_key.into())?;
     
     if external_val.is_external() {
-        let external = unsafe { external_val.cast::<v8::External>() };
+        let external = external_val.cast::<v8::External>();
         let ptr = external.value() as *mut crate::runtime::crypto::CryptoKey;
         if !ptr.is_null() {
             // Clone the key so we don't accidentally drop the original when this scope ends

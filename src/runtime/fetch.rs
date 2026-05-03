@@ -416,7 +416,7 @@ pub fn get_response_data(
     let external_key = v8::String::new(scope, "__response_data").unwrap();
     if let Some(external_val) = this.get(scope, external_key.into()) {
         if external_val.is_external() {
-            let external = unsafe { external_val.cast::<v8::External>() };
+            let external = external_val.cast::<v8::External>();
             let ptr = external.value() as *mut ResponseBodyData;
             return unsafe { ptr.as_ref() };
         }

@@ -484,7 +484,7 @@ fn execute_esm_module<'a>(
     // wired through the proper channels
     let vfs_placeholder = IsolateVfs::new(
         crate::vfs::VfsNamespace::from_hostname("temp"),
-        std::sync::Arc::new(crate::vfs::MemoryBackend::default()),
+        crate::vfs::VfsBackendEnum::memory(crate::vfs::MemoryBackend::default()),
     );
     let mut loader = ModuleLoader::new(vfs_placeholder);
 
@@ -951,7 +951,7 @@ mod tests {
     fn test_module_loader_creation() {
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default()),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
         );
         let loader = ModuleLoader::new(vfs);
         assert!(loader.module_cache.is_empty());
@@ -980,7 +980,7 @@ mod tests {
     fn test_resolve_import_path() {
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default()),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
         );
         let loader = ModuleLoader::new(vfs);
 
@@ -1013,7 +1013,7 @@ mod tests {
     fn test_circular_import_detection() {
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default()),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
         );
         let mut loader = ModuleLoader::new(vfs);
 

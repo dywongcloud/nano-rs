@@ -1,0 +1,5 @@
+# Cargo configuration for cross-compilation
+# This is used by cargo-zigbuild for cross-compilation
+
+# No explicit linker configuration needed - cargo-zigbuild handles this
+# The key is having zig in PATH

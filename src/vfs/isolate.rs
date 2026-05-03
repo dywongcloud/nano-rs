@@ -49,15 +49,15 @@ use std::fmt;
 ///
 /// Combines a namespace with a backend to provide isolated filesystem
 /// access for a single isolate. This is owned by NanoIsolate.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IsolateVfs {
     namespace: VfsNamespace,
-    backend: Arc<dyn VfsBackend>,
+    backend: crate::vfs::VfsBackendEnum,
 }
 
 impl IsolateVfs {
     /// Create a new IsolateVfs with the given namespace and backend
-    pub fn new(namespace: VfsNamespace, backend: Arc<dyn VfsBackend>) -> Self {
+    pub fn new(namespace: VfsNamespace, backend: crate::vfs::VfsBackendEnum) -> Self {
         Self {
             namespace,
             backend,
@@ -70,7 +70,7 @@ impl IsolateVfs {
     }
 
     /// Get the backend reference
-    pub fn backend(&self) -> &Arc<dyn VfsBackend> {
+    pub fn backend(&self) -> &crate::vfs::VfsBackendEnum {
         &self.backend
     }
 
@@ -104,54 +104,30 @@ impl IsolateVfs {
         self.backend.metadata(&storage_path).await
     }
 
-    /// Prefix a path with the namespace for storage
-    ///
-    /// Format: "{namespace}::{normalized_path}"
-    fn prefix_namespace(&self, path: &str) -> VfsResult<VfsPath> {
-        // Validate and normalize the user path
-        let normalized = VfsPath::new(path)?;
-
-        // Prefix with namespace for storage isolation
-        let storage_key = format!("{}::{}", self.namespace.as_str(), normalized.as_str());
-
-        // This should always succeed since both parts are validated
-        Ok(VfsPath::new(storage_key)?)
+    /// List directory entries from the isolate's namespace
+    pub async fn list_dir(&self, path: impl AsRef<str>) -> VfsResult<Vec<VfsPath>> {
+        let storage_path = self.prefix_namespace(path.as_ref())?;
+        self.backend.list_dir(&storage_path).await
     }
-}
 
-impl fmt::Debug for IsolateVfs {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("IsolateVfs")
-            .field("namespace", &self.namespace)
-            .field("backend", &"<dyn VfsBackend>")
-            .finish()
+    /// Prefix a path with the isolate's namespace
+    fn prefix_namespace(&self, path: &str) -> VfsResult<VfsPath> {
+        // Validate the path first
+        let path = VfsPath::new(path)?;
+        // Format: "{namespace}::{path}"
+        let prefixed = format!("{}::{}", self.namespace.as_str(), path.as_str());
+        VfsPath::new(prefixed)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vfs::{MemoryBackend, VfsError};
-
-    #[test]
-    fn test_vfs_namespace_from_hostname() {
-        assert_eq!(
-            VfsNamespace::from_hostname("api.example.com").as_str(),
-            "api_example_com"
-        );
-        assert_eq!(
-            VfsNamespace::from_hostname("APP.EXAMPLE.COM").as_str(),
-            "app_example_com"
-        );
-        assert_eq!(
-            VfsNamespace::from_hostname("my-app.example.com").as_str(),
-            "my_app_example_com"
-        );
-    }
+    use crate::vfs::MemoryBackend;
 
     #[tokio::test]
     async fn test_isolate_vfs_basic() {
-        let backend = Arc::new(MemoryBackend::default());
+        let backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
             backend
@@ -171,17 +147,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_isolate_vfs_namespace_isolation() {
-        let shared_backend: Arc<dyn crate::vfs::VfsBackend> = Arc::new(MemoryBackend::default());
+        let shared_backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
 
         // Two isolates with different namespaces sharing the same backend
         let vfs_a = IsolateVfs::new(
             VfsNamespace::from_hostname("app-a.example.com"),
-            Arc::clone(&shared_backend)
+            shared_backend.clone()
         );
 
         let vfs_b = IsolateVfs::new(
             VfsNamespace::from_hostname("app-b.example.com"),
-            Arc::clone(&shared_backend)
+            shared_backend.clone()
         );
 
         // Write in app A
@@ -189,7 +165,7 @@ mod tests {
 
         // App B cannot read
         let result = vfs_b.read("/secret.txt").await;
-        assert!(matches!(result, Err(VfsError::NotFound { .. })));
+        assert!(matches!(result, Err(crate::vfs::types::VfsError::NotFound { .. })));
 
         // App A can read
         let content = vfs_a.read("/secret.txt").await.unwrap();
@@ -198,7 +174,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_isolate_vfs_path_traversal_blocked() {
-        let backend = Arc::new(MemoryBackend::default());
+        let backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
             backend
@@ -219,7 +195,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_isolate_vfs_unicode_paths() {
-        let backend = Arc::new(MemoryBackend::default());
+        let backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
             backend

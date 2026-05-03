@@ -27,6 +27,7 @@ use crate::http::{NanoHeaders, NanoResponse};
 use crate::http::v8_bridge::serialize_request_to_json;
 use crate::runtime::HandlerContext;
 use crate::v8::initialize_platform;
+use base64::Engine;
 use crate::vfs::{BackendFactory, IsolateVfs, MemoryBackend, VfsBackend, VfsNamespace};
 use crate::config::{VfsBackendType, VfsDiskConfig};
 use crate::worker::HandlerTask;
@@ -177,7 +178,7 @@ impl EntrypointWorkerPool {
     ///
     /// A new `EntrypointWorkerPool` with workers ready to receive tasks
     pub fn new(hostname: &str, worker_count: usize) -> Self {
-        Self::with_backend(hostname, worker_count, Arc::new(MemoryBackend::new()))
+        Self::with_backend(hostname, worker_count, crate::vfs::VfsBackendEnum::memory(MemoryBackend::new()))
     }
 
     /// Create a new worker pool with a custom VFS backend
@@ -191,7 +192,7 @@ impl EntrypointWorkerPool {
     /// # Returns
     ///
     /// A new `EntrypointWorkerPool` with workers ready to receive tasks
-    pub fn with_backend(hostname: &str, worker_count: usize, vfs_backend: Arc<dyn VfsBackend>) -> Self {
+    pub fn with_backend(hostname: &str, worker_count: usize, vfs_backend: crate::vfs::VfsBackendEnum) -> Self {
         let mut workers = Vec::with_capacity(worker_count);
         let channel_capacity = 256; // POOL-02 requirement
         let hostname_owned = hostname.to_string();
@@ -201,7 +202,7 @@ impl EntrypointWorkerPool {
             let (task_tx, task_rx) = sync_channel::<HandlerTask>(channel_capacity);
 
             // Clone VFS backend for this worker
-            let worker_vfs_backend = Arc::clone(&vfs_backend);
+            let worker_vfs_backend = vfs_backend.clone();
 
             // Spawn worker thread with V8 execution
             let hostname_thread = hostname_owned.clone();
@@ -796,7 +797,7 @@ fn execute_with_context_manager(
             // Set body if present (as base64 string)
             if let Some(body) = handler_ctx.request.body() {
                 let body_key = v8::String::new(context_scope, "body").unwrap();
-                let base64_body = base64::encode(body);
+                let base64_body = base64::engine::general_purpose::STANDARD.encode(body);
                 let body_val = v8::String::new(context_scope, &base64_body).unwrap();
                 let _ = init_obj.set(context_scope, body_key.into(), body_val.into());
             }

@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
+use base64::Engine;
 use std::fs;
 
 /// Thread-local storage for the worker thread's Tokio runtime handle
@@ -270,7 +271,7 @@ fn execute_handler_code(
     // Set body if present (base64 encoded for proper handling in JS)
     if let Some(body) = handler_ctx.request.body() {
         let body_key = v8::String::new(scope, "body").unwrap();
-        let base64_body = base64::encode(body);
+        let base64_body = base64::engine::general_purpose::STANDARD.encode(body);
         let body_val = v8::String::new(scope, &base64_body).unwrap();
         options_obj.set(scope, body_key.into(), body_val.into());
     }
@@ -412,7 +413,7 @@ fn execute_handler_in_context(
             // Set body if present (base64 encoded for proper handling in JS)
             if let Some(body) = handler_ctx.request.body() {
                 let body_key = v8::String::new(context_scope, "body").unwrap();
-                let base64_body = base64::encode(body);
+        let base64_body = base64::engine::general_purpose::STANDARD.encode(body);
                 let body_val = v8::String::new(context_scope, &base64_body).unwrap();
                 options_obj.set(context_scope, body_key.into(), body_val.into());
             }
@@ -646,7 +647,7 @@ pub struct WorkerPool {
     /// Round-robin counter for dispatch
     next_worker: AtomicUsize,
     /// Shared VFS backend for all workers in this pool
-    vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
+    vfs_backend: crate::vfs::VfsBackendEnum,
     /// Memory limit per isolate in MB
     memory_limit_mb: u32,
 }
@@ -686,7 +687,7 @@ impl WorkerPool {
     ///
     /// Panics if the V8 platform is not initialized
     pub fn new(hostname: String, worker_count: usize, memory_limit_mb: u32) -> Self {
-        Self::with_backend(hostname, worker_count, memory_limit_mb, Arc::new(MemoryBackend::default()))
+        Self::with_backend(hostname, worker_count, memory_limit_mb, crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()))
     }
 
     /// Create a new worker pool with a specific VFS backend
@@ -712,7 +713,7 @@ impl WorkerPool {
         hostname: String,
         worker_count: usize,
         memory_limit_mb: u32,
-        vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
+        vfs_backend: crate::vfs::VfsBackendEnum,
     ) -> Self {
         // Ensure platform is initialized
         if !crate::v8::is_initialized() {
@@ -723,13 +724,13 @@ impl WorkerPool {
 
         // Clone hostname for use in closures (original kept for final logging)
         let hostname_for_workers = hostname.clone();
-        let vfs_backend_for_workers = Arc::clone(&vfs_backend);
+        let vfs_backend_for_workers = vfs_backend.clone();
 
         let mut workers = Vec::with_capacity(worker_count);
 
         for id in 0..worker_count {
             let worker_hostname = hostname_for_workers.clone();
-            let worker_vfs_backend = Arc::clone(&vfs_backend_for_workers);
+            let worker_vfs_backend = vfs_backend_for_workers.clone();
             let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
 
             // Spawn worker thread with thread-local isolate
@@ -1129,7 +1130,7 @@ impl WorkerPool {
     ///
     /// This is useful for testing and administrative operations
     /// that need to inspect or modify the filesystem.
-    pub fn vfs_backend(&self) -> &Arc<dyn crate::vfs::VfsBackend> {
+    pub fn vfs_backend(&self) -> &crate::vfs::VfsBackendEnum {
         &self.vfs_backend
     }
 
@@ -1269,7 +1270,7 @@ pub struct SliverWorkerPool {
     /// Round-robin counter for dispatch
     next_worker: AtomicUsize,
     /// Shared VFS backend for all workers
-    vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
+    vfs_backend: crate::vfs::VfsBackendEnum,
     /// Unpacked sliver data containing snapshot and VFS entries
     unpacked_sliver: crate::sliver::UnpackedSliver,
     /// Optional temp entrypoint path for VFS-extracted JS files
@@ -1317,7 +1318,7 @@ impl SliverWorkerPool {
             hostname,
             worker_count,
             memory_limit_mb,
-            Arc::new(MemoryBackend::default()),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
             unpacked_sliver,
             None,
         )
@@ -1338,7 +1339,7 @@ impl SliverWorkerPool {
             hostname,
             worker_count,
             memory_limit_mb,
-            Arc::new(MemoryBackend::default()),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
             unpacked_sliver,
             Some(temp_entrypoint),
         )
@@ -1349,7 +1350,7 @@ impl SliverWorkerPool {
         hostname: String,
         worker_count: usize,
         memory_limit_mb: u32,
-        vfs_backend: Arc<dyn crate::vfs::VfsBackend>,
+        vfs_backend: crate::vfs::VfsBackendEnum,
         unpacked_sliver: crate::sliver::UnpackedSliver,
         temp_entrypoint: Option<std::path::PathBuf>,
     ) -> Self {
@@ -1361,7 +1362,7 @@ impl SliverWorkerPool {
         assert!(worker_count > 0, "Worker count must be at least 1");
 
         let hostname_for_workers = hostname.clone();
-        let vfs_backend_for_workers = Arc::clone(&vfs_backend);
+        let vfs_backend_for_workers = vfs_backend.clone();
         let sliver_for_workers = unpacked_sliver.clone();
         let temp_entrypoint_for_workers = temp_entrypoint.clone();
 
@@ -1369,7 +1370,7 @@ impl SliverWorkerPool {
 
         for id in 0..worker_count {
             let worker_hostname = hostname_for_workers.clone();
-            let worker_vfs_backend = Arc::clone(&vfs_backend_for_workers);
+            let worker_vfs_backend = vfs_backend_for_workers.clone();
             let worker_sliver = sliver_for_workers.clone();
             let worker_temp_entrypoint = temp_entrypoint_for_workers.clone();
             let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
@@ -1574,7 +1575,7 @@ impl SliverWorkerPool {
     }
 
     /// Get a reference to the shared VFS backend
-    pub fn vfs_backend(&self) -> &Arc<dyn crate::vfs::VfsBackend> {
+    pub fn vfs_backend(&self) -> &crate::vfs::VfsBackendEnum {
         &self.vfs_backend
     }
 

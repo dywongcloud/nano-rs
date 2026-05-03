@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::config::{VfsBackendType, VfsDiskConfig, VfsS3Config};
 use crate::vfs::types::{ResourceLimits, VfsError, VfsResult};
-use crate::vfs::{DiskBackend, MemoryBackend, VfsBackend};
+use crate::vfs::{DiskBackend, MemoryBackend, VfsBackendEnum};
 
 /// Factory for creating VFS backends
 ///
@@ -31,7 +31,7 @@ impl BackendFactory {
     ///
     /// # Returns
     ///
-    /// `Ok(Arc<dyn VfsBackend>)` on success, `Err(VfsError)` if configuration is invalid
+    /// `Ok(VfsBackendEnum)` on success, `Err(VfsError)` if configuration is invalid
     ///
     /// # Examples
     ///
@@ -54,10 +54,10 @@ impl BackendFactory {
         backend_type: VfsBackendType,
         disk_config: Option<&VfsDiskConfig>,
         s3_config: Option<&VfsS3Config>,
-    ) -> VfsResult<Arc<dyn VfsBackend>> {
+    ) -> VfsResult<VfsBackendEnum> {
         match backend_type {
             VfsBackendType::Memory => {
-                Ok(Arc::new(MemoryBackend::default()))
+                Ok(VfsBackendEnum::memory(MemoryBackend::default()))
             }
             VfsBackendType::Disk => {
                 let config = disk_config.ok_or_else(|| {
@@ -68,7 +68,7 @@ impl BackendFactory {
                 })?;
 
                 let backend = DiskBackend::new(&config.base_path).await?;
-                Ok(Arc::new(backend))
+                Ok(VfsBackendEnum::disk(backend))
             }
             VfsBackendType::S3 => {
                 #[cfg(feature = "vfs-s3")]
@@ -91,7 +91,7 @@ impl BackendFactory {
                     };
 
                     let backend = crate::vfs::S3Backend::new(s3_config).await?;
-                    Ok(Arc::new(backend))
+                    Ok(VfsBackendEnum::s3(backend))
                 }
 
                 #[cfg(not(feature = "vfs-s3"))]
@@ -112,10 +112,10 @@ impl BackendFactory {
         disk_config: Option<&VfsDiskConfig>,
         s3_config: Option<&VfsS3Config>,
         limits: ResourceLimits,
-    ) -> VfsResult<Arc<dyn VfsBackend>> {
+    ) -> VfsResult<VfsBackendEnum> {
         match backend_type {
             VfsBackendType::Memory => {
-                Ok(Arc::new(MemoryBackend::with_limits(limits)))
+                Ok(VfsBackendEnum::memory(MemoryBackend::with_limits(limits)))
             }
             VfsBackendType::Disk => {
                 let config = disk_config.ok_or_else(|| {
@@ -126,7 +126,7 @@ impl BackendFactory {
                 })?;
 
                 let backend = DiskBackend::with_limits(&config.base_path, limits).await?;
-                Ok(Arc::new(backend))
+                Ok(VfsBackendEnum::disk(backend))
             }
             VfsBackendType::S3 => {
                 #[cfg(feature = "vfs-s3")]
@@ -149,7 +149,7 @@ impl BackendFactory {
                     };
 
                     let backend = crate::vfs::S3Backend::with_limits(s3_config, limits).await?;
-                    Ok(Arc::new(backend))
+                    Ok(VfsBackendEnum::s3(backend))
                 }
 
                 #[cfg(not(feature = "vfs-s3"))]

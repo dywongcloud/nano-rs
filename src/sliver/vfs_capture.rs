@@ -210,7 +210,7 @@ mod tests {
     async fn test_capture_vfs_empty() {
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default()),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
         );
         
         let capture = capture_vfs(&vfs).await.unwrap();
@@ -220,7 +220,7 @@ mod tests {
     #[tokio::test]
     async fn test_capture_vfs_with_files() {
         // Create a shared backend that we'll use for both VFS operations
-        let shared_backend = Arc::new(MemoryBackend::default());
+        let shared_backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
             shared_backend.clone(),

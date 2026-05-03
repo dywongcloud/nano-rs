@@ -42,7 +42,7 @@ use crate::vfs::{IsolateVfs, VfsError};
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let vfs = IsolateVfs::new(
 ///     VfsNamespace::from_hostname("example.com"),
-///     Arc::new(MemoryBackend::default())
+///     crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
 /// );
 ///
 /// let count = load_directory_to_vfs(&vfs, "./dist", "/dist").await?;
@@ -218,7 +218,7 @@ mod tests {
         // Create VFS
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default())
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
         );
         
         // Load directory
@@ -259,7 +259,7 @@ mod tests {
         // Create VFS
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default())
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
         );
         
         // Load directory
@@ -291,7 +291,7 @@ mod tests {
         // Create VFS
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default())
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
         );
         
         // Load empty directory
@@ -307,7 +307,7 @@ mod tests {
         // Create VFS
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default())
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
         );
         
         // Try to load non-existent directory
@@ -335,7 +335,7 @@ mod tests {
         // Create VFS
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default())
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
         );
         
         // Load single file
@@ -355,7 +355,7 @@ mod tests {
         // Create VFS
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default())
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
         );
         
         // Try to load non-existent file
@@ -386,7 +386,7 @@ mod tests {
         // Create VFS
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default())
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
         );
         
         // Measure loading time

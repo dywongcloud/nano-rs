@@ -116,7 +116,7 @@ mod tests {
         let unpacked = unpack_sliver(&archive).unwrap();
 
         // Create target VFS
-        let backend = Arc::new(MemoryBackend::default());
+        let backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
         let vfs = IsolateVfs::new(VfsNamespace::from_hostname("target"), backend.clone());
 
         // Restore
@@ -142,7 +142,7 @@ mod tests {
         let archive = pack_sliver(&metadata, &heap_data, Some(&vfs_entries)).unwrap();
         let unpacked = unpack_sliver(&archive).unwrap();
 
-        let backend = Arc::new(MemoryBackend::default());
+        let backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
         let vfs = IsolateVfs::new(VfsNamespace::from_hostname("target"), backend);
 
         // Restore

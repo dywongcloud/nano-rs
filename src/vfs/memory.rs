@@ -464,12 +464,12 @@ mod tests {
     async fn test_memory_backend_concurrent_writes() {
         use std::sync::Arc;
 
-        let backend = Arc::new(MemoryBackend::default());
+        let backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
         let mut handles = vec![];
 
         // Spawn 10 concurrent writes
         for i in 0..10 {
-            let backend = Arc::clone(&backend);
+            let backend = backend.clone();
             let handle = tokio::spawn(async move {
                 let path = VfsPath::new(&format!("file{}.txt", i)).unwrap();
                 backend.write(&path, &[i as u8; 100]).await.unwrap();

@@ -96,7 +96,7 @@ impl NanoIsolate {
         // Create default VFS with empty namespace
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("default"),
-            Arc::new(MemoryBackend::default()),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
         );
         Self::new_with_vfs(vfs)
     }
@@ -326,7 +326,7 @@ impl NanoIsolate {
         // Create default VFS
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("snapshot"),
-            Arc::new(MemoryBackend::default()),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
         );
         Self::snapshot_creator_with_vfs(vfs)
     }
@@ -449,10 +449,8 @@ impl NanoIsolate {
             callback(current_limit, initial_limit)
         }
 
-        unsafe {
-            self.isolate
-                .add_near_heap_limit_callback(trampoline, raw as *mut _);
-        }
+        self.isolate
+            .add_near_heap_limit_callback(trampoline, raw as *mut _);
     }
 
     /// Get the sentinel as a reference (for testing/debugging)
@@ -555,7 +553,7 @@ mod tests {
         // Create isolate with custom VFS namespace
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::new(MemoryBackend::default()),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
         );
         let mut isolate = NanoIsolate::new_with_vfs(vfs).expect("Failed to create isolate");
 

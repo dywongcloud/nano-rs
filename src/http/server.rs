@@ -219,7 +219,10 @@ pub fn create_app_with_shutdown(state: Arc<AppStateWithShutdown>) -> Router {
         }))
         // Middleware stack (applied in reverse order)
         .layer(TraceLayer::new_for_http())
-        .layer(TimeoutLayer::new(Duration::from_secs(30)))
+        .layer(TimeoutLayer::with_status_code(
+            axum::http::StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(30),
+        ))
         .layer(CompressionLayer::new())
         .with_state(state)
 }
@@ -555,7 +558,10 @@ pub async fn start_server_with_sliver_pool(
             move |req| sliver_js_handler(axum::extract::State(state), req)
         }))
         .layer(TraceLayer::new_for_http())
-        .layer(TimeoutLayer::new(Duration::from_secs(30)))
+        .layer(TimeoutLayer::with_status_code(
+            axum::http::StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(30),
+        ))
         .layer(CompressionLayer::new());
 
     axum::serve(listener, app)
@@ -641,7 +647,7 @@ pub async fn start_server_with_config(
                     // This loads all files into memory at startup for fast serving
                     let vfs = IsolateVfs::new(
                         VfsNamespace::from_hostname(&app.hostname),
-                        Arc::new(MemoryBackend::default()),
+                        crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
                     );
                     
                     // Load directory contents into VFS

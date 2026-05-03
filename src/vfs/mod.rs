@@ -80,20 +80,207 @@ pub trait VfsBackend: Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
+/// Enum-based VFS backend wrapper
+///
+/// This enum wraps the concrete backend types to avoid using `dyn VfsBackend`,
+/// which has dyn compatibility issues with async methods in certain compilation
+/// environments (e.g., cross-compilation with cargo-zigbuild).
+///
+/// Using this enum provides:
+/// - Static dispatch (faster than dyn)
+/// - No dyn compatibility issues
+/// - Type safety at compile time
+#[derive(Clone, Debug)]
+pub enum VfsBackendEnum {
+    Memory(Arc<MemoryBackend>),
+    Disk(Arc<DiskBackend>),
+    #[cfg(feature = "vfs-s3")]
+    S3(Arc<S3Backend>),
+}
+
+impl VfsBackendEnum {
+    /// Create a new MemoryBackend variant
+    pub fn memory(backend: MemoryBackend) -> Self {
+        Self::Memory(Arc::new(backend))
+    }
+
+    /// Create a new DiskBackend variant
+    pub fn disk(backend: DiskBackend) -> Self {
+        Self::Disk(Arc::new(backend))
+    }
+
+    /// Create a new S3Backend variant (requires vfs-s3 feature)
+    #[cfg(feature = "vfs-s3")]
+    pub fn s3(backend: S3Backend) -> Self {
+        Self::S3(Arc::new(backend))
+    }
+
+    /// Get a reference to the Any trait for downcasting
+    pub fn as_any(&self) -> &dyn std::any::Any {
+        match self {
+            Self::Memory(backend) => backend.as_any(),
+            Self::Disk(backend) => backend.as_any(),
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.as_any(),
+        }
+    }
+
+    /// Read file content at the given path
+    pub async fn read(&self, path: &VfsPath) -> VfsResult<Vec<u8>> {
+        match self {
+            Self::Memory(backend) => backend.read(path).await,
+            Self::Disk(backend) => backend.read(path).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.read(path).await,
+        }
+    }
+
+    /// Write file content at the given path
+    pub async fn write(&self, path: &VfsPath, content: &[u8]) -> VfsResult<()> {
+        match self {
+            Self::Memory(backend) => backend.write(path, content).await,
+            Self::Disk(backend) => backend.write(path, content).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.write(path, content).await,
+        }
+    }
+
+    /// Check if a file exists at the given path
+    pub async fn exists(&self, path: &VfsPath) -> VfsResult<bool> {
+        match self {
+            Self::Memory(backend) => backend.exists(path).await,
+            Self::Disk(backend) => backend.exists(path).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.exists(path).await,
+        }
+    }
+
+    /// Delete a file at the given path
+    pub async fn delete(&self, path: &VfsPath) -> VfsResult<()> {
+        match self {
+            Self::Memory(backend) => backend.delete(path).await,
+            Self::Disk(backend) => backend.delete(path).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.delete(path).await,
+        }
+    }
+
+    /// Get file metadata
+    pub async fn metadata(&self, path: &VfsPath) -> VfsResult<VfsFile> {
+        match self {
+            Self::Memory(backend) => backend.metadata(path).await,
+            Self::Disk(backend) => backend.metadata(path).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.metadata(path).await,
+        }
+    }
+
+    /// List directory entries at the given path
+    pub async fn list_dir(&self, path: &VfsPath) -> VfsResult<Vec<VfsPath>> {
+        match self {
+            Self::Memory(backend) => backend.list_dir(path).await,
+            Self::Disk(backend) => backend.list_dir(path).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.list_dir(path).await,
+        }
+    }
+
+    /// Get the number of files stored (only for MemoryBackend)
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Memory(backend) => backend.len(),
+            Self::Disk(_) => 0, // DiskBackend doesn't have a direct len() method
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(_) => 0, // S3Backend doesn't have a direct len() method
+        }
+    }
+
+    /// Check if no files are stored (only for MemoryBackend)
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+#[async_trait]
+impl VfsBackend for VfsBackendEnum {
+    async fn read(&self, path: &VfsPath) -> VfsResult<Vec<u8>> {
+        match self {
+            Self::Memory(backend) => backend.read(path).await,
+            Self::Disk(backend) => backend.read(path).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.read(path).await,
+        }
+    }
+
+    async fn write(&self, path: &VfsPath, content: &[u8]) -> VfsResult<()> {
+        match self {
+            Self::Memory(backend) => backend.write(path, content).await,
+            Self::Disk(backend) => backend.write(path, content).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.write(path, content).await,
+        }
+    }
+
+    async fn exists(&self, path: &VfsPath) -> VfsResult<bool> {
+        match self {
+            Self::Memory(backend) => backend.exists(path).await,
+            Self::Disk(backend) => backend.exists(path).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.exists(path).await,
+        }
+    }
+
+    async fn delete(&self, path: &VfsPath) -> VfsResult<()> {
+        match self {
+            Self::Memory(backend) => backend.delete(path).await,
+            Self::Disk(backend) => backend.delete(path).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.delete(path).await,
+        }
+    }
+
+    async fn metadata(&self, path: &VfsPath) -> VfsResult<VfsFile> {
+        match self {
+            Self::Memory(backend) => backend.metadata(path).await,
+            Self::Disk(backend) => backend.metadata(path).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.metadata(path).await,
+        }
+    }
+
+    async fn list_dir(&self, path: &VfsPath) -> VfsResult<Vec<VfsPath>> {
+        match self {
+            Self::Memory(backend) => backend.list_dir(path).await,
+            Self::Disk(backend) => backend.list_dir(path).await,
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.list_dir(path).await,
+        }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        match self {
+            Self::Memory(backend) => backend.as_any(),
+            Self::Disk(backend) => backend.as_any(),
+            #[cfg(feature = "vfs-s3")]
+            Self::S3(backend) => backend.as_any(),
+        }
+    }
+}
+
 /// User-facing filesystem API
 ///
 /// Wraps a backend and provides path normalization plus optional
 /// namespace isolation. This is the primary interface for filesystem
 /// operations within an isolate.
 pub struct FileSystem {
-    backend: Arc<dyn VfsBackend>,
+    backend: VfsBackendEnum,
     namespace: Option<String>,
     validator: PathValidator,
 }
 
 impl FileSystem {
     /// Create a new FileSystem with the given backend
-    pub fn new(backend: Arc<dyn VfsBackend>) -> Self {
+    pub fn new(backend: VfsBackendEnum) -> Self {
         Self {
             backend,
             namespace: None,
@@ -102,7 +289,7 @@ impl FileSystem {
     }
 
     /// Create a new FileSystem with a namespace prefix
-    pub fn with_namespace(backend: Arc<dyn VfsBackend>, namespace: impl Into<String>) -> Self {
+    pub fn with_namespace(backend: VfsBackendEnum, namespace: impl Into<String>) -> Self {
         Self {
             backend,
             namespace: Some(namespace.into()),
@@ -152,7 +339,7 @@ impl FileSystem {
     }
 
     /// Get the backend reference
-    pub fn backend(&self) -> &Arc<dyn VfsBackend> {
+    pub fn backend(&self) -> &VfsBackendEnum {
         &self.backend
     }
 
@@ -359,7 +546,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_filesystem_basic() {
-        let backend = Arc::new(memory::MemoryBackend::default());
+        let backend = VfsBackendEnum::memory(memory::MemoryBackend::default());
         let fs = FileSystem::new(backend);
 
         // Write and read back
@@ -370,20 +557,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_filesystem_with_namespace() {
-        let backend = Arc::new(memory::MemoryBackend::default());
+        let backend = VfsBackendEnum::memory(memory::MemoryBackend::default());
         let fs = FileSystem::with_namespace(backend, "app1");
 
         fs.write("test.txt", b"namespaced").await.unwrap();
         assert!(fs.exists("test.txt").await.unwrap());
 
         // Same backend, different namespace - should not see the file
-        let fs2 = FileSystem::with_namespace(Arc::clone(fs.backend()), "app2");
+        let fs2 = FileSystem::with_namespace(fs.backend().clone(), "app2");
         assert!(!fs2.exists("test.txt").await.unwrap());
     }
 
     #[tokio::test]
     async fn test_filesystem_traversal_blocked() {
-        let backend = Arc::new(memory::MemoryBackend::default());
+        let backend = VfsBackendEnum::memory(memory::MemoryBackend::default());
         let fs = FileSystem::new(backend);
 
         let result = fs.read("../etc/passwd").await;
