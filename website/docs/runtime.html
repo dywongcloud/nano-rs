@@ -4,18 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Runtime - NANO Documentation</title>
-    <meta name="description" content="NANO runtime architecture and configuration documentation.">
+    <meta name="description" content="NANO runtime architecture, resource limits, and production configuration.">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>body { font-family: 'Inter', sans-serif; } code, pre { font-family: 'JetBrains Mono', monospace; }</style>
 </head>
 <body class="bg-slate-950 text-slate-200">
-    <!-- Navigation -->
     <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
                 <a href="../index.html" class="flex items-center gap-2 text-white font-bold text-xl">
-                    <span class="text-blue-500 text-2xl">&#9670;</span>
+                    <span class="text-blue-500 text-2xl">◆</span>
                     NANO
                 </a>
                 <div class="hidden md:flex items-center gap-8">
@@ -32,89 +31,229 @@
         </div>
     </nav>
 
-    <!-- Main Content -->
     <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
         <div class="max-w-4xl mx-auto">
-            <h1 class="text-4xl font-bold text-white mb-4">Runtime</h1>
-            <p class="text-lg text-slate-400 mb-8">Understanding NANO runtime configuration and behavior</p>
+            <h1 class="text-4xl font-bold text-white mb-4">Runtime Configuration</h1>
+            <p class="text-lg text-slate-400 mb-8">Resource limits, monitoring, and production deployment settings</p>
 
-            <!-- Configuration -->
-            <section class="mb-10">
-                <h2 class="text-2xl font-semibold text-white mb-4">Configuration</h2>
-                <p class="text-slate-400 mb-4">NANO uses JSON configuration files to define the runtime behavior.</p>
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Configuration File</h2>
+                <p class="text-slate-400 mb-4">NANO uses JSON configuration to define apps, resource limits, and runtime behavior.</p>
                 
                 <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
-                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">nano.json</div>
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">config.json</div>
                     <div class="p-4 overflow-x-auto">
                         <pre class="text-sm text-slate-300">{
-  "port": 8080,
-  "workers": 4,
+  "server": {
+    "port": 8080,
+    "host": "0.0.0.0"
+  },
   "apps": [
     {
-      "name": "my-app",
-      "entry": "app.js",
-      "domain": "app.example.com"
+      "hostname": "api.example.com",
+      "entrypoint": "./app.js",
+      "limits": {
+        "workers": 4,
+        "memory_mb": 128,
+        "timeout_secs": 30,
+        "cpu_ms": 50
+      }
     }
-  ],
+  ]
+}</pre>
+                    </div>
+                </div>
+            </section>
+
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">CPU Time Limits</h2>
+                <p class="text-slate-400 mb-4">Per-request CPU limits prevent infinite loops and resource exhaustion. Timer-based termination ensures clean shutdown without V8 corruption.</p>
+                
+                <div class="bg-slate-800/50 rounded-lg p-6 mb-4">
+                    <h3 class="text-lg font-semibold text-white mb-2">Configuration</h3>
+                    <pre class="text-sm text-slate-300">{
+  "limits": {
+    "cpu_ms": 50
+  }
+}</pre>
+                </div>
+                
+                <div class="space-y-4">
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                        <h4 class="text-lg font-semibold text-white mb-2">Timer-Based Termination</h4>
+                        <p class="text-slate-400 text-sm mb-2">Uses timer_create() on Linux and getrusage() on macOS to track per-thread CPU time. Termination signals originate from the main thread to avoid V8 signal handler limitations.</p>
+                        <ul class="text-sm text-slate-400 list-disc list-inside">
+                            <li>Default: 50ms per request (matches Cloudflare Workers)</li>
+                            <li>Configurable per-app</li>
+                            <li>Clean termination without isolate corruption</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Memory Management</h2>
+                <p class="text-slate-400 mb-4">Per-isolate memory limits with 4-tier pressure monitoring and LRU eviction prevent OOM conditions.</p>
+                
+                <div class="bg-slate-800/50 rounded-lg p-6 mb-4">
+                    <h3 class="text-lg font-semibold text-white mb-2">Configuration</h3>
+                    <pre class="text-sm text-slate-300">{
+  "limits": {
+    "memory_mb": 128
+  }
+}</pre>
+                </div>
+
+                <div class="grid md:grid-cols-2 gap-4 mb-4">
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                        <h4 class="font-semibold text-white mb-2">Memory Pressure Levels</h4>
+                        <ul class="text-sm text-slate-400 space-y-2">
+                            <li><span class="text-green-400">Normal</span> - Below 70% usage</li>
+                            <li><span class="text-yellow-400">Warning</span> - 70-85% usage</li>
+                            <li><span class="text-orange-400">Critical</span> - 85-95% usage</li>
+                            <li><span class="text-red-400">Emergency</span> - Above 95% usage</li>
+                        </ul>
+                    </div>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                        <h4 class="font-semibold text-white mb-2">Eviction Strategies</h4>
+                        <ul class="text-sm text-slate-400 space-y-2">
+                            <li><strong>Soft Eviction</strong> - Allows current requests to complete</li>
+                            <li><strong>LRU Eviction</strong> - Prefer stateless isolates</li>
+                            <li><strong>Emergency</strong> - Immediate termination</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Per-Tenant Metrics</h2>
+                <p class="text-slate-400 mb-4">Automatic metrics collection per hostname with Prometheus exposition format at the /_admin/metrics endpoint.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">GET /_admin/metrics</div>
+                    <div class="p-4 overflow-x-auto">
+                        <pre class="text-sm text-slate-300"># HELP nano_requests_total Total HTTP requests
+# TYPE nano_requests_total counter
+nano_requests_total{hostname="api.example.com",status="200"} 1423
+
+# HELP nano_request_duration_ms Request latency
+# TYPE nano_request_duration_ms histogram
+nano_request_duration_ms_bucket{hostname="api.example.com",le="10"} 892
+
+# HELP nano_cpu_time_ms CPU time per request
+# TYPE nano_cpu_time_ms histogram
+nano_cpu_time_ms_bucket{hostname="api.example.com",le="50"} 1387
+
+# HELP nano_memory_bytes Memory usage per isolate
+# TYPE nano_memory_bytes gauge
+nano_memory_bytes{hostname="api.example.com",isolate="iso-1"} 16777216</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold text-white mb-2">Collected Metrics</h3>
+                    <ul class="text-sm text-slate-400 space-y-1">
+                        <li>Request counts by hostname and status code</li>
+                        <li>Latency histograms (p50, p95, p99)</li>
+                        <li>CPU time per request</li>
+                        <li>Memory usage per isolate</li>
+                        <li>Context reset counts</li>
+                        <li>Active isolates count</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">WebAssembly Support</h2>
+                <p class="text-slate-400 mb-4">V8 built-in WASM engine for executing binary modules in isolates. No external dependencies required.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">JavaScript Usage</div>
+                    <div class="p-4 overflow-x-auto">
+                        <pre class="text-sm text-slate-300">const wasmModule = await WebAssembly.compile(wasmBytes);
+const instance = await WebAssembly.instantiate(wasmModule, {
+  env: { memory: new WebAssembly.Memory({ initial: 1 }) }
+});
+const result = instance.exports.add(1, 2);</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold text-white mb-2">Features</h3>
+                    <ul class="text-sm text-slate-400 space-y-1">
+                        <li>Module compilation and instantiation</li>
+                        <li>Memory and table imports/exports</li>
+                        <li>Source hash caching for integrity</li>
+                        <li>Magic number and version validation</li>
+                        <li>Sliver integration for portable WASM apps</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Worker Pool</h2>
+                <p class="text-slate-400 mb-4">Per-app worker pools handle requests with configurable size and bounded queues.</p>
+                
+                <div class="bg-slate-800/50 rounded-lg p-6 mb-4">
+                    <h3 class="text-lg font-semibold text-white mb-2">Configuration</h3>
+                    <pre class="text-sm text-slate-300">{
+  "limits": {
+    "workers": 4
+  }
+}</pre>
+                </div>
+                
+                <p class="text-slate-400">Each worker maintains a thread-local isolate with 256-slot bounded channels for backpressure. Context reset between requests provides isolation with ~5ms overhead.</p>
+            </section>
+
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Performance Tuning</h2>
+                
+                <div class="space-y-4">
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                        <h3 class="text-lg font-semibold text-white mb-2">Sliver Caching</h3>
+                        <pre class="text-sm text-slate-300 mb-2">{
   "slivers": {
     "enabled": true,
     "cache_size": 100
   }
 }</pre>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Worker Pool -->
-            <section class="mb-10">
-                <h2 class="text-2xl font-semibold text-white mb-4">Worker Pool</h2>
-                <p class="text-slate-400 mb-4">NANO uses a worker pool to handle incoming requests efficiently.</p>
-                
-                <div class="bg-slate-800/50 rounded-lg p-6 mb-4">
-                    <h3 class="text-lg font-semibold text-white mb-2">Configuration</h3>
-                    <pre class="text-sm text-slate-300">{
-  "workers": 4,        // Number of worker threads
-  "queue_size": 1000,  // Max queue size for pending requests
-  "timeout": 30000     // Request timeout in milliseconds
-}</pre>
-                </div>
-                
-                <p class="text-slate-400">Each worker maintains a thread-local isolate for fast context switching between requests.</p>
-            </section>
-
-            <!-- Performance -->
-            <section class="mb-10">
-                <h2 class="text-2xl font-semibold text-white mb-4">Performance Tuning</h2>
-                
-                <div class="space-y-4">
-                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
-                        <h3 class="text-lg font-semibold text-white mb-2">Memory</h3>
-                        <p class="text-slate-400 text-sm mb-2">Configure heap limits and memory pooling.</p>
-                        <pre class="text-sm text-slate-300">{
-  "memory": {
-    "heap_limit": 128,      // MB per isolate
-    "pool_size": 10,        // Pre-warmed isolates
-    "gc_threshold": 0.8     // Trigger GC at 80% usage
-  }
-}</pre>
+                        <p class="text-slate-400 text-sm">Enable sliver caching for faster cold starts on frequently accessed apps.</p>
                     </div>
                     
                     <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
-                        <h3 class="text-lg font-semibold text-white mb-2">Slivers</h3>
-                        <p class="text-slate-400 text-sm mb-2">Enable and configure sliver snapshots for cold starts.</p>
-                        <pre class="text-sm text-slate-300">{
-  "slivers": {
-    "enabled": true,
-    "cache_size": 100,      // Max slivers to cache
-    "compression": "lz4",   // Compression algorithm
-    "auto_create": true    // Auto-create slivers on deploy
+                        <h3 class="text-lg font-semibold text-white mb-2">Timeout Configuration</h3>
+                        <pre class="text-sm text-slate-300 mb-2">{
+  "limits": {
+    "timeout_secs": 30
   }
 }</pre>
+                        <p class="text-slate-400 text-sm">Request timeout in seconds. Requests exceeding this limit are terminated.</p>
                     </div>
                 </div>
             </section>
 
-            <!-- Navigation -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Admin API</h2>
+                <p class="text-slate-400 mb-4">Optional administrative endpoints for monitoring and management.</p>
+                
+                <div class="bg-slate-800/50 rounded-lg p-6">
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left py-2 text-white">Endpoint</th>
+                                <th class="text-left py-2 text-white">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-slate-400">
+                            <tr><td class="py-2 font-mono text-blue-400">GET /_admin/metrics</td><td>Prometheus metrics</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">GET /_admin/health</td><td>Health check</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">GET /_admin/isolates</td><td>Isolate status</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
             <div class="flex justify-between items-center mt-12">
                 <a href="cli.html" class="text-slate-400 hover:text-white transition">&larr; CLI</a>
                 <a href="architecture.html" class="text-slate-400 hover:text-white transition">Architecture &rarr;</a>

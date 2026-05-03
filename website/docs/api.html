@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>API Reference - NANO Documentation</title>
+    <meta name="description" content="Complete API documentation for NANO runtime including WinterTC APIs, WebCrypto, WebAssembly, and Node.js polyfills.">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>body { font-family: 'Inter', sans-serif; } code, pre { font-family: 'JetBrains Mono', monospace; }</style>
@@ -13,7 +14,7 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
                 <a href="../index.html" class="flex items-center gap-2 text-white font-bold text-xl">
-                    <span class="text-blue-500 text-2xl">&#9670;</span>
+                    <span class="text-blue-500 text-2xl">◆</span>
                     NANO
                 </a>
                 <div class="hidden md:flex items-center gap-8">
@@ -35,10 +36,9 @@
             <h1 class="text-4xl font-bold text-white mb-4">API Reference</h1>
             <p class="text-lg text-slate-400 mb-8">Complete API documentation for NANO runtime</p>
 
-            <!-- WinterTC APIs -->
             <section class="mb-12">
                 <h2 class="text-2xl font-semibold text-white mb-4"><a href="https://wintertc.org/" class="hover:text-blue-400 transition" target="_blank">WinterTC</a> APIs</h2>
-                <p class="text-slate-400 mb-4">NANO implements the <a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a> (Web-interoperable Runtimes Community Group) standard for edge runtimes. Unlike Node.js, WinterTC uses web-standard APIs like fetch, Request, and Response.</p>
+                <p class="text-slate-400 mb-4">NANO implements the <a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a> standard for edge runtimes. Unlike Node.js, WinterTC uses web-standard APIs like fetch, Request, and Response.</p>
                 
                 <div class="bg-slate-900 rounded-lg border border-slate-800 overflow-hidden">
                     <table class="w-full text-sm">
@@ -53,48 +53,213 @@
                             <tr>
                                 <td class="px-4 py-3 text-blue-400 font-mono">fetch()</td>
                                 <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">HTTP client with request/response</td>
+                                <td class="px-4 py-3 text-slate-400">HTTP client with streaming</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 text-blue-400 font-mono">Request</td>
                                 <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">HTTP request object</td>
+                                <td class="px-4 py-3 text-slate-400">HTTP request constructor with body</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 text-blue-400 font-mono">Response</td>
                                 <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">HTTP response object</td>
+                                <td class="px-4 py-3 text-slate-400">HTTP response constructor</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 text-blue-400 font-mono">Headers</td>
                                 <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">HTTP headers map</td>
+                                <td class="px-4 py-3 text-slate-400">Case-insensitive header map</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 text-blue-400 font-mono">URL</td>
                                 <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">URL parsing</td>
+                                <td class="px-4 py-3 text-slate-400">URL parsing with all properties</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">URLSearchParams</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">Query string manipulation</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">TextEncoder</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">UTF-8 encoding to Uint8Array</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">TextDecoder</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">UTF-8 decoding from Uint8Array</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">ReadableStream</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">Streaming data interface</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">WritableStream</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">Output streaming with backpressure</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 text-blue-400 font-mono">console</td>
                                 <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
-                                <td class="px-4 py-3 text-slate-400">log, error, warn</td>
+                                <td class="px-4 py-3 text-slate-400">log, error, warn, info, debug</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-blue-400 font-mono">setTimeout/setInterval</td>
+                                <td class="px-4 py-3"><span class="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded">Full</span></td>
+                                <td class="px-4 py-3 text-slate-400">Timer functions with clearing</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             </section>
 
-            <!-- Continue to other API sections... -->
-            
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">WebAssembly</h2>
+                <p class="text-slate-400 mb-4">V8 built-in WASM engine for executing binary modules in isolates.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Module Compilation</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">const wasmBytes = await fetch('/module.wasm').then(r => r.arrayBuffer());
+const wasmModule = await WebAssembly.compile(wasmBytes);</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Instantiation with Memory</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">const memory = new WebAssembly.Memory({ initial: 1 });
+const instance = await WebAssembly.instantiate(wasmModule, {
+  env: { memory }
+});
+
+const result = instance.exports.add(1, 2);</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold text-white mb-3">WebAssembly API</h3>
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left py-2 text-white">Method</th>
+                                <th class="text-left py-2 text-white">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-slate-400">
+                            <tr><td class="py-2 font-mono text-blue-400">WebAssembly.compile()</td><td>Compile bytes into a module</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">WebAssembly.instantiate()</td><td>Create an instance with imports</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">WebAssembly.Module</td><td>Compiled module class</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">WebAssembly.Instance</td><td>Runtime instance class</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">WebAssembly.Memory</td><td>Linear memory management</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">WebAssembly.Table</td><td>Function reference table</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">WebCrypto</h2>
+                <p class="text-slate-400 mb-4">Full crypto.subtle implementation via Rust crypto crates.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Hashing</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">const data = new TextEncoder().encode('hello');
+const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+const hashArray = Array.from(new Uint8Array(hashBuffer));
+const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">AES-GCM Encryption</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">const key = await crypto.subtle.generateKey(
+  { name: 'AES-GCM', length: 256 },
+  true,
+  ['encrypt', 'decrypt']
+);
+
+const iv = crypto.getRandomValues(new Uint8Array(12));
+const encrypted = await crypto.subtle.encrypt(
+  { name: 'AES-GCM', iv },
+  key,
+  data
+);</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold text-white mb-3">Supported Algorithms</h3>
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left py-2 text-white">Algorithm</th>
+                                <th class="text-left py-2 text-white">Operations</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-slate-400">
+                            <tr><td class="py-2">SHA-256, SHA-384, SHA-512</td><td>digest</td></tr>
+                            <tr><td class="py-2">AES-GCM</td><td>encrypt, decrypt, generateKey</td></tr>
+                            <tr><td class="py-2">HMAC</td><td>sign, verify, generateKey</td></tr>
+                            <tr><td class="py-2">PBKDF2</td><td>deriveKey</td></tr>
+                            <tr><td class="py-2">RSA-OAEP, RSA-PSS</td><td>v2.0</td></tr>
+                            <tr><td class="py-2">ECDSA (P-256, P-384)</td><td>v2.0</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Nano.fs (VFS)</h2>
+                <p class="text-slate-400 mb-4">Virtual File System API for per-isolate filesystem access.</p>
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Reading and Writing</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">// Read file
+const data = await Nano.fs.readFile('/data/config.json', 'utf-8');
+const config = JSON.parse(data);
+
+// Write file
+await Nano.fs.writeFile('/data/output.txt', 'Hello, World!');
+
+// Check existence
+const exists = await Nano.fs.exists('/data/config.json');</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold text-white mb-3">VFS Methods</h3>
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left py-2 text-white">Method</th>
+                                <th class="text-left py-2 text-white">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-slate-400">
+                            <tr><td class="py-2 font-mono text-blue-400">Nano.fs.readFile()</td><td>Read file contents</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">Nano.fs.writeFile()</td><td>Write file contents</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">Nano.fs.exists()</td><td>Check if path exists</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">Nano.fs.readdir()</td><td>List directory contents</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">Nano.fs.mkdir()</td><td>Create directory</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">Nano.fs.unlink()</td><td>Delete file</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
             <div class="mt-12 flex justify-between items-center">
                 <a href="quickstart.html" class="text-slate-400 hover:text-white transition">&larr; Quick Start</a>
-                <a href="slivers.html" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg font-semibold transition">Next: Slivers &rarr;</a>
+                <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers &rarr;</a>
             </div>
         </div>
     </main>
 
-    <!-- Footer -->
     <footer class="bg-slate-900 border-t border-slate-800 py-12">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="text-center text-sm text-slate-500">

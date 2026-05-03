@@ -6,10 +6,8 @@
     <title>NANO - Multi-tenant JavaScript Edge Runtime</title>
     <meta name="description" content="NANO is a multi-tenant JavaScript edge runtime using V8 isolates with sub-millisecond cold starts via sliver snapshots.">
     
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -20,12 +18,11 @@
     </style>
 </head>
 <body class="bg-slate-950 text-slate-200">
-    <!-- Navigation -->
     <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
                 <a href="index.html" class="flex items-center gap-2 text-white font-bold text-xl">
-                    <span class="text-blue-500 text-2xl">&#9670;</span>
+                    <span class="text-blue-500 text-2xl">◆</span>
                     NANO
                 </a>
                 <div class="hidden md:flex items-center gap-8">
@@ -42,7 +39,6 @@
         </div>
     </nav>
 
-    <!-- Hero -->
     <header class="pt-32 pb-20 px-4 sm:px-6 lg:px-8">
         <div class="max-w-7xl mx-auto">
             <div class="max-w-3xl">
@@ -75,7 +71,6 @@
         </div>
     </header>
 
-    <!-- Features -->
     <section id="features" class="py-20 px-4 sm:px-6 lg:px-8 bg-slate-900/50">
         <div class="max-w-7xl mx-auto">
             <div class="text-center mb-16">
@@ -85,27 +80,80 @@
             
             <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-blue-500 transition">
-                    <div class="text-3xl mb-4">&#9889;</div>
+                    <div class="w-12 h-12 bg-blue-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-blue-400 font-mono text-xl">⚡</span>
+                    </div>
                     <h3 class="text-lg font-semibold text-white mb-2">Sub-millisecond Cold Starts</h3>
                     <p class="text-slate-400 text-sm">~267µs cold starts with sliver snapshots. 187x faster than fresh V8 isolates.</p>
                 </div>
                 
                 <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-green-500 transition">
-                    <div class="text-3xl mb-4">&#128274;</div>
+                    <div class="w-12 h-12 bg-green-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-green-400 font-mono text-xl">🔒</span>
+                    </div>
                     <h3 class="text-lg font-semibold text-white mb-2">Multi-tenant Isolation</h3>
-                    <p class="text-slate-400 text-sm">One OS process hosts many isolated apps in separate V8 isolates.</p>
+                    <p class="text-slate-400 text-sm">One OS process hosts many isolated apps in separate V8 isolates with strong per-app boundaries.</p>
                 </div>
                 
                 <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-purple-500 transition">
-                    <div class="text-3xl mb-4">&#127760;</div>
+                    <div class="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-purple-400 font-mono text-xl">W</span>
+                    </div>
                     <h3 class="text-lg font-semibold text-white mb-2"><a href="https://wintertc.org/" class="hover:text-blue-400 transition" target="_blank">WinterTC</a> Compatible</h3>
-                    <p class="text-slate-400 text-sm">Full fetch(), Request, Response, Headers, URL support.</p>
+                    <p class="text-slate-400 text-sm">Full fetch(), Request, Response, Headers, URL, TextEncoder, TextDecoder support per WinterTC spec.</p>
+                </div>
+
+                <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-yellow-500 transition">
+                    <div class="w-12 h-12 bg-yellow-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-yellow-400 font-mono text-xl">⏱</span>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white mb-2">CPU Time Limits</h3>
+                    <p class="text-slate-400 text-sm">Configurable per-request CPU limits with timer-based termination. Prevents infinite loops and resource exhaustion.</p>
+                </div>
+
+                <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-orange-500 transition">
+                    <div class="w-12 h-12 bg-orange-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-orange-400 font-mono text-xl">⚙</span>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white mb-2">Memory Management</h3>
+                    <p class="text-slate-400 text-sm">Per-isolate memory limits with LRU eviction and soft termination. 4-tier pressure monitoring prevents OOM conditions.</p>
+                </div>
+
+                <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-cyan-500 transition">
+                    <div class="w-12 h-12 bg-cyan-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-cyan-400 font-mono text-xl">P</span>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white mb-2">Per-Tenant Metrics</h3>
+                    <p class="text-slate-400 text-sm">Automatic metrics collection per hostname. Prometheus exposition format at /_admin/metrics endpoint.</p>
+                </div>
+
+                <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-pink-500 transition">
+                    <div class="w-12 h-12 bg-pink-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-pink-400 font-mono text-xl">W</span>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white mb-2">WebAssembly Support</h3>
+                    <p class="text-slate-400 text-sm">V8 built-in WASM engine for executing binary modules. Source hash caching for integrity verification.</p>
+                </div>
+
+                <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-indigo-500 transition">
+                    <div class="w-12 h-12 bg-indigo-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-indigo-400 font-mono text-xl">🔐</span>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white mb-2">WebCrypto API</h3>
+                    <p class="text-slate-400 text-sm">Full crypto.subtle implementation: AES-GCM, HMAC, SHA-256/384/512, PBKDF2. JWK key import/export.</p>
+                </div>
+
+                <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-red-500 transition">
+                    <div class="w-12 h-12 bg-red-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-red-400 font-mono text-xl">S</span>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white mb-2">Sliver Snapshots</h3>
+                    <p class="text-slate-400 text-sm">Portable isolate snapshots with VFS state. Deploy once, run anywhere. Tar-based format with integrity validation.</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Quick Start CTA -->
     <section class="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-slate-950 to-slate-900">
         <div class="max-w-4xl mx-auto text-center">
             <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">Get started</h2>
@@ -117,17 +165,16 @@
         </div>
     </section>
 
-    <!-- Footer -->
     <footer class="bg-slate-900 border-t border-slate-800 py-12">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="grid md:grid-cols-4 gap-8 mb-8">
                 <div>
                     <h4 class="text-white font-semibold mb-4">Documentation</h4>
                     <ul class="space-y-2 text-sm text-slate-400">
-                        <li><a href="quickstart.html" class="hover:text-white transition">Quick Start</a></li>
-                        <li><a href="api.html" class="hover:text-white transition">API Reference</a></li>
-                        <li><a href="slivers.html" class="hover:text-white transition">Slivers</a></li>
-                        <li><a href="cli.html" class="hover:text-white transition">CLI</a></li>
+                        <li><a href="docs/quickstart.html" class="hover:text-white transition">Quick Start</a></li>
+                        <li><a href="docs/api.html" class="hover:text-white transition">API Reference</a></li>
+                        <li><a href="docs/slivers.html" class="hover:text-white transition">Slivers</a></li>
+                        <li><a href="docs/cli.html" class="hover:text-white transition">CLI</a></li>
                     </ul>
                 </div>
                 <div>

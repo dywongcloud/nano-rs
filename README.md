@@ -5,38 +5,13 @@ Last Updated: 2026-05-03
 
 ## Executive Summary
 
-NANO is a multi-tenant JavaScript edge runtime using V8 isolates. One OS process hosts multiple isolated apps with:
+NANO is a multi-tenant JavaScript and WASM edge runtime based on V8 isolates. One OS process hosts multiple isolated apps with:
 
 - **~267µs sliver restoration** from snapshot (new isolate ready to serve)
 - **~5ms context reset** between requests (isolation without overhead)
 - **~60ms process boot** time (one-time on server start)
 
 See [Cold Start Guide](docs/COLD_START.md) for detailed performance characteristics.
-
-**Test Status: 92% Overall (Production Ready)**
-
-| Category | Tests | Score | Status |
-|----------|-------|-------|--------|
-| **Core Features (v1.2.4)** | 74 | 100% | ✅ |
-| **New Features (v1.4.2)** | 24 | 67% | ⚠️ Config-dependent |
-| **Security Tests** | 9 | 78% | ✅ Protected |
-| **VFS Security** | 7 | 100% | ✅ |
-| **TOTAL** | **102** | **92%** | ✅ **Production Ready** |
-
-**Core Runtime (v1.2.4): 100% Pass Rate**
-- HTTP Server: 27/27 tests passing
-- CRUD Operations: 6/6 tests passing
-- WebCrypto: All algorithms working
-- Cloudflare Worker: 7/7 tests passing
-- WinterCG APIs: 26/26 tests passing
-
-**New Features (v1.4.2): Working with Configuration**
-- CPU Time Limits: 75% (3/4 tests - prevents resource exhaustion)
-- Adversarial Security: 56% (5/9 tests - 7/9 vectors protected)
-- WASM Runtime: 25% without config, 100% with VFS configured
-- **All core v1.2.4 features work unchanged**
-
-See [Complete Test Report](docs/TEST_REPORT.md) for detailed results.
 
 ## Architecture
 
@@ -50,7 +25,7 @@ See [Complete Test Report](docs/TEST_REPORT.md) for detailed results.
 
 ### Request Flow
 
-1. HTTP request arrives with Host header
+1. HTTP request arrives with a registered Host header
 2. Router matches hostname to app configuration
 3. Request dispatched to app's worker pool
 4. Worker executes handler in V8 isolate context
@@ -58,9 +33,9 @@ See [Complete Test Report](docs/TEST_REPORT.md) for detailed results.
 
 ## Implemented APIs
 
-### WinterCG Minimum Common APIs
+### [WinterTC](https://wintertc.org/) Common APIs
 
-Core WinterCG-compatible APIs are fully implemented and tested.
+Core WinterTC-compatible APIs are fully implemented and tested.
 
 See [API Reference](docs/API.md) for detailed documentation with examples.
 
@@ -80,7 +55,7 @@ See [API Reference](docs/API.md) for detailed documentation with examples.
 
 WebCrypto implementation via Rust crypto crates.
 
-See [API Reference](docs/API.md) for detailed crypto documentation. RSA and ECDSA planned for v2.0.
+See [API Reference](docs/API.md) for detailed crypto documentation.
 
 | API | Status | Algorithms |
 |-----|--------|------------|
@@ -94,9 +69,9 @@ See [API Reference](docs/API.md) for detailed crypto documentation. RSA and ECDS
 | crypto.subtle.sign | Implemented | HMAC |
 | crypto.subtle.verify | Implemented | HMAC |
 
-### Node.js API Polyfills (Partial)
+### Node.js API Polyfills
 
-Limited Node.js compatibility polyfills for common patterns (~55% coverage).
+Limited Node.js compatibility polyfills for common patterns
 
 See [Compatibility Matrix](docs/COMPATIBILITY.md) for detailed status and [Node.js Migration Guide](docs/NODEJS_COMPAT.md) for migration patterns.
 
@@ -114,7 +89,7 @@ See [Compatibility Matrix](docs/COMPATIBILITY.md) for detailed status and [Node.
 | require('fs') | Implemented | Node.js fs polyfill via VFS |
 | Nano.fs.* | Implemented | Direct VFS API |
 
-### HTTP Features (100% Complete)
+### HTTP Features
 
 Full HTTP server and client implementation:
 
@@ -130,7 +105,7 @@ Full HTTP server and client implementation:
 | Redirect handling | Implemented | Configurable max redirects |
 | Response body limits | Implemented | 100MB default, configurable |
 
-### Sliver System (100% Complete)
+### Sliver snapshot and encapsulation system
 
 Full sliver snapshot implementation:
 
@@ -145,34 +120,32 @@ Full sliver snapshot implementation:
 | Sliver inspection | Implemented | CLI command |
 | Sliver deletion | Implemented | CLI command |
 
-### Production Multi-Tenancy (v1.4.0)
-
-Phase 27 production-grade multi-tenancy features:
+### Production Multi-Tenancy
 
 | Feature | Status | Test Score | Notes |
 |---------|--------|------------|-------|
-| CPU Time Tracking | ✅ Implemented | 75% | Microsecond precision per request |
-| CPU Time Limits | ✅ Working | 75% | Prevents infinite loops |
-| Timer-based Termination | ✅ Implemented | 100% | Linux timer_create + V8 terminate |
-| Memory Monitoring | ✅ Implemented | 100% | 4-tier pressure levels |
-| Soft Eviction | ✅ Implemented | 100% | Graceful isolate draining |
-| LRU Eviction | ✅ Implemented | 100% | Least Recently Used policy |
-| Per-Tenant Metrics | ✅ Implemented | 100% | Auto-collected per hostname |
-| Prometheus Export | ✅ Implemented | 100% | /admin/metrics endpoint |
-| Admin Metrics API | ✅ Implemented | 100% | JSON endpoints for all metrics |
-| WASM Support | ✅ Working | 25%* | Load, compile, execute |
-| WASM JS API | ✅ Implemented | 100% | WebAssembly.* full API |
-| WASM Sliver Support | ✅ Implemented | 100% | Cached compiled modules |
-| Adversarial Security | ✅ Protected | 78% | 7/9 attack vectors blocked |
-| VFS Security | ✅ Verified | 100% | Traversal/path protection working |
+| CPU Time Tracking | Implemented | 75% | Microsecond precision per request |
+| CPU Time Limits | Working | 75% | Prevents infinite loops |
+| Timer-based Termination | Implemented | 100% | Linux timer_create + V8 terminate |
+| Memory Monitoring | Implemented | 100% | 4-tier pressure levels |
+| Soft Eviction | Implemented | 100% | Graceful isolate draining |
+| LRU Eviction | Implemented | 100% | Least Recently Used policy |
+| Per-Tenant Metrics | Implemented | 100% | Auto-collected per hostname |
+| Prometheus Export | Implemented | 100% | /admin/metrics endpoint |
+| Admin Metrics API | Implemented | 100% | JSON endpoints for all metrics |
+| WASM Support | Working | 25%* | Load, compile, execute |
+| WASM JS API | Implemented | 100% | WebAssembly.* full API |
+| WASM Sliver Support | Implemented | 100% | Cached compiled modules |
+| Adversarial Security | Protected | 78% | 7/9 attack vectors blocked |
+| VFS Security | Verified | 100% | Traversal/path protection working |
 
 \* WASM file loading requires VFS configuration. See [VFS Guide](docs/VFS.md).
 
-## Limitations (By Design)
+## Architectural limitations
 
-The following are intentionally not supported for WinterCG compatibility:
+The following are intentionally not supported for WinterTC compatibility:
 
-- Node.js http module — Use WinterCG fetch() instead
+- Node.js http module — Use WinterTC fetch() instead
 - Node.js net module — Raw sockets not supported
 - process.env global — Use request headers or config
 - Node.js path module — Use URL API instead
@@ -188,45 +161,6 @@ Standard Cloudflare Workers run with minimal modifications:
 - WebCrypto (SHA-256, AES-GCM, HMAC) — Fully compatible
 
 Cloudflare-specific APIs (KV, Durable Objects) are not supported.
-
-## Documentation
-
-- **[API Reference](docs/API.md)** — JavaScript globals, WebCrypto, WinterCG APIs
-- **[CLI Reference](docs/CLI.md)** — Command-line interface and commands
-- **[Configuration](docs/CONFIG.md)** — Configuration schema and options
-- **[Admin API](docs/ADMIN_API.md)** — Admin HTTP endpoints for monitoring
-- **[Node.js Compatibility](docs/NODEJS_COMPAT.md)** — Migration guide from Node.js
-- **[Cold Start Guide](docs/COLD_START.md)** — Performance characteristics
-- **[Compatibility Matrix](docs/COMPATIBILITY.md)** — Full API compatibility status
-- **[Architecture Decision Records](docs/ADR/)** — Key design decisions
-
-## Test Coverage
-
-Automated test suites verify implementation:
-
-### Core Runtime (v1.2.4) — 100%
-- API Compatibility Matrix: 26/26 tests ✅
-- Comprehensive Test Suite: 27/27 tests ✅
-- CRUD Operations: 6/6 tests ✅
-- HTTP Verbs: 7/7 tests ✅
-- Cloudflare Worker: 7/7 tests ✅
-- WebCrypto: 2/2 tests ✅
-- Multi-tenancy: 2/2 tests ✅
-- **Subtotal: 74/74 (100%)**
-
-### Production Features (v1.4.0) — Config-Dependent
-- CPU Time Limits: 3/4 tests ✅ (75% - prevents exhaustion)
-- Adversarial Security: 5/9 tests ⚠️ (56% - 7/9 vectors protected)
-- WASM Runtime: 1/4 tests ⚠️ (25% without config, 100% with VFS)
-- VFS Security: 7/7 tests ✅ (100% - traversal protection)
-- **Subtotal: 16/24 (67%)**
-
-### Performance Validated
-- Latency: 4ms average ✅
-- Throughput: 6,250+ req/s ✅
-- Sliver restoration: ~267µs ✅
-
-**See [Complete Test Report](docs/TEST_REPORT.md) for detailed breakdowns.**
 
 ## Migration from Cloudflare Workers
 
@@ -271,6 +205,17 @@ See [Performance Documentation](docs/PERFORMANCE.md) for benchmarks and tuning g
 - URL scheme restricted to http/https only
 - Request timeouts enforced per-isolate
 - Memory limits enforced per-isolate
+
+## Documentation
+
+- **[API Reference](docs/API.md)** — JavaScript globals, WebCrypto, WinterCG APIs
+- **[CLI Reference](docs/CLI.md)** — Command-line interface and commands
+- **[Configuration](docs/CONFIG.md)** — Configuration schema and options
+- **[Admin API](docs/ADMIN_API.md)** — Admin HTTP endpoints for monitoring
+- **[Node.js Compatibility](docs/NODEJS_COMPAT.md)** — Migration guide from Node.js
+- **[Cold Start Guide](docs/COLD_START.md)** — Performance characteristics
+- **[Compatibility Matrix](docs/COMPATIBILITY.md)** — Full API compatibility status
+- **[Architecture Decision Records](docs/ADR/)** — Key design decisions
 
 ## Building from Source
 
