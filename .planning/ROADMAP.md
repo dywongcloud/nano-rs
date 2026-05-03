@@ -310,6 +310,112 @@
 
 ---
 
+## v1.5 Test Infrastructure Remediation 📋
+
+**Milestone Goal:** Fix all test infrastructure and implementation issues to achieve true 100% test pass rate with accurate claims and complete test coverage.
+
+**Background:** TEST_CLAIMS_AUDIT.md identified critical discrepancies:
+- WASM async execution returns "Promise still pending" but tests claim 100%
+- Missing test files for CRUD, Performance, Edge Cases (754 tests claimed but don't exist)
+- Test count inflated 4.3x (claim 981, actual ~227)
+- WebCrypto claimed 100%, actually 75% (missing RSA, ECDSA, deriveKey)
+- Lenient test scoring counts infrastructure presence as passing
+
+### Phase 28: WASM Async Event Loop
+**Goal:** Implement async event loop with microtask checkpoints to fix "Promise still pending"  
+**Depends on:** v1.4.2 complete  
+**Requirements:** WASM-AEXEC-01 through WASM-AEXEC-07  
+**Success Criteria** (what must be TRUE):
+  1. No "Promise still pending" returns in any code path
+  2. WebAssembly.compile() completes and returns valid module
+  3. WebAssembly.instantiate() completes with working instance
+  4. WASM function execution produces correct results
+  5. Microtask checkpoints integrate V8 with Tokio runtime
+**Plans:**
+- [ ] 28-01-PLAN.md — Create AsyncPromiseResolver core and fix pool.rs/queue.rs
+- [ ] 28-02-PLAN.md — Fix handler.rs and module.rs Pending promises
+- [ ] 28-03-PLAN.md — Create WASM async execution integration tests
+- [ ] 28-04-PLAN.md — Update existing test files to work with async loop
+- [ ] 28-05-PLAN.md — Documentation and verification updates
+**Wave Structure:** 5 waves (sequential dependencies)
+**UI hint**: no
+
+### Phase 29: Missing Test Creation
+**Goal:** Create missing test files that were claimed but don't exist (CRUD, Performance, Edge Cases)  
+**Depends on:** Phase 28  
+**Requirements:** TEST-CREATE-01 through TEST-CREATE-05  
+**Success Criteria** (what must be TRUE):
+  1. `tests/crud_operations_test.rs` exists with 6 passing tests
+  2. `tests/performance_benchmarks.rs` exists with 4 passing tests (verified throughput/latency)
+  3. `tests/edge_case_tests.rs` exists with 10 passing tests
+  4. JavaScript test files exist and execute correctly
+  5. All previously claimed tests now have real implementations
+**Plans**: TBD  
+**UI hint**: no
+
+### Phase 30: Test Reporting Accuracy
+**Goal:** Remove lenient test scoring and fix inflated test count claims  
+**Depends on:** Phase 29  
+**Requirements:** TEST-ACCURACY-01 through TEST-ACCURACY-04  
+**Success Criteria** (what must be TRUE):
+  1. "Promise still pending" treated as FAILURE, not PASS
+  2. Test counts in all docs match `cargo test` output (no 4.3x inflation)
+  3. Infrastructure vs execution tests clearly distinguished
+  4. COMPATIBILITY.md shows honest percentages (no 100% without evidence)
+**Plans**: TBD  
+**UI hint**: no
+
+### Phase 31: WebCrypto Completion
+**Goal:** Implement missing WebCrypto algorithms (RSA, ECDSA, deriveKey)  
+**Depends on:** Phase 30  
+**Requirements:** CRYPTO-COMPLETE-01 through CRYPTO-COMPLETE-04  
+**Success Criteria** (what must be TRUE):
+  1. RSA key generation, import/export works (RSA-OAEP, RSASSA-PKCS1-v1_5)
+  2. ECDSA sign/verify operations complete successfully
+  3. RSA-OAEP encrypt/decrypt produces correct results
+  4. deriveKey operations work (PBKDF2, ECDH if implemented)
+  5. WebCrypto coverage reaches 100% (12/12 algorithms) OR documented as 75%
+**Plans**: TBD  
+**UI hint**: no
+
+### Phase 32: CPU Limit Fixes
+**Goal:** Remove misleading WASM CPU timeout tests that don't actually work  
+**Depends on:** Phase 31  
+**Requirements:** CPU-FIX-01, CPU-FIX-02  
+**Success Criteria** (what must be TRUE):
+  1. No claims of WASM CPU timeout working (it doesn't - WASM execution fails)
+  2. JS infinite loop termination still works (verified, real tests)
+  3. Documentation clearly states "JS CPU limits: working, WASM: pending Phase 28"
+**Plans**: TBD  
+**UI hint**: no
+
+### Phase 33: Adversarial & Cloudflare Compatibility Fixes
+**Goal:** Document test modifications and fix inflated compatibility claims  
+**Depends on:** Phase 32  
+**Requirements:** ADV-FIX-01 through ADV-FIX-03, CF-FIX-01  
+**Success Criteria** (what must be TRUE):
+  1. ReDoS pattern change documented (catastrophic → safe)
+  2. Timer exhaustion reduction documented (100 → 10 timers)
+  3. Request timeout change documented (5000ms → 3000ms)
+  4. Cloudflare Worker compatibility shows ~50% (not 100%) - KV/DO not implemented
+**Plans**: TBD  
+**UI hint**: no
+
+### Phase 34: Documentation Corrections
+**Goal:** Update all documentation with accurate test counts and honest limitations  
+**Depends on:** Phase 33  
+**Requirements:** DOC-FIX-01 through DOC-FIX-03  
+**Success Criteria** (what must be TRUE):
+  1. COMPATIBILITY.md shows accurate WebCrypto percentage
+  2. All test count documentation matches actual `cargo test` output
+  3. TEST_CLAIMS_VERIFICATION.md created with evidence for all 100% claims
+  4. No conflicting claims between different documents
+  5. README, PROJECT.md, all docs consistently accurate
+**Plans**: TBD  
+**UI hint**: no
+
+---
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -349,11 +455,41 @@
 
 ---
 
+## v1.5 Test Infrastructure Remediation 📋
+
+**Milestone Goal:** Achieve TRUE 100% test pass rate by fixing all discrepancies identified in TEST_CLAIMS_AUDIT.md
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 28. WASM Async Event Loop | v1.5 | 0/4 | Not started | - |
+| 29. Missing Test Creation | v1.5 | 0/5 | Not started | - |
+| 30. Test Reporting Accuracy | v1.5 | 0/4 | Not started | - |
+| 31. WebCrypto Completion | v1.5 | 0/4 | Not started | - |
+| 32. CPU Limit Fixes | v1.5 | 0/2 | Not started | - |
+| 33. Adversarial & CF Fixes | v1.5 | 0/4 | Not started | - |
+| 34. Documentation Corrections | v1.5 | 0/3 | Not started | - |
+
+---
+
 ## What's Next
 
-**v1.4.2 RELEASED:** Code cleanup complete - all partial implementations removed  
-**Test Coverage:** 696+ tests passing (627 library + 69 security)
-**Status:** Production-ready multi-tenant edge runtime
+**v1.5 IN PROGRESS:** Test infrastructure remediation - fixing "Promise still pending" and inflated claims  
+**Status:** Milestone v1.5 initialized - 7 phases planned, 0/26 requirements complete
+**Critical Issues:** WASM async execution fails, 754 missing tests, 4.3x inflated test counts
+
+### v1.5 Roadmap:
+
+**Phase 28: WASM Async Event Loop** — Fix "Promise still pending" with microtask checkpoints  
+**Phase 29: Missing Test Creation** — Create CRUD, Performance, Edge Case test files  
+**Phase 30: Test Reporting Accuracy** — Remove lenient scoring, fix inflated counts  
+**Phase 31: WebCrypto Completion** — RSA, ECDSA, deriveKey algorithms  
+**Phase 32: CPU Limit Fixes** — Remove misleading WASM CPU timeout claims  
+**Phase 33: Adversarial & CF Fixes** — Document test modifications, fix compatibility claims  
+**Phase 34: Documentation Corrections** — Honest documentation with accurate percentages
+
+### Commands:
+- View progress: `/gsd-progress`
+- Start v1.5 planning: `/gsd-plan-phase 28`
 
 ### Completed in v1.4.2:
 - ✅ **Phase 21** — v1.2.0 Remediation (VFS, WinterCG APIs, Streams, Timers, SHA-256)
