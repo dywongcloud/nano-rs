@@ -1,23 +1,16 @@
 # NANO Examples
 
-Complete examples for common NANO use cases.
-
-## Table of Contents
-
-1. [Basic JavaScript App](#basic-javascript-app)
-2. [Using the VFS](#using-the-vfs)
-3. [Creating and Running Slivers](#creating-and-running-slivers)
-4. [Multi-App Configuration](#multi-app-configuration)
-5. [Production Setup](#production-setup)
-6. [Admin API Usage](#admin-api-usage)
+Complete, copy-paste ready examples for common NANO use cases.
 
 ---
 
-## Basic JavaScript App
+## 1. Simple JavaScript App (5 minutes)
 
-### Minimal HTTP Handler
+A minimal HTTP handler using the WinterTC fetch API.
 
-`apps/hello.js`:
+### Step 1: Create the JavaScript file
+
+Create `app.js`:
 
 ```javascript
 export default {
@@ -31,10 +24,11 @@ export default {
     }
     
     if (url.pathname === '/json') {
-      return new Response(
-        JSON.stringify({ message: 'Hello', time: Date.now() }),
-        { headers: { 'Content-Type': 'application/json' } }
-      );
+      return Response.json({ 
+        message: 'Hello from NANO!',
+        runtime: 'nano-rs',
+        time: Date.now()
+      });
     }
     
     return new Response('Not Found', { status: 404 });
@@ -42,613 +36,389 @@ export default {
 };
 ```
 
-### Configuration
+### Step 2: Create the config
 
-`config.json`:
+Create `nano.json`:
 
 ```json
 {
   "server": {
-    "host": "0.0.0.0",
     "port": 8080
   },
   "apps": [
     {
-      "hostname": "hello.local",
-      "entrypoint": "./apps/hello.js",
-      "workers": 2,
-      "memory_limit_mb": 64,
-      "timeout_ms": 30000
+      "hostname": "localhost",
+      "entrypoint": "./app.js",
+      "limits": {
+        "workers": 2,
+        "memory_mb": 64
+      }
     }
   ]
 }
 ```
 
-### Run
+### Step 3: Run
 
 ```bash
-nano-rs run --config config.json
+# Terminal 1: Start the server
+nano-rs run --config nano.json
 
-# Test
-curl http://hello.local:8080/
-curl http://hello.local:8080/json
+# Terminal 2: Test
+ curl http://localhost:8080/
+# Output: Hello from NANO!
+
+curl http://localhost:8080/json
+# Output: {"message":"Hello from NANO!","runtime":"nano-rs","time":1234567890}
 ```
 
 ---
 
-## Serving Static Files from Sliver Mode
+## 2. WebAssembly App (10 minutes)
 
-In sliver mode (`--sliver`), **ALL requests route through your JavaScript handler**. Static files in the VFS must be served by your JS code.
+Compile Rust to WASM and call it from JavaScript.
 
-### Static File Handler Example
+### Step 1: Create the Rust WASM module
 
-`apps/static-server.js`:
+Create `wasm/Cargo.toml`:
 
-```javascript
-// MIME type mapping
-const MIME_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.svg': 'image/svg+xml; charset=utf-8',
-  '.ico': 'image/x-icon',
-};
+```toml
+[package]
+name = "calc"
+version = "0.1.0"
+edition = "2021"
 
-function getMimeType(path) {
-  const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
-  return MIME_TYPES[ext] || 'application/octet-stream';
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+```
+
+Create `wasm/src/lib.rs`:
+
+```rust
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn fibonacci(n: u32) -> u64 {
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => fibonacci(n - 1) + fibonacci(n - 2),
+    }
 }
 
-export default {
-  async fetch(request) {
-    const url = new URL(request.url);
-    let path = url.pathname;
-    
-    // Default to index.html for directories
-    if (path.endsWith('/')) {
-      path += 'index.html';
-    }
-    
-    // Try to serve from VFS
-    try {
-      const content = await Nano.vfs.readFile(path);
-      return new Response(content, {
-        headers: { 
-          'Content-Type': getMimeType(path),
-          'Cache-Control': 'public, max-age=3600'
-        }
-      });
-    } catch (err) {
-      // File not found in VFS - could be dynamic route
-      if (path === '/api/data') {
-        return new Response(
-          JSON.stringify({ message: 'Dynamic API response' }),
-          { headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-      
-      // 404 for everything else
-      return new Response('Not Found', { status: 404 });
-    }
-  }
-};
-```
-
-### Sliver Creation with Static Files
-
-```bash
-# Your app directory structure:
-# my-app/
-#   ├── index.js          (handler above)
-#   ├── index.html        (static HTML)
-#   ├── style.css         (static CSS)
-#   └── assets/
-#       └── logo.png
-
-# Create sliver from directory
-cd my-app
-nano-rs sliver create app.example.com --output app.sliver
-
-# Run with JS execution
-nano-rs run --sliver app.sliver --workers 4
-
-# All requests go through JS:
-curl http://app.example.com:8080/          # → JS serves index.html from VFS
-curl http://app.example.com:8080/style.css  # → JS serves CSS from VFS
-curl http://app.example.com:8080/api/data  # → JS returns dynamic JSON
-```
-
-### Important Notes
-
-- **Pure WinterCG model**: Unlike traditional web servers, NANO doesn't have a separate "static file server"
-- **Your JS is the router**: Every request hits your `fetch()` handler first
-- **VFS access via `Nano.vfs`**: Use the WinterCG-compatible VFS API to read files
-- **Performance**: Each static file request creates a JS context and executes your handler (~5ms overhead). For high-traffic static assets, see BACKLOG.md for planned "hybrid mode" optimization.
-
----
-
-## Using the VFS
-
-### Example 1: Session Store (Ephemeral)
-
-`apps/session.js`:
-
-```javascript
-export default {
-  async fetch(request) {
-    const url = new URL(request.url);
-    const sessionId = url.searchParams.get('id') || 'default';
-    
-    // Store session data in ephemeral VFS
-    if (url.pathname === '/set') {
-      const data = await request.text();
-      await Nano.fs.writeFile(`/sessions/${sessionId}.json`, data);
-      return new Response(`Session ${sessionId} saved`);
-    }
-    
-    // Retrieve session
-    if (url.pathname === '/get') {
-      try {
-        const data = await Nano.fs.readFile(`/sessions/${sessionId}.json`, 'utf8');
-        return new Response(data, { 
-          headers: { 'Content-Type': 'application/json' } 
-        });
-      } catch (err) {
-        if (err.code === 'ENOENT') {
-          return new Response('Session not found', { status: 404 });
-        }
-        throw err;
-      }
-    }
-    
-    // Delete session
-    if (url.pathname === '/delete') {
-      try {
-        await Nano.fs.delete(`/sessions/${sessionId}.json`);
-        return new Response(`Session ${sessionId} deleted`);
-      } catch (err) {
-        if (err.code === 'ENOENT') {
-          return new Response('Session not found', { status: 404 });
-        }
-        throw err;
-      }
-    }
-    
-    return new Response('Usage: /set, /get, /delete?id=<session>');
-  }
-};
-```
-
-### Example 2: File Upload Handler
-
-`apps/upload.js`:
-
-```javascript
-export default {
-  async fetch(request) {
-    if (request.method !== 'POST') {
-      return new Response('POST required', { status: 405 });
-    }
-    
-    const contentLength = parseInt(request.headers.get('Content-Length') || '0');
-    const maxSize = 10 * 1024 * 1024; // 10MB limit
-    
-    if (contentLength > maxSize) {
-      return new Response('File too large (max 10MB)', { status: 413 });
-    }
-    
-    const formData = await request.formData();
-    const file = formData.get('file');
-    
-    if (!file) {
-      return new Response('No file provided', { status: 400 });
-    }
-    
-    const arrayBuffer = await file.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    
-    try {
-      await Nano.fs.writeFile(`/uploads/${file.name}`, uint8Array);
-      return new Response(`Uploaded ${file.name} (${uint8Array.length} bytes)`);
-    } catch (err) {
-      if (err.code === 'EQUOTA') {
-        return new Response('Storage quota exceeded', { status: 507 });
-      }
-      throw err;
-    }
-  }
-};
-```
-
-### Example 3: Node.js Compatible Code
-
-`apps/legacy.js`:
-
-```javascript
-// Using Node.js fs polyfill (routes to VFS)
-const fs = require('fs');
-
-export default {
-  async fetch(request) {
-    const url = new URL(request.url);
-    
-    if (url.pathname === '/save') {
-      const data = await request.text();
-      // This writes to VFS, not real filesystem
-      fs.writeFileSync('/data/note.txt', data);
-      return new Response('Saved to VFS');
-    }
-    
-    if (url.pathname === '/load') {
-      try {
-        // Reading from VFS
-        const data = fs.readFileSync('/data/note.txt', 'utf8');
-        return new Response(data);
-      } catch (err) {
-        if (err.code === 'ENOENT') {
-          return new Response('File not found', { status: 404 });
-        }
-        throw err;
-      }
-    }
-    
-    return new Response('Usage: POST /save, GET /load');
-  }
-};
-```
-
-### Persistent VFS Configuration
-
-```json
-{
-  "apps": [{
-    "hostname": "storage.local",
-    "entrypoint": "./apps/storage.js",
-    "vfs_backend": "disk",
-    "vfs_config": {
-      "path": "/var/lib/nano/storage-app",
-      "create_if_missing": true
-    },
-    "vfs_limits": {
-      "max_file_size_mb": 50,
-      "max_total_storage_mb": 500
-    }
-  }]
+#[wasm_bindgen]
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
 }
 ```
 
----
-
-## Creating and Running Slivers
-
-### Development Workflow
+### Step 2: Compile to WASM
 
 ```bash
-# 1. Start with config-based app
-nano-rs run --config dev.json
+cd wasm
+wasm-pack build --target web --out-dir ../pkg
+```
 
-# 2. Test the app
-curl http://api.local:8080/test
+### Step 3: Create the JavaScript handler
 
-# 3. Create sliver from running app
-nano-rs sliver create api.local --output api-v1.sliver --name api-prod
+Create `wasm-app.js`:
 
-# 4. List slivers
-nano-rs sliver list
-# NAME       HOSTNAME      CREATED              SIZE
-# api-prod   api.local     2026-04-19T20:00:00  2.4MB
+```javascript
+import wasmModule from './pkg/calc.js';
 
-# 5. Run from sliver (JavaScript handler executed for all requests)
-nano-rs run --sliver api-v1.sliver --workers 4
-# Output: "ALL requests route through JavaScript (WinterCG fetch handler)"
-# The sliver's JS code handles every HTTP request via its fetch() export
+let wasm;
 
-# 6. Or use in production config
-cat > prod.json << 'EOF'
-{
-  "apps": [{
-    "hostname": "api.example.com",
-    "sliver": "./api-v1.sliver",
-    "workers": 8,
-    "memory_limit_mb": 128
-  }]
+async function initWasm() {
+  wasm = await wasmModule();
 }
-EOF
 
-nano-rs run --config prod.json
+// Initialize on first request
+let initPromise = initWasm();
+
+export default {
+  async fetch(request) {
+    await initPromise;
+    
+    const url = new URL(request.url);
+    
+    if (url.pathname === '/add') {
+      const a = parseInt(url.searchParams.get('a') || '0');
+      const b = parseInt(url.searchParams.get('b') || '0');
+      const result = wasm.add(a, b);
+      return Response.json({ a, b, result });
+    }
+    
+    if (url.pathname === '/fib') {
+      const n = parseInt(url.searchParams.get('n') || '10');
+      const result = wasm.fibonacci(n);
+      return Response.json({ n, result });
+    }
+    
+    return new Response('Usage: /add?a=5&b=3 or /fib?n=20', {
+      headers: { 'Content-Type': 'text/plain' }
+    });
+  }
+};
 ```
 
-### Sliver from Directory
+### Step 4: Create config
 
-```bash
-# Package a directory as sliver (no running app needed)
-nano-rs sliver pack ./my-app --output my-app-v1.sliver
-
-# Inspect contents
-nano-rs sliver inspect my-app-v1.sliver
-# Metadata:
-#   Hostname: auto-generated
-#   Created: 2026-04-19T20:00:00
-#   Version: 1.0
-# Contents:
-#   - index.js
-#   - package.json
-#   - assets/logo.png
-```
-
-### Sliver Migration
-
-```bash
-# On server A
-nano-rs sliver create api.local --output api.sliver
-gzip api.sliver
-scp api.sliver.gz server-b:/tmp/
-
-# On server B
-gunzip /tmp/api.sliver.gz
-nano-rs run --sliver /tmp/api.sliver --workers 4
-```
-
----
-
-## Multi-App Configuration
-
-### Multiple Apps with Different Backends
+Create `nano-wasm.json`:
 
 ```json
 {
   "server": {
-    "host": "0.0.0.0",
-    "port": 8080,
-    "admin_port": 8889,
-    "admin_key": "secret-key-here"
+    "port": 8080
   },
   "apps": [
     {
-      "hostname": "api.example.com",
-      "sliver": "./api-v1.sliver",
-      "workers": 8,
-      "memory_limit_mb": 128,
-      "timeout_ms": 30000,
-      "env": {
-        "API_KEY": "prod-key",
-        "LOG_LEVEL": "info"
+      "hostname": "localhost",
+      "entrypoint": "./wasm-app.js",
+      "limits": {
+        "workers": 2,
+        "memory_mb": 128
       }
-    },
-    {
-      "hostname": "upload.example.com",
-      "entrypoint": "./apps/upload.js",
-      "workers": 4,
-      "memory_limit_mb": 256,
-      "vfs_backend": "disk",
-      "vfs_config": {
-        "path": "/var/lib/nano/uploads"
-      },
-      "vfs_limits": {
-        "max_file_size_mb": 100,
-        "max_total_storage_mb": 1000
-      }
-    },
-    {
-      "hostname": "static.example.com",
-      "entrypoint": "./apps/static.js",
-      "workers": 2,
-      "memory_limit_mb": 64
     }
   ]
 }
 ```
 
-### Virtual Host Routing
-
-NANO routes by `Host` header:
+### Step 5: Run
 
 ```bash
-# Each hostname routes to different app
-curl -H "Host: api.example.com" http://localhost:8080/users
-curl -H "Host: upload.example.com" http://localhost:8080/upload
-curl -H "Host: static.example.com" http://localhost:8080/index.html
+# Terminal 1: Start
+nano-rs run --config nano-wasm.json
+
+# Terminal 2: Test WASM calls
+curl "http://localhost:8080/add?a=5&b=3"
+# Output: {"a":5,"b":3,"result":8}
+
+curl "http://localhost:8080/fib?n=20"
+# Output: {"n":20,"result":6765}
 ```
 
 ---
 
-## Production Setup
+## 3. Slivers: Create and Deploy (5 minutes)
 
-### Systemd Service
+Slivers are portable snapshots with ~267µs cold starts.
 
-`/etc/systemd/system/nano.service`:
+### Step 1: Create your app
 
-```ini
-[Unit]
-Description=NANO Edge Runtime
-After=network.target
-
-[Service]
-Type=simple
-User=nano
-Group=nano
-WorkingDirectory=/opt/nano
-ExecStart=/usr/local/bin/nano-rs run --config /etc/nano/config.json
-Restart=always
-RestartSec=5
-
-# Resource limits
-LimitNOFILE=65536
-LimitNPROC=4096
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Directory Structure
-
-```
-/opt/nano/
-├── apps/              # JavaScript apps
-│   ├── api.js
-│   └── upload.js
-├── slivers/           # Sliver archives
-│   ├── api-v1.sliver
-│   └── api-v2.sliver
-├── data/              # Persistent VFS data (disk backend)
-│   └── api-data/
-├── config.json        # Production config
-└── logs/              # Log files
-
-/etc/nano/
-└── config.json        # Alternative config location
-
-/var/lib/nano/         # VFS disk backend storage
-├── app1-data/
-└── app2-data/
-```
-
-### Log Rotation
-
-`/etc/logrotate.d/nano`:
-
-```
-/opt/nano/logs/*.log {
-  daily
-  rotate 30
-  compress
-  delaycompress
-  missingok
-  notifempty
-  create 0644 nano nano
-  sharedscripts
-  postrotate
-    systemctl reload nano
-  endscript
-}
-```
-
----
-
-## Admin API Usage
-
-### Health Check
-
-```bash
-curl -H "X-Admin-Key: secret-key" http://localhost:8889/admin/health
-```
-
-### List Isolates
-
-```bash
-curl -H "X-Admin-Key: secret-key" http://localhost:8889/admin/isolates
-```
-
-### Metrics
-
-```bash
-# Prometheus format
-curl -H "X-Admin-Key: secret-key" http://localhost:8889/admin/metrics
-
-# Or for specific app
-curl -H "X-Admin-Key: secret-key" http://localhost:8889/admin/metrics?app=api.example.com
-```
-
-### Reload Config
-
-```bash
-# Trigger hot-reload (graceful, no downtime)
-curl -X POST -H "X-Admin-Key: secret-key" http://localhost:8889/admin/reload
-```
-
-### Unix Socket (Local Only)
-
-```bash
-# Access via Unix socket (no auth required for local)
-curl --unix-socket /var/run/nano/control.sock http://localhost/admin/health
-```
-
----
-
-## Testing
-
-### Unit Test Example
+Create `sliver-demo.js`:
 
 ```javascript
-// Test your app with fetch
-async function test() {
-  const request = new Request('http://test.local/', {
-    method: 'POST',
-    body: 'test data'
-  });
-  
-  const response = await app.fetch(request);
-  console.assert(response.status === 200);
-  
-  const body = await response.text();
-  console.assert(body.includes('success'));
-}
-
-test();
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    
+    if (url.pathname === '/') {
+      return new Response('Hello from Sliver!', {
+        headers: { 'Content-Type': 'text/plain' }
+      });
+    }
+    
+    if (url.pathname === '/version') {
+      return Response.json({ 
+        version: '1.0.0',
+        deployed: new Date().toISOString()
+      });
+    }
+    
+    return new Response('Not Found', { status: 404 });
+  }
+};
 ```
 
-### Load Test
+### Step 2: Run the app (for testing)
+
+Create `dev.json`:
+
+```json
+{
+  "server": { "port": 8080 },
+  "apps": [{
+    "hostname": "localhost",
+    "entrypoint": "./sliver-demo.js",
+    "limits": { "workers": 2 }
+  }]
+}
+```
 
 ```bash
-# Using wrk
-wrk -t4 -c100 -d30s http://api.local:8080/test
+# Terminal 1: Run for testing
+nano-rs run --config dev.json
 
-# Using ab
-ab -n 10000 -c 100 http://api.local:8080/test
+# Terminal 2: Verify it works
+curl http://localhost:8080/
+# Output: Hello from Sliver!
+```
+
+### Step 3: Create a sliver
+
+```bash
+# In another terminal - create from the running app
+nano-rs sliver create localhost --output my-app-v1.sliver
+
+# Verify it was created
+ls -lh my-app-v1.sliver
+```
+
+### Step 4: Stop the dev server
+
+Press `Ctrl+C` in Terminal 1 to stop the dev server.
+
+### Step 5: Run from sliver
+
+```bash
+# Terminal 1: Run directly from sliver (no config needed!)
+nano-rs run --sliver my-app-v1.sliver --port 8080
+
+# Terminal 2: Test - should have identical behavior
+curl http://localhost:8080/
+# Output: Hello from Sliver!
+
+curl http://localhost:8080/version
+# Output: {"version":"1.0.0","deployed":"2026-01-01T12:00:00Z"}
+```
+
+### Production: Use sliver in config
+
+Create `production.json`:
+
+```json
+{
+  "server": { "port": 80 },
+  "apps": [{
+    "hostname": "api.example.com",
+    "sliver": "./my-app-v1.sliver",
+    "limits": {
+      "workers": 8,
+      "memory_mb": 128
+    }
+  }]
+}
+```
+
+```bash
+# Production run
+nano-rs run --config production.json
+```
+
+---
+
+## Quick Reference
+
+### Commands
+
+```bash
+# Run with config
+nano-rs run --config nano.json
+
+# Run directly from JS
+nano-rs run --sliver app.sliver
+
+# Create sliver from running app
+nano-rs sliver create <hostname> --output <name>.sliver
+
+# List all slivers
+nano-rs sliver list
+```
+
+### Config Structure
+
+```json
+{
+  "server": {
+    "port": 8080,
+    "host": "0.0.0.0"
+  },
+  "apps": [{
+    "hostname": "localhost",
+    "entrypoint": "./app.js",
+    "sliver": null,
+    "limits": {
+      "workers": 4,
+      "memory_mb": 128,
+      "timeout_secs": 30,
+      "cpu_time_ms": 50
+    }
+  }]
+}
+```
+
+### Testing
+
+```bash
+# Basic test
+curl http://localhost:8080/
+
+# With Host header (for multi-tenant)
+curl -H "Host: api.example.com" http://localhost:8080/
+
+# JSON endpoint
+curl http://localhost:8080/json
 ```
 
 ---
 
 ## Troubleshooting
 
-### Check App Logs
+### "Failed to parse config JSON: unknown field `port`"
 
-```bash
-# View structured logs
-journalctl -u nano -f
+Your config has `port` at the wrong level. Put it in `server`:
 
-# Or log file
-tail -f /opt/nano/logs/nano.log | jq '.event, .hostname, .message'
+```json
+{
+  "server": { "port": 8080 },  // ✓ Correct
+  "apps": [...]
+}
 ```
 
-### Debug VFS Issues
+NOT:
 
-```javascript
-// Add to your app for debugging
-console.log('VFS debug:', {
-  path: '/data/config.json',
-  exists: await Nano.fs.exists('/data/config.json'),
-  // Read and log content
-  content: await Nano.fs.readFile('/data/config.json').catch(e => e.code)
-});
+```json
+{
+  "port": 8080,  // ✗ Wrong
+  "apps": [...]
+}
 ```
 
-### Sliver Issues
+### "Cannot find module"
+
+Make sure your `entrypoint` path is correct. Use `./` for relative paths:
+
+```json
+"entrypoint": "./app.js"  // ✓ Correct
+```
+
+### Sliver not found
+
+If using `--sliver`, check the file exists:
 
 ```bash
-# Verify sliver integrity
-nano-rs sliver inspect my-app.sliver
+ls -lh my-app.sliver
+nano-rs run --sliver ./my-app.sliver
+```
 
-# Check if it's a valid tar
-tar -tf my-app.sliver
+### Port already in use
 
-# Extract and inspect manually
-tar -xf my-app.sliver -C /tmp/inspect/
-cat /tmp/inspect/meta.json
+```bash
+# Find and kill the process
+lsof -ti:8080 | xargs kill -9
 ```
 
 ---
 
-## More Resources
+## See Also
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Internal design
-- [VFS.md](VFS.md) — Virtual filesystem detailed guide
-- [SLIVER.md](SLIVER.md) — Sliver documentation
-- [README.md](README.md) — Quick start
-
----
-
-*Generated for NANO v1.1*
+- [API Reference](docs/API.md) - Complete WinterTC API documentation
+- [CLI Reference](docs/CLI.md) - All CLI commands
+- [Config Reference](docs/CONFIG.md) - Full configuration schema

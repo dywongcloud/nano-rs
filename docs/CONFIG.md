@@ -30,8 +30,10 @@ NANO uses JSON configuration files for multi-app hosting and runtime settings.
     {
       "hostname": "localhost",
       "entrypoint": "./src/index.js",
-      "workers": 2,
-      "memory_limit_mb": 64
+      "limits": {
+        "workers": 2,
+        "memory_mb": 64
+      }
     }
   ]
 }
@@ -67,12 +69,13 @@ nano-rs run --config dev.json
       "hostname": "api.example.com",
       "entrypoint": "./api.js",
       "sliver": null,
-      "workers": 4,
-      "memory_limit_mb": 128,
-      "timeout_ms": 30000,
-      "cpu_limit_ms": 50,
-      "max_request_body_size_mb": 100,
-      "env": {}
+      "limits": {
+        "workers": 4,
+        "memory_mb": 128,
+        "timeout_secs": 30,
+        "cpu_time_ms": 50
+      },
+      "env_vars": {}
     }
   ],
   "vfs": {
@@ -197,63 +200,40 @@ Each app object configures one hosted application.
 - **Note:** Either `entrypoint` or `sliver` must be specified (not both)
 - **Benefit:** ~267µs cold start (vs ~50-100ms fresh isolate)
 
-### workers
+### limits
+- **Type:** object
+- **Default:** See `limits` defaults below
+- **Description:** Resource limits for this app
+
+#### limits.workers
 - **Type:** number
 - **Default:** `4`
 - **Description:** Number of worker threads for this app
-- **Examples:**
-  - `1` — Low traffic
-  - `4` — Default (good for most cases)
-  - `16` — High traffic
-- **Note:** More workers = better throughput, more memory usage
+- **Examples:** `1`, `4`, `16`
 
-**Sizing guide:**
-```
-Workers = min(CPU_cores × 2, expected_max_concurrent_requests ÷ 10)
-```
-
-### memory_limit_mb
+#### limits.memory_mb
 - **Type:** number
 - **Default:** `128`
 - **Description:** Per-isolate memory limit in megabytes
 - **Examples:** `64`, `128`, `256`, `512`
-- **Action:** OOM triggers isolate termination and restart
-- **Impact:** Higher limits = fewer evictions, more memory per server
 
-### timeout_ms
+#### limits.timeout_secs
 - **Type:** number
-- **Default:** `30000` (30 seconds)
-- **Description:** Per-request timeout in milliseconds
-- **Examples:**
-  - `5000` — 5s (fast APIs)
-  - `30000` — 30s (default)
-  - `60000` — 60s (long operations)
-- **Action:** Timeout triggers request cancellation and error response
+- **Default:** `30` (30 seconds)
+- **Description:** Per-request timeout in seconds
+- **Examples:** `5`, `30`, `60`
 
-### cpu_limit_ms
+#### limits.cpu_time_ms
 - **Type:** number
 - **Default:** `50` (Cloudflare-style)
 - **Description:** Per-request CPU time limit in milliseconds
-- **Examples:**
-  - `50` — Default (Cloudflare Workers compatible)
-  - `100` — CPU-intensive tasks
-  - `500` — Computation-heavy APIs
-- **Action:** Exceeding limit triggers V8 termination
-- **Note:** Applies to synchronous JavaScript execution only
+- **Examples:** `50`, `100`, `500`
 
-### max_request_body_size_mb
-- **Type:** number
-- **Default:** `100`
-- **Description:** Maximum request body size in megabytes
-- **Examples:** `1`, `10`, `100`
-- **Action:** Larger bodies rejected with 413 Payload Too Large
-
-### env
+### env_vars
 - **Type:** object
 - **Default:** `{}`
-- **Description:** Environment variables available to JavaScript
-- **Note:** Currently not exposed to JS runtime (use request headers or VFS instead)
-- **Planned:** v2.0 will expose via `process.env`
+- **Description:** Environment variables injected into the isolate
+- **Note:** Accessible via global scope in JavaScript
 
 ---
 
@@ -316,8 +296,10 @@ Virtual File System configuration.
     {
       "hostname": "localhost",
       "entrypoint": "./src/index.js",
-      "workers": 2,
-      "memory_limit_mb": 64
+      "limits": {
+        "workers": 2,
+        "memory_mb": 64
+      }
     }
   ]
 }
@@ -348,22 +330,28 @@ nano-rs run --config dev.json
     {
       "hostname": "api.example.com",
       "entrypoint": "./api.js",
-      "workers": 8,
-      "memory_limit_mb": 256,
-      "timeout_ms": 30000,
-      "cpu_limit_ms": 50
+      "limits": {
+        "workers": 8,
+        "memory_mb": 256,
+        "timeout_secs": 30,
+        "cpu_time_ms": 50
+      }
     },
     {
       "hostname": "blog.example.com",
       "sliver": "./blog.sliver",
-      "workers": 4,
-      "memory_limit_mb": 128
+      "limits": {
+        "workers": 4,
+        "memory_mb": 128
+      }
     },
     {
       "hostname": "static.example.com",
       "entrypoint": "./static/index.html",
-      "workers": 2,
-      "memory_limit_mb": 64
+      "limits": {
+        "workers": 2,
+        "memory_mb": 64
+      }
     }
   ],
   "vfs": {
@@ -387,7 +375,9 @@ nano-rs run --config dev.json
     {
       "hostname": "app.example.com",
       "entrypoint": "./app.js",
-      "workers": 4
+      "limits": {
+        "workers": 4
+      }
     }
   ],
   "vfs": {
@@ -448,10 +438,12 @@ nano-rs run --config production.json
     {
       "hostname": "api.example.com",
       "sliver": "./api.sliver",
-      "workers": 16,
-      "memory_limit_mb": 256,
-      "timeout_ms": 5000,
-      "cpu_limit_ms": 100
+      "limits": {
+        "workers": 16,
+        "memory_mb": 256,
+        "timeout_secs": 5,
+        "cpu_time_ms": 100
+      }
     }
   ]
 }
@@ -568,9 +560,11 @@ nano-rs run --config production.json --port 3000
    ```json
    {
      "apps": [{
-       "memory_limit_mb": 128,
-       "cpu_limit_ms": 50,
-       "timeout_ms": 30000
+       "limits": {
+         "memory_mb": 128,
+         "cpu_time_ms": 50,
+         "timeout_secs": 30
+       }
      }]
    }
    ```

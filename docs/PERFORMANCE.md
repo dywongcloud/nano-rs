@@ -203,8 +203,10 @@ curl -H "X-API-Key: secret" http://localhost:8889/metrics
     {
       "hostname": "api.example.com",
       "sliver": "./app.sliver",
-      "workers": 4,
-      "memory_limit_mb": 128
+      "limits": {
+        "workers": 4,
+        "memory_mb": 128
+      }
     }
   ]
 }
@@ -218,9 +220,11 @@ curl -H "X-API-Key: secret" http://localhost:8889/metrics
     {
       "hostname": "high-traffic.example.com",
       "sliver": "./app.sliver",
-      "workers": 16,
-      "memory_limit_mb": 256,
-      "cpu_limit_ms": 100
+      "limits": {
+        "workers": 16,
+        "memory_mb": 256,
+        "cpu_time_ms": 100
+      }
     }
   ]
 }
@@ -234,8 +238,10 @@ curl -H "X-API-Key: secret" http://localhost:8889/metrics
     {
       "hostname": "lightweight.example.com",
       "sliver": "./small-app.sliver",
-      "workers": 2,
-      "memory_limit_mb": 64
+      "limits": {
+        "workers": 2,
+        "memory_mb": 64
+      }
     }
   ]
 }
@@ -298,8 +304,8 @@ curl -H "X-API-Key: secret" http://localhost:8889/metrics
 - Traffic spikes
 
 **Solutions:**
-1. Increase `workers` count
-2. Increase `memory_limit_mb`
+1. Increase `limits.workers` count
+2. Increase `limits.memory_mb`
 3. Pre-warm pools with synthetic traffic
 
 ### Memory Exhaustion
@@ -312,8 +318,8 @@ curl -H "X-API-Key: secret" http://localhost:8889/metrics
 - Insufficient total RAM
 
 **Solutions:**
-1. Reduce `memory_limit_mb` per app
-2. Reduce `workers` count
+1. Reduce `limits.memory_mb` per app
+2. Reduce `limits.workers` count
 3. Add more servers (horizontal scaling)
 
 ---

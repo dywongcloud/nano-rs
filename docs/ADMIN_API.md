@@ -88,18 +88,24 @@ curl -H "X-API-Key: secret" http://localhost:8889/apps
   "apps": [
     {
       "hostname": "api.example.com",
-      "workers": 4,
-      "memory_limit_mb": 128,
-      "timeout_ms": 30000,
       "entrypoint": "./api.js",
+      "sliver": null,
+      "limits": {
+        "workers": 4,
+        "memory_mb": 128,
+        "timeout_secs": 30,
+        "cpu_time_ms": 50
+      },
       "requests_total": 15234,
-      "errors_total": 12,
-      "cpu_time_limit_ms": 50
+      "errors_total": 12
     },
     {
       "hostname": "blog.example.com",
-      "workers": 2,
+      "entrypoint": null,
       "sliver": "./blog.sliver",
+      "limits": {
+        "workers": 2
+      },
       "requests_total": 8901,
       "errors_total": 0
     }
@@ -112,12 +118,12 @@ curl -H "X-API-Key: secret" http://localhost:8889/apps
 | Field | Type | Description |
 |-------|------|-------------|
 | `hostname` | string | Virtual host for routing |
-| `workers` | number | Number of worker threads |
-| `memory_limit_mb` | number | Per-isolate memory limit |
-| `timeout_ms` | number | Request timeout |
-| `cpu_time_limit_ms` | number | CPU time limit per request |
 | `entrypoint` | string \| null | JS entrypoint path |
 | `sliver` | string \| null | Sliver file path |
+| `limits.workers` | number | Number of worker threads |
+| `limits.memory_mb` | number | Per-isolate memory limit (MB) |
+| `limits.timeout_secs` | number | Request timeout (seconds) |
+| `limits.cpu_time_ms` | number | CPU time limit (milliseconds) |
 | `requests_total` | number | Total requests served |
 | `errors_total` | number | Total errors (4xx, 5xx, timeouts) |
 
@@ -136,23 +142,27 @@ curl -H "X-API-Key: secret" http://localhost:8889/apps/api.example.com
 ```json
 {
   "hostname": "api.example.com",
-  "workers": 4,
-  "memory_limit_mb": 128,
-  "timeout_ms": 30000,
   "entrypoint": "./api.js",
+  "sliver": null,
+  "limits": {
+    "workers": 4,
+    "memory_mb": 128,
+    "timeout_secs": 30,
+    "cpu_time_ms": 50
+  },
   "requests_total": 15234,
   "errors_total": 12,
   "avg_response_time_ms": 2.3,
   "isolates": [
-    { 
-      "id": "iso-1", 
-      "status": "idle", 
+    {
+      "id": "iso-1",
+      "status": "idle",
       "memory_mb": 45,
       "requests_served": 3801
     },
-    { 
-      "id": "iso-2", 
-      "status": "busy", 
+    {
+      "id": "iso-2",
+      "status": "busy",
       "memory_mb": 67,
       "requests_served": 3805
     },
@@ -240,7 +250,9 @@ curl -H "X-API-Key: secret" http://localhost:8889/isolates/iso-1
   "created_at": "2026-04-20T14:32:11Z",
   "last_request_at": "2026-04-20T15:45:22Z",
   "cpu_time_total_ms": 1205,
-  "cpu_time_limit_ms": 50,
+  "limits": {
+    "cpu_time_ms": 50
+  },
   "vfs_files_count": 23,
   "sliver_loaded": false
 }
@@ -399,7 +411,7 @@ curl -s -H "X-API-Key: secret" http://localhost:8889/metrics | \
 ```bash
 # Pretty print with jq
 curl -s -H "X-API-Key: secret" http://localhost:8889/apps | \
-  jq '.apps[] | {hostname: .hostname, workers: .workers, requests: .requests_total, errors: .errors_total}'
+  jq '.apps[] | {hostname: .hostname, workers: .limits.workers, requests: .requests_total, errors: .errors_total}'
 ```
 
 **Output:**

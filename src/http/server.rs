@@ -511,17 +511,20 @@ pub async fn start_server_with_router(
 /// * `worker_pool` - The SliverWorkerPool containing snapshot-restored isolates
 /// * `entrypoint` - The JS entrypoint file (e.g., "index.js") to execute
 /// * `config` - Server configuration including port and host
-/// * `_shutdown_state` - Shutdown state (used for graceful shutdown coordination)
+/// * `shutdown_signal` - Future that triggers graceful shutdown when resolved
 ///
 /// # Returns
 ///
 /// Returns a `Result` indicating success or failure.
-pub async fn start_server_with_sliver_pool(
+pub async fn start_server_with_sliver_pool<F>(
     worker_pool: Arc<crate::worker::SliverWorkerPool>,
     entrypoint: String,
     config: ServerConfig,
-    _shutdown_state: ShutdownState,
-) -> Result<()> {
+    shutdown_signal: F,
+) -> Result<()>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
     use axum::routing::{any, get};
     use crate::http::sliver_handler::{sliver_js_handler, SliverHandlerState};
     
@@ -565,6 +568,7 @@ pub async fn start_server_with_sliver_pool(
         .layer(CompressionLayer::new());
 
     axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal)
         .await
         .context("Server error")?;
 

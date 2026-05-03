@@ -250,14 +250,18 @@ See [Configuration Reference](CONFIG.md) for full schema.
     {
       "hostname": "api.example.com",
       "entrypoint": "./api.js",
-      "workers": 4,
-      "memory_limit_mb": 128,
-      "timeout_ms": 30000
+      "limits": {
+        "workers": 4,
+        "memory_mb": 128,
+        "timeout_secs": 30
+      }
     },
     {
       "hostname": "static.example.com",
       "sliver": "./static.sliver",
-      "workers": 2
+      "limits": {
+        "workers": 2
+      }
     }
   ]
 }
@@ -326,15 +330,19 @@ cat > production.json << 'EOF'
 {
   "server": { "port": 80 },
   "apps": [
-    { 
-      "hostname": "api.example.com", 
-      "entrypoint": "./api.js", 
-      "workers": 8 
+    {
+      "hostname": "api.example.com",
+      "entrypoint": "./api.js",
+      "limits": {
+        "workers": 8
+      }
     },
-    { 
-      "hostname": "blog.example.com", 
-      "sliver": "./blog.sliver", 
-      "workers": 4 
+    {
+      "hostname": "blog.example.com",
+      "sliver": "./blog.sliver",
+      "limits": {
+        "workers": 4
+      }
     }
   ]
 }

@@ -336,7 +336,8 @@ async fn run_from_sliver(
     
     tracing::info!("Starting HTTP server on {} for sliver app {}", socket_addr, hostname);
 
-    let shutdown_state = shutdown.state().clone();
+    // Subscribe to shutdown signal for the server
+    let mut server_shutdown_rx = shutdown.subscribe();
     // Clone the Arc for the server task - we'll keep one reference for shutdown
     let worker_pool_clone = Arc::clone(&worker_pool);
     let server_handle = tokio::spawn(async move {
@@ -344,7 +345,9 @@ async fn run_from_sliver(
             worker_pool_clone,
             js_entrypoint,
             config,
-            shutdown_state,
+            async move {
+                let _ = server_shutdown_rx.recv().await;
+            },
         ).await
     });
 

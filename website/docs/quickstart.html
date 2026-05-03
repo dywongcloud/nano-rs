@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Quick Start - NANO Documentation</title>
-    <meta name="description" content="Get started with NANO in minutes. Install, create your first app, run, and create slivers.">
+    <meta name="description" content="Get started with NANO in minutes. Simple JavaScript app, WebAssembly, and Slivers.">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>body { font-family: 'Inter', sans-serif; } code, pre { font-family: 'JetBrains Mono', monospace; }</style>
@@ -38,174 +38,430 @@
             <h1 class="text-4xl font-bold text-white mb-4">Quick Start</h1>
             <p class="text-lg text-slate-400 mb-8">Get up and running with NANO in under 5 minutes</p>
 
-            <!-- Step 1 -->
-            <section class="mb-12">
-                <div class="flex items-center gap-4 mb-4">
+            <!-- Copy to Clipboard Script -->
+            <script>
+                function copyCode(buttonId, codeSelector) {
+                    const code = document.querySelector(codeSelector).innerText;
+                    navigator.clipboard.writeText(code);
+                    const btn = document.getElementById(buttonId);
+                    btn.innerHTML = 'Copied!';
+                    setTimeout(() => btn.innerHTML = 'Copy', 2000);
+                }
+            </script>
+
+            <!-- Section 1: Simple JavaScript App -->
+            <section class="mb-16">
+                <div class="flex items-center gap-4 mb-6">
                     <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">1</div>
-                    <h2 class="text-2xl font-semibold text-white">Install NANO</h2>
+                    <h2 class="text-2xl font-semibold text-white">Simple JavaScript App (5 min)</h2>
                 </div>
-                <p class="text-slate-400 mb-4 ml-14">Download the latest release from GitHub and install.</p>
-                
-                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14">
-                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Install via GitHub Releases</div>
-                    <div class="p-4">
-                        <pre class="text-sm text-slate-300"># Download latest release (Linux/macOS)
-curl -L https://github.com/nano-rs/nano-rs/releases/latest/download/nano-rs-$(uname -s)-$(uname -m).tar.gz | tar xz
 
-# Move to PATH
-sudo mv nano-rs /usr/local/bin/
-
-# Verify installation
-nano-rs --version</pre>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Step 2 -->
-            <section class="mb-12">
-                <div class="flex items-center gap-4 mb-4">
-                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">2</div>
-                    <h2 class="text-2xl font-semibold text-white">Create Your First App</h2>
-                </div>
-                <p class="text-slate-400 mb-4 ml-14">Create a simple JavaScript app that responds to HTTP requests.</p>
-                
-                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14">
-                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">app.js</div>
-                    <div class="p-4">
-                        <pre class="text-sm text-slate-300">// Simple HTTP handler using WinterTC fetch API
-export default {
+                <!-- Step 1.1 -->
+                <div class="mb-8 ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Create app.js</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 flex justify-between items-center">
+                            <span class="text-xs text-slate-400 font-mono">app.js</span>
+                            <button id="copy1" onclick="copyCode('copy1', '#code1')" class="text-xs text-slate-400 hover:text-white transition">Copy</button>
+                        </div>
+                        <div class="p-4">
+                            <pre id="code1" class="text-sm text-slate-300">export default {
   async fetch(request) {
     const url = new URL(request.url);
     
     if (url.pathname === '/') {
       return new Response('Hello from NANO!', {
-        headers: { 'content-type': 'text/plain' }
+        headers: { 'Content-Type': 'text/plain' }
       });
     }
     
     if (url.pathname === '/json') {
       return Response.json({ 
         message: 'Hello from NANO!',
-        runtime: 'nano-rs',
-        wintertc: true
+        time: Date.now()
       });
     }
     
     return new Response('Not Found', { status: 404 });
   }
 };</pre>
+                        </div>
                     </div>
                 </div>
-            </section>
 
-            <!-- Step 3 -->
-            <section class="mb-12">
-                <div class="flex items-center gap-4 mb-4">
-                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">3</div>
-                    <h2 class="text-2xl font-semibold text-white">Configure and Run</h2>
-                </div>
-                <p class="text-slate-400 mb-4 ml-14">Create a configuration file and start the NANO server.</p>
-                
-                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14 mb-4">
-                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">nano.json - Multi-tenant Configuration</div>
-                    <div class="p-4">
-                        <pre class="text-sm text-slate-300">{
-  "port": 8080,
-  "workers": 4,
+                <!-- Step 1.2 -->
+                <div class="mb-8 ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Create nano.json</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 flex justify-between items-center">
+                            <span class="text-xs text-slate-400 font-mono">nano.json</span>
+                            <button id="copy2" onclick="copyCode('copy2', '#code2')" class="text-xs text-slate-400 hover:text-white transition">Copy</button>
+                        </div>
+                        <div class="p-4">
+                            <pre id="code2" class="text-sm text-slate-300">{
+  "server": {
+    "port": 8080
+  },
   "apps": [
     {
-      "name": "my-app",
-      "entry": "app.js",
-      "domain": "localhost"
-    },
-    {
-      "name": "api-service",
-      "entry": "api.js",
-      "domain": "api.localhost"
+      "hostname": "localhost",
+      "entrypoint": "./app.js",
+      "limits": {
+        "workers": 2,
+        "memory_mb": 64
+      }
     }
   ]
 }</pre>
+                        </div>
                     </div>
                 </div>
 
-                <div class="bg-blue-900/20 border border-blue-800 rounded-lg p-4 ml-14 mb-4">
-                    <p class="text-sm text-blue-300"><strong>Multi-tenant routing:</strong> The Host header determines which app handles the request. <code>curl -H "Host: api.localhost"</code> routes to the api-service app, while <code>curl -H "Host: localhost"</code> routes to my-app.</p>
-                </div>
-
-                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14">
-                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Run the server</div>
-                    <div class="p-4">
-                        <pre class="text-sm text-slate-300"># Start the server
-nano-rs run --config nano.json
-
-# In another terminal, test your app
-# Note: Use the Host header for multi-tenant routing
-curl -H "Host: localhost" http://localhost:8080/
-# Output: Hello from NANO!
-
-curl -H "Host: localhost" http://localhost:8080/json
-# Output: {"message":"Hello from NANO!","runtime":"nano-rs","wintertc":true}
-
-# The Host header routes to the correct app isolate
-# Each app can have its own domain configured in nano.json</pre>
+                <!-- Step 1.3 -->
+                <div class="ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Run</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Terminal 1: Start the server</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300">nano-rs run --config nano.json</pre>
+                        </div>
                     </div>
-                </div>
-            </section>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Terminal 2: Test</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300"><span class="text-slate-500"># Test the root endpoint</span>
+curl http://localhost:8080/
+<span class="text-green-400">Hello from NANO!</span>
 
-            <!-- Step 4 -->
-            <section class="mb-12">
-                <div class="flex items-center gap-4 mb-4">
-                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">4</div>
-                    <h2 class="text-2xl font-semibold text-white">Create a Sliver</h2>
-                </div>
-                <p class="text-slate-400 mb-4 ml-14">Slivers are portable snapshots that enable sub-millisecond cold starts. Create one from your running app.</p>
-                
-                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14 mb-4">
-                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Create a sliver</div>
-                    <div class="p-4">
-                        <pre class="text-sm text-slate-300"># Create a sliver from the running app
-nano-rs sliver create localhost --name my-app --tag v1.0
-
-# The sliver is now stored and can be used for instant cold starts</pre>
+<span class="text-slate-500"># Test JSON endpoint</span>
+curl http://localhost:8080/json
+<span class="text-green-400">{"message":"Hello from NANO!","time":1234567890}</span></pre>
+                        </div>
                     </div>
                 </div>
             </section>
 
-            <!-- Step 5 -->
-            <section class="mb-12">
-                <div class="flex items-center gap-4 mb-4">
-                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">5</div>
-                    <h2 class="text-2xl font-semibold text-white">List and Manage Slivers</h2>
+            <!-- Section 2: WebAssembly App -->
+            <section class="mb-16">
+                <div class="flex items-center gap-4 mb-6">
+                    <div class="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center text-white font-bold">2</div>
+                    <h2 class="text-2xl font-semibold text-white">WebAssembly App (10 min)</h2>
                 </div>
-                <p class="text-slate-400 mb-4 ml-14">View all your slivers and deploy them instantly.</p>
-                
-                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden ml-14">
-                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Manage slivers</div>
-                    <div class="p-4">
-                        <pre class="text-sm text-slate-300"># List all slivers
-nano-rs sliver list
+                <p class="text-slate-400 mb-6 ml-14">Compile Rust to WASM and call it from JavaScript.</p>
 
-# Show detailed info
-nano-rs sliver list --verbose
+                <!-- Step 2.1 -->
+                <div class="mb-8 ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Create Rust library</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-3">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">wasm/Cargo.toml</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300">[package]
+name = "calc"
+version = "0.1.0"
+edition = "2021"
 
-# Deploy from a sliver
-nano-rs app deploy --sliver my-app-v1.0 --name my-app</pre>
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"</pre>
+                        </div>
+                    </div>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">wasm/src/lib.rs</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300">use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[wasm_bindgen]
+pub fn fibonacci(n: u32) -> u64 {
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => fibonacci(n - 1) + fibonacci(n - 2),
+    }
+}</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2.2 -->
+                <div class="mb-8 ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Compile</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Build WASM module</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300">cd wasm
+wasm-pack build --target web --out-dir ../pkg</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2.3 -->
+                <div class="mb-8 ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Create JavaScript handler</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 flex justify-between items-center">
+                            <span class="text-xs text-slate-400 font-mono">wasm-app.js</span>
+                            <button id="copy3" onclick="copyCode('copy3', '#code3')" class="text-xs text-slate-400 hover:text-white transition">Copy</button>
+                        </div>
+                        <div class="p-4">
+                            <pre id="code3" class="text-sm text-slate-300">import wasmModule from './pkg/calc.js';
+
+let wasm;
+let initPromise;
+
+async function initWasm() {
+  wasm = await wasmModule();
+}
+
+export default {
+  async fetch(request) {
+    <span class="text-slate-500">// Initialize on first request</span>
+    if (!initPromise) {
+      initPromise = initWasm();
+    }
+    await initPromise;
+    
+    const url = new URL(request.url);
+    
+    if (url.pathname === '/add') {
+      const a = parseInt(url.searchParams.get('a') || '0');
+      const b = parseInt(url.searchParams.get('b') || '0');
+      const result = wasm.add(a, b);
+      return Response.json({ a, b, result });
+    }
+    
+    if (url.pathname === '/fib') {
+      const n = parseInt(url.searchParams.get('n') || '10');
+      const result = wasm.fibonacci(n);
+      return Response.json({ n, result });
+    }
+    
+    return new Response('Usage: /add?a=5&b=3 or /fib?n=20', {
+      headers: { 'Content-Type': 'text/plain' }
+    });
+  }
+};</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2.4 -->
+                <div class="mb-8 ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Create config</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">nano-wasm.json</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300">{
+  "server": { "port": 8080 },
+  "apps": [{
+    "hostname": "localhost",
+    "entrypoint": "./wasm-app.js",
+    "limits": { "workers": 2, "memory_mb": 128 }
+  }]
+}</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2.5 -->
+                <div class="ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Run</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Terminal 1: Start</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300">nano-rs run --config nano-wasm.json</pre>
+                        </div>
+                    </div>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Terminal 2: Test WASM calls</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300"><span class="text-slate-500"># Add two numbers</span>
+curl "http://localhost:8080/add?a=5&b=3"
+<span class="text-green-400">{"a":5,"b":3,"result":8}</span>
+
+<span class="text-slate-500"># Calculate fibonacci</span>
+curl "http://localhost:8080/fib?n=20"
+<span class="text-green-400">{"n":20,"result":6765}</span></pre>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 3: Slivers -->
+            <section class="mb-16">
+                <div class="flex items-center gap-4 mb-6">
+                    <div class="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center text-white font-bold">3</div>
+                    <h2 class="text-2xl font-semibold text-white">Slivers: Create and Deploy (5 min)</h2>
+                </div>
+                <p class="text-slate-400 mb-6 ml-14">Slivers are portable snapshots with ~267µs cold starts. Run an app, then create and deploy a sliver.</p>
+
+                <!-- Step 3.1 -->
+                <div class="mb-8 ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Create app</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 flex justify-between items-center">
+                            <span class="text-xs text-slate-400 font-mono">sliver-demo.js</span>
+                            <button id="copy4" onclick="copyCode('copy4', '#code4')" class="text-xs text-slate-400 hover:text-white transition">Copy</button>
+                        </div>
+                        <div class="p-4">
+                            <pre id="code4" class="text-sm text-slate-300">export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    
+    if (url.pathname === '/') {
+      return new Response('Hello from Sliver!', {
+        headers: { 'Content-Type': 'text/plain' }
+      });
+    }
+    
+    if (url.pathname === '/version') {
+      return Response.json({ 
+        version: '1.0.0',
+        deployed: new Date().toISOString()
+      });
+    }
+    
+    return new Response('Not Found', { status: 404 });
+  }
+};</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3.2 -->
+                <div class="mb-8 ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Step 1: Run the app for testing</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 flex justify-between items-center">
+                            <span class="text-xs text-slate-400 font-mono">dev.json</span>
+                            <button id="copy5" onclick="copyCode('copy5', '#code5')" class="text-xs text-slate-400 hover:text-white transition">Copy</button>
+                        </div>
+                        <div class="p-4">
+                            <pre id="code5" class="text-sm text-slate-300">{
+  "server": { "port": 8080 },
+  "apps": [{
+    "hostname": "localhost",
+    "entrypoint": "./sliver-demo.js",
+    "limits": { "workers": 2 }
+  }]
+}</pre>
+                        </div>
+                    </div>
+                    <div class="bg-blue-900/20 border border-blue-800 rounded-lg p-4 mt-4">
+                        <p class="text-sm text-blue-300"><strong>Terminal 1:</strong> <code>nano-rs run --config dev.json</code></p>
+                    </div>
+                </div>
+
+                <!-- Step 3.3 -->
+                <div class="mb-8 ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Step 2: Create the sliver</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Terminal 2: Create sliver from running app</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300"><span class="text-slate-500"># Create sliver from the running app</span>
+nano-rs sliver create localhost --output my-app-v1.sliver
+
+<span class="text-slate-500"># Verify it was created</span>
+ls -lh my-app-v1.sliver</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3.4 -->
+                <div class="mb-8 ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Step 3: Stop the dev server</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300"><span class="text-slate-500"># In Terminal 1, press</span>
+Ctrl+C</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3.5 -->
+                <div class="ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Step 4: Run from sliver</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Terminal 1: Run directly from sliver (no config!)</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300">nano-rs run --sliver my-app-v1.sliver --port 8080</pre>
+                        </div>
+                    </div>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Terminal 2: Test - identical behavior!</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300">curl http://localhost:8080/
+<span class="text-green-400">Hello from Sliver!</span>
+
+curl http://localhost:8080/version
+<span class="text-green-400">{"version":"1.0.0","deployed":"2026-01-01T12:00:00Z"}</span></pre>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Quick Commands -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-6">Quick Command Reference</h2>
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+                        <h3 class="text-lg font-semibold text-white mb-3">Commands</h3>
+                        <div class="space-y-2 text-sm">
+                            <div><code class="text-blue-400">nano-rs run --config nano.json</code> <span class="text-slate-500">- Run with config</span></div>
+                            <div><code class="text-blue-400">nano-rs run --sliver app.sliver</code> <span class="text-slate-500">- Run from sliver</span></div>
+                            <div><code class="text-blue-400">nano-rs sliver create localhost --output app.sliver</code> <span class="text-slate-500">- Create sliver</span></div>
+                        </div>
+                    </div>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+                        <h3 class="text-lg font-semibold text-white mb-3">Testing</h3>
+                        <div class="space-y-2 text-sm">
+                            <div><code class="text-green-400">curl http://localhost:8080/</code> <span class="text-slate-500">- Basic test</span></div>
+                            <div><code class="text-green-400">curl -H "Host: api.example.com" ...</code> <span class="text-slate-500">- Multi-tenant</span></div>
+                            <div><code class="text-green-400">curl http://localhost:8080/json</code> <span class="text-slate-500">- JSON endpoint</span></div>
+                        </div>
                     </div>
                 </div>
             </section>
 
             <!-- Next Steps -->
             <section class="mb-12">
-                <h2 class="text-2xl font-semibold text-white mb-4">Next Steps</h2>
+                <h2 class="text-2xl font-semibold text-white mb-6">Next Steps</h2>
                 <div class="grid md:grid-cols-2 gap-4">
                     <a href="api.html" class="bg-slate-800/50 border border-slate-700 rounded-lg p-6 hover:border-blue-500 transition">
                         <h3 class="text-lg font-semibold text-white mb-2">API Reference</h3>
                         <p class="text-slate-400 text-sm">Explore the complete WinterTC API documentation</p>
                     </a>
-                    <a href="compatibility.html" class="bg-slate-800/50 border border-slate-700 rounded-lg p-6 hover:border-blue-500 transition">
-                        <h3 class="text-lg font-semibold text-white mb-2">Compatibility</h3>
-                        <p class="text-slate-400 text-sm">Learn about Node.js compatibility and polyfills</p>
+                    <a href="slivers.html" class="bg-slate-800/50 border border-slate-700 rounded-lg p-6 hover:border-blue-500 transition">
+                        <h3 class="text-lg font-semibold text-white mb-2">Slivers Guide</h3>
+                        <p class="text-slate-400 text-sm">Learn about sub-millisecond cold starts</p>
                     </a>
+                </div>
+            </section>
+
+            <!-- Troubleshooting -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-6">Troubleshooting</h2>
+                <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                    <div class="space-y-4">
+                        <div>
+                            <h3 class="text-white font-medium mb-1">"unknown field `port`"</h3>
+                            <p class="text-slate-400 text-sm">Put port inside server: <code class="text-slate-300">{"server": {"port": 8080}}</code></p>
+                        </div>
+                        <div>
+                            <h3 class="text-white font-medium mb-1">Port already in use</h3>
+                            <p class="text-slate-400 text-sm"><code class="text-slate-300">lsof -ti:8080 | xargs kill -9</code></p>
+                        </div>
+                        <div>
+                            <h3 class="text-white font-medium mb-1">"Cannot find module"</h3>
+                            <p class="text-slate-400 text-sm">Use <code class="text-slate-300">./</code> prefix: <code class="text-slate-300">"entrypoint": "./app.js"</code></p>
+                        </div>
+                    </div>
                 </div>
             </section>
 

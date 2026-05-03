@@ -174,7 +174,9 @@ nano-rs sliver delete api-prod --force
   "apps": [{
     "hostname": "api.example.com",
     "entrypoint": "./apps/api.js",
-    "workers": 4
+    "limits": {
+      "workers": 4
+    }
   }]
 }
 ```
@@ -185,7 +187,9 @@ nano-rs sliver delete api-prod --force
   "apps": [{
     "hostname": "api.example.com",
     "sliver": "./api-v1.sliver",
-    "workers": 4
+    "limits": {
+      "workers": 4
+    }
   }]
 }
 ```
@@ -304,7 +308,9 @@ cat > prod.json << 'EOF'
   "apps": [{
     "hostname": "api.example.com",
     "sliver": "./api-prod-v1.sliver",
-    "workers": 8
+    "limits": {
+      "workers": 8
+    }
   }]
 }
 EOF
