@@ -264,7 +264,7 @@ fn create_unix_socket_router(auth: Arc<AdminAuth>, state: AdminState) -> axum::R
 /// ConnectInfo extension. Unix socket connections are marked with
 /// a custom header that the auth middleware uses to skip authentication.
 async fn mark_unix_socket_request(
-    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    ConnectInfo(_addr): ConnectInfo<std::net::SocketAddr>,
     req: Request<Body>,
     next: Next,
 ) -> Response {

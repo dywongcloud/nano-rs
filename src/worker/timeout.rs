@@ -32,7 +32,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::time::Instant;
 
-use crate::worker::cpu_tracker::{CpuTimeError, CpuTimeSnapshot, CpuTracker};
+use crate::worker::cpu_tracker::{CpuTimeError, CpuTracker};
 
 /// Configuration for timeout behavior
 ///

@@ -35,7 +35,12 @@ use crate::metrics::exporter::prometheus_content_type;
 use crate::metrics::{MetricsRegistry, PrometheusExporter, METRICS};
 
 /// Error response for metrics endpoint failures
+/// 
+/// Note: This struct is defined for API completeness but currently unused
+/// since the metrics endpoint doesn't fail in ways that require error responses.
+/// Kept for future error handling scenarios.
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 struct MetricsError {
     error: String,
     message: String,

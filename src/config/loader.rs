@@ -162,7 +162,6 @@ where
     I: Iterator<Item = char>,
 {
     let mut var_name = String::new();
-    let mut default_value: Option<String> = None;
 
     // Read variable name (alphanumeric and underscore)
     while let Some(&ch) = chars.peek() {
@@ -177,13 +176,12 @@ where
             if chars.peek() == Some(&'-') {
                 chars.next(); // consume '-'
                 
-                // Read default value
+                // Read default value directly (avoid unused variable warning)
                 let mut default = String::new();
                 while let Some(&ch) = chars.peek() {
                     if ch == '}' {
                         chars.next(); // consume '}'
-                        default_value = Some(default);
-                        return Ok((var_name, default_value));
+                        return Ok((var_name, Some(default)));
                     }
                     default.push(ch);
                     chars.next();

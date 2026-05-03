@@ -2,7 +2,7 @@
 
 **Phase ID:** 22
 **Name:** Documentation & Architecture
-**Milestone:** v1.4.0 Finalization
+**Milestone:** v1.4.2 Code Cleanup
 **Date:** 2026-05-02
 
 ---

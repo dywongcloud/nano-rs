@@ -565,11 +565,13 @@ impl TenantMetricsCollector {
             .iter()
             .map(|entry| {
                 let m = entry.value().read().unwrap();
-                let (duration_buckets, duration_sum, duration_count) = 
+                // Duration histogram data - buckets reserved for future percentile calculations
+                let (_duration_buckets, _duration_sum, _duration_count) =
                     m.request_duration_seconds.get();
-                let (cpu_buckets, cpu_sum, cpu_count) = 
+                let (_cpu_buckets, cpu_sum, cpu_count) =
                     m.cpu_time_per_request_seconds.get();
-                let (memory_buckets, memory_sum, memory_count) = 
+                // Memory histogram data - reserved for future memory analytics
+                let (_memory_buckets, _memory_sum, _memory_count) =
                     m.memory_per_request_bytes.get();
                 
                 TenantMetricsSnapshot {

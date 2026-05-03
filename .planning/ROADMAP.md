@@ -351,11 +351,11 @@
 
 ## What's Next
 
-**v1.4.0 RELEASED:** All v1.x milestones complete  
+**v1.4.2 RELEASED:** Code cleanup complete - all partial implementations removed  
 **Test Coverage:** 696+ tests passing (627 library + 69 security)
 **Status:** Production-ready multi-tenant edge runtime
 
-### Completed in v1.4.0:
+### Completed in v1.4.2:
 - ✅ **Phase 21** — v1.2.0 Remediation (VFS, WinterCG APIs, Streams, Timers, SHA-256)
 - ✅ **Phase 21.2** — Critical bug fixes (VFS patterns, server cleanup)
 - ✅ **Phase 22** — Documentation & Architecture (ADRs, API docs, performance guides)
@@ -377,7 +377,7 @@
 
 ---
 
-*Roadmap updated: 2026-05-02 — v1.4.0 complete, v2.0 features planned*
+*Roadmap updated: 2026-05-03 — v1.4.2 code cleanup complete, v2.0 features planned*
 
 ## Backlog Items
 

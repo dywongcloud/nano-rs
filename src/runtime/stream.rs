@@ -516,7 +516,7 @@ impl WritableStream {
 
     /// Get a writer for this stream
     /// Returns None if the stream is already locked
-    pub fn get_writer(&self) -> Option<WritableStreamDefaultWriter> {
+    pub fn get_writer(&self) -> Option<WritableStreamDefaultWriter<'_>> {
         // Try to acquire lock
         if self
             .locked
@@ -681,7 +681,7 @@ impl<'a> WritableStreamDefaultWriter<'a> {
             return 0;
         }
 
-        if let Some(ref sender) = self.sender {
+        if self.sender.is_some() {
             let capacity = self.stream.high_water_mark;
             // Estimate available space (approximate since we can't get exact count)
             // In a real implementation, we'd track this more precisely

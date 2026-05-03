@@ -191,7 +191,6 @@ pub fn sign(
             let signing_key = P256SigningKey::from(&secret_key);
 
             // Sign the data (pre-hashed)
-            use signature::SignatureEncoding;
             let signature: P256Signature = signing_key.sign(data);
             Ok(signature.to_bytes().to_vec())
         }
@@ -202,7 +201,6 @@ pub fn sign(
             let signing_key = P384SigningKey::from(&secret_key);
 
             // Sign the data (pre-hashed)
-            use signature::SignatureEncoding;
             let signature: P384Signature = signing_key.sign(data);
             Ok(signature.to_bytes().to_vec())
         }

@@ -3,7 +3,6 @@
 //! Enables pre-compiled WASM modules to be stored in slivers
 //! for faster cold starts (skip compilation step).
 
-use std::collections::HashMap;
 use dashmap::DashMap;
 use crate::wasm::WasmError;
 

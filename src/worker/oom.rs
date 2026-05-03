@@ -92,9 +92,9 @@ impl OomMonitor {
 
     /// Get the app hostname from the limiter
     pub fn app_hostname(&self) -> &str {
-        &self.limiter.limit_mb(); // Access via the limiter's internal hostname
-                                  // We need to expose hostname from limiter - add getter
-                                  // For now, return empty (will be fixed when we add limiter.hostname() getter)
+        let _ = self.limiter.limit_mb(); // Access via the limiter's internal hostname
+                                         // We need to expose hostname from limiter - add getter
+                                         // For now, return empty (will be fixed when we add limiter.hostname() getter)
         ""
     }
 

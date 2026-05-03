@@ -30,10 +30,8 @@
 //! For concrete types, use the specific pool directly to access
 //! implementation-specific features.
 
-use crate::http::NanoResponse;
 use crate::worker::HandlerTask;
 use anyhow::Result;
-use std::sync::Arc;
 
 /// Common interface for all worker pool implementations
 ///

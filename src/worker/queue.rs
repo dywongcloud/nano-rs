@@ -24,11 +24,10 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use crate::http::{NanoHeaders, NanoResponse};
-use crate::http::v8_bridge::serialize_request_to_json;
 use crate::runtime::HandlerContext;
 use crate::v8::initialize_platform;
 use base64::Engine;
-use crate::vfs::{BackendFactory, IsolateVfs, MemoryBackend, VfsBackend, VfsNamespace};
+use crate::vfs::{BackendFactory, IsolateVfs, MemoryBackend, VfsNamespace};
 use crate::config::{VfsBackendType, VfsDiskConfig};
 use crate::worker::HandlerTask;
 use crate::worker::context::ContextManager;
@@ -380,6 +379,10 @@ pub struct WorkQueue {
     /// Default number of workers per pool
     workers_per_pool: usize,
     /// Bounded channel capacity (256 slots per POOL-02)
+    /// 
+    /// TODO: Currently used only during initialization. Future enhancement:
+    /// expose this via queue.stats or admin API for monitoring purposes.
+    #[allow(dead_code)]
     channel_capacity: usize,
     /// Statistics for monitoring
     pub stats: QueueStats,
@@ -656,7 +659,6 @@ fn execute_with_context_manager(
     context_manager: &mut ContextManager,
     handler_ctx: &HandlerContext,
 ) -> anyhow::Result<NanoResponse> {
-    use crate::runtime::apis::RuntimeAPIs;
     use crate::v8::module::{is_esm_module, transform_module_code};
     use std::fs;
 

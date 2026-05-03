@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::sync::RwLock;
 
 use crate::admin::diagnostics::{DiagnosticsCollector, IsolateInfo};
@@ -95,22 +95,11 @@ impl IsolatesError {
     }
 }
 
-/// Format a Duration as human-readable string
-fn format_duration(d: Duration) -> String {
-    let secs = d.as_secs();
-    if secs < 60 {
-        format!("{}s", secs)
-    } else if secs < 3600 {
-        format!("{}m {}s", secs / 60, secs % 60)
-    } else {
-        format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
-    }
-}
+
 
 /// Format an Instant as ISO 8601 string
 fn format_instant(instant: Instant) -> String {
     // Calculate the actual time by subtracting elapsed from now
-    let now = Instant::now();
     let elapsed = instant.elapsed();
     let actual_time = std::time::SystemTime::now() - elapsed;
     
@@ -585,13 +574,6 @@ mod tests {
     use super::*;
     use crate::config::{AppConfig, AppLimits};
     use std::collections::HashMap;
-
-    #[test]
-    fn test_format_duration() {
-        assert_eq!(format_duration(Duration::from_secs(30)), "30s");
-        assert_eq!(format_duration(Duration::from_secs(90)), "1m 30s");
-        assert_eq!(format_duration(Duration::from_secs(3661)), "1h 1m");
-    }
 
     #[test]
     fn test_current_timestamp_format() {

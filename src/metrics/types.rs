@@ -9,7 +9,6 @@
 //! and [`Sync`], allowing concurrent access from multiple threads.
 
 use std::collections::HashMap;
-use std::fmt::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 

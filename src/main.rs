@@ -464,7 +464,7 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
     tracing::info!("V8 platform initialized");
 
     // Create app registry from config
-    let registry = Arc::new(tokio::sync::RwLock::new(
+    let _registry = Arc::new(tokio::sync::RwLock::new(
         nano::app::registry::AppRegistry::from_config(config.clone())
     ));
     tracing::info!("Created AppRegistry");
@@ -776,36 +776,7 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
     }
 }
 
-/// Guess MIME content type from file extension
-fn guess_content_type(path: &str) -> String {
-    let ext = std::path::Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-    
-    match ext.as_str() {
-        "html" | "htm" => "text/html; charset=utf-8".to_string(),
-        "css" => "text/css; charset=utf-8".to_string(),
-        "js" => "application/javascript; charset=utf-8".to_string(),
-        "mjs" => "application/javascript; charset=utf-8".to_string(),
-        "json" => "application/json; charset=utf-8".to_string(),
-        "png" => "image/png".to_string(),
-        "jpg" | "jpeg" => "image/jpeg".to_string(),
-        "gif" => "image/gif".to_string(),
-        "webp" => "image/webp".to_string(),
-        "svg" => "image/svg+xml; charset=utf-8".to_string(),
-        "ico" => "image/x-icon".to_string(),
-        "txt" => "text/plain; charset=utf-8".to_string(),
-        "md" => "text/markdown; charset=utf-8".to_string(),
-        "xml" => "application/xml; charset=utf-8".to_string(),
-        "wasm" => "application/wasm".to_string(),
-        "woff2" => "font/woff2".to_string(),
-        "woff" => "font/woff".to_string(),
-        "ttf" => "font/ttf".to_string(),
-        _ => "application/octet-stream".to_string(),
-    }
-}
+
 
 /// Load files from a directory into VFS entries for sliver creation
 ///

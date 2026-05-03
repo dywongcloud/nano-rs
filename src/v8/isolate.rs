@@ -19,7 +19,6 @@
 
 use anyhow::Result;
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 
@@ -255,7 +254,7 @@ impl NanoIsolate {
     /// let context = isolate.create_context();
     /// // Execute scripts in the context...
     /// ```
-    pub fn create_context(&mut self) -> v8::Local<v8::Context> {
+    pub fn create_context(&mut self) -> v8::Local<'_, v8::Context> {
         // Create a HandleScope for working with this isolate
         let scope = &mut v8::HandleScope::new(&mut self.isolate);
 

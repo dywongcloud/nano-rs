@@ -15,7 +15,7 @@
 use std::cell::Cell;
 use std::time::Instant;
 
-/// Thread-local storage for performance baseline timing
+// Thread-local storage for performance baseline timing
 thread_local! {
     static PERFORMANCE_BASELINE: Cell<Option<Instant>> = Cell::new(None);
 }
@@ -2641,7 +2641,7 @@ fn set_timeout_callback(
 /// Timer callback for setInterval
 fn set_interval_callback(
     scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
+    _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
     // Return a dummy timer ID

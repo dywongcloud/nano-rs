@@ -126,10 +126,6 @@ impl NanoUrl {
         &self.search_params
     }
 
-    /// Internal access to underlying url crate
-    pub(crate) fn inner(&self) -> &Url {
-        &self.inner
-    }
 }
 
 /// WinterCG-compliant URLSearchParams type

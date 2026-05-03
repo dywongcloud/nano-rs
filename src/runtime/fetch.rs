@@ -82,9 +82,8 @@ impl FetchState {
     }
 }
 
-/// Thread-local storage for fetch state
-///
-/// Each worker thread has its own FetchState instance.
+// Thread-local storage for fetch state
+// Each worker thread has its own FetchState instance.
 thread_local! {
     static FETCH_STATE: RefCell<Option<FetchState>> = RefCell::new(None);
 }
@@ -135,10 +134,16 @@ pub fn bind_fetch(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) 
 ///
 /// This stores the response body bytes in V8's external data,
 /// allowing Response methods (text, json, arrayBuffer) to access it.
-struct ResponseBodyData {
+pub(crate) struct ResponseBodyData {
     body: Bytes,
+    /// TODO: These fields are stored for API completeness but currently unused.
+    /// They will be used when Response.headers, Response.status, Response.url
+    /// properties are fully implemented in the JS bindings.
+    #[allow(dead_code)]
     headers: Vec<(String, String)>,
+    #[allow(dead_code)]
     status: u16,
+    #[allow(dead_code)]
     url: String,
 }
 
@@ -409,7 +414,7 @@ fn fetch_callback(
 }
 
 /// Helper to get response data from JavaScript object
-pub fn get_response_data(
+pub(crate) fn get_response_data(
     scope: &mut v8::HandleScope,
     this: v8::Local<v8::Object>,
 ) -> Option<&'static ResponseBodyData> {
@@ -537,20 +542,6 @@ fn reject_with_error(scope: &mut v8::HandleScope, retval: &mut v8::ReturnValue, 
     let error_msg = v8::String::new(scope, message).unwrap();
     let error = v8::Exception::type_error(scope, error_msg);
     retval.set(error);
-}
-
-/// Helper function to create a TypeError
-fn throw_type_error(scope: &mut v8::HandleScope, message: &str) {
-    let msg = v8::String::new(scope, message).unwrap();
-    let exception = v8::Exception::type_error(scope, msg);
-    scope.throw_exception(exception);
-}
-
-/// Helper function to create a RangeError
-fn throw_range_error(scope: &mut v8::HandleScope, message: &str) {
-    let msg = v8::String::new(scope, message).unwrap();
-    let exception = v8::Exception::range_error(scope, msg);
-    scope.throw_exception(exception);
 }
 
 #[cfg(test)]

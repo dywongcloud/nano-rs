@@ -11,19 +11,17 @@ use crate::worker::context::ContextManager;
 use crate::worker::eviction::{EvictionAction, EvictionManager, IsolateId, IsolateMetadata};
 use crate::worker::memory_monitor::{MemoryMonitor, MemoryPressureLevel};
 use crate::worker::oom::OomMonitorBuilder;
-use crate::worker::timeout::{ExecutionTimer, TimeoutConfig};
 use crate::worker::HandlerTask;
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
 use std::fs;
 
-/// Thread-local storage for the worker thread's Tokio runtime handle
-/// This allows fetch() and other async operations to access the runtime
+// Thread-local storage for the worker thread's Tokio runtime handle
+// This allows fetch() and other async operations to access the runtime
 thread_local! {
     static WORKER_RUNTIME: RefCell<Option<tokio::runtime::Handle>> = RefCell::new(None);
 }
@@ -82,10 +80,9 @@ fn execute_with_context_manager(
     execute_handler_code(context_scope, v8_context, handler_ctx)
 }
 
-/// Thread-local storage for isolate termination request
-///
-/// This is checked by the main thread during execution to determine
-/// if the timer thread has requested termination.
+// Thread-local storage for isolate termination request
+// This is checked by the main thread during execution to determine
+// if the timer thread has requested termination.
 thread_local! {
     static TERMINATION_REQUESTED: RefCell<bool> = RefCell::new(false);
     static TERMINATION_ISOLATE_PTR: RefCell<*mut v8::Isolate> = RefCell::new(std::ptr::null_mut());
@@ -149,10 +146,6 @@ impl CpuTimeoutGuard {
         }
     }
 
-    /// Check if termination was requested
-    fn is_termination_requested(&self) -> bool {
-        TERMINATION_REQUESTED.with(|req| *req.borrow())
-    }
 }
 
 impl Drop for CpuTimeoutGuard {
@@ -319,148 +312,6 @@ fn execute_handler_code(
     // Extract response
     match resolved {
         Some(response) => extract_js_response(scope, response),
-        None => Err(anyhow!("Handler returned None")),
-    }
-}
-
-fn execute_handler_in_context(
-    isolate: &mut v8::OwnedIsolate,
-    v8_context: v8::Local<v8::Context>,
-    handler_ctx: &HandlerContext,
-) -> Result<NanoResponse> {
-    use crate::runtime::apis::RuntimeAPIs;
-    
-    // Create scope stack for execution - must be dropped in reverse order
-    let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context_scope = &mut v8::ContextScope::new(handle_scope, v8_context);
-    
-    // Bind all WinterCG APIs (URL, fetch, Request, etc.) to the context
-    RuntimeAPIs::bind_all(context_scope, v8_context);
-    tracing::debug!("Bound WinterCG APIs to handler context");
-
-    // Read the handler code
-    let code = fs::read_to_string(&handler_ctx.entrypoint)
-        .map_err(|e| anyhow!("Failed to read entrypoint: {}", e))?;
-    
-    // Transform ES6 module syntax if this is an ESM module
-    use crate::v8::module::{is_esm_module, transform_module_code};
-    let transformed_code = if is_esm_module(&code) {
-        transform_module_code(&code)
-    } else {
-        code
-    };
-
-    // Compile and run script to define handler function
-    let code_str = v8::String::new(context_scope, &transformed_code)
-        .ok_or_else(|| anyhow!("Failed to create code string"))?;
-    let script = v8::Script::compile(context_scope, code_str, None)
-        .ok_or_else(|| anyhow!("Script compilation failed"))?;
-    script.run(context_scope);
-
-    // Get global and look for the user's handler function
-    let global = v8_context.global(context_scope);
-    let handler_key = v8::String::new(context_scope, "__nano_user_fetch").unwrap();
-    let handler_val = match global.get(context_scope, handler_key.into()) {
-        Some(val) if val.is_function() => val,
-        _ => {
-            // Fallback: try 'fetch' for non-ESM modules
-            let fetch_key = v8::String::new(context_scope, "fetch").unwrap();
-            match global.get(context_scope, fetch_key.into()) {
-                Some(val) if val.is_function() => val,
-                _ => {
-                    return Ok(NanoResponse::ok()
-                        .with_header("Content-Type", "text/plain")
-                        .with_body("Handler executed (no handler function defined)"));
-                }
-            }
-        }
-    };
-
-    let handler_fn = handler_val.cast::<v8::Function>();
-
-    // Create Request object using the Request constructor
-    let request_url = v8::String::new(context_scope, &handler_ctx.request.url().href()).unwrap();
-    
-    // Build options object with method and headers
-    let options_obj = v8::Object::new(context_scope);
-    
-    // Set method
-    let method_key = v8::String::new(context_scope, "method").unwrap();
-    let method_val = v8::String::new(context_scope, handler_ctx.request.method()).unwrap();
-    options_obj.set(context_scope, method_key.into(), method_val.into());
-    
-    // Set headers using Headers constructor
-    let headers_key = v8::String::new(context_scope, "headers").unwrap();
-    let headers_ctor_key = v8::String::new(context_scope, "Headers").unwrap();
-    let headers_ctor_val = global.get(context_scope, headers_ctor_key.into())
-        .filter(|v| v.is_function())
-        .ok_or_else(|| anyhow!("Headers constructor not found or not a function"))?;
-    let headers_ctor = headers_ctor_val.cast::<v8::Function>();
-    
-    // Create headers init object
-    let headers_init = v8::Object::new(context_scope);
-    for (name, values) in handler_ctx.request.headers().entries() {
-        let value = values.join(", ");
-        let key = v8::String::new(context_scope, name).unwrap();
-        let val = v8::String::new(context_scope, &value).unwrap();
-        headers_init.set(context_scope, key.into(), val.into());
-    }
-    
-    let headers_obj = headers_ctor.new_instance(context_scope, &[headers_init.into()])
-        .ok_or_else(|| anyhow!("Failed to create Headers object"))?;
-    options_obj.set(context_scope, headers_key.into(), headers_obj.into());
-
-            // Set body if present (base64 encoded for proper handling in JS)
-            if let Some(body) = handler_ctx.request.body() {
-                let body_key = v8::String::new(context_scope, "body").unwrap();
-        let base64_body = base64::engine::general_purpose::STANDARD.encode(body);
-                let body_val = v8::String::new(context_scope, &base64_body).unwrap();
-                options_obj.set(context_scope, body_key.into(), body_val.into());
-            }
-
-            // Call Request constructor
-    let request_ctor_key = v8::String::new(context_scope, "Request").unwrap();
-    let request_ctor_val = global.get(context_scope, request_ctor_key.into())
-        .filter(|v| v.is_function())
-        .ok_or_else(|| anyhow!("Request constructor not found or not a function"))?;
-    let request_ctor = request_ctor_val.cast::<v8::Function>();
-    
-    let js_request = request_ctor.new_instance(context_scope, &[request_url.into(), options_obj.into()])
-        .ok_or_else(|| anyhow!("Failed to create Request object"))?;
-
-    // Call the user's handler function with the request
-    let result = handler_fn.call(context_scope, global.into(), &[js_request.into()]);
-
-    // Perform microtask checkpoint to resolve any Promises
-    context_scope.perform_microtask_checkpoint();
-
-    // Check if result is a Promise and resolve if needed
-    let resolved = if let Some(response) = result {
-        if response.is_promise() {
-            let promise = response.cast::<v8::Promise>();
-            match promise.state() {
-                v8::PromiseState::Fulfilled => Some(promise.result(context_scope)),
-                v8::PromiseState::Rejected => {
-                    let error = promise.result(context_scope);
-                    let error_str = error.to_string(context_scope)
-                        .map(|s| s.to_rust_string_lossy(context_scope))
-                        .unwrap_or_else(|| "Promise rejected".to_string());
-                    return Err(anyhow!("Promise rejected: {}", error_str));
-                }
-                v8::PromiseState::Pending => {
-                    return Err(anyhow!("Promise still pending - async execution not fully supported"));
-                }
-            }
-        } else {
-            Some(response)
-        }
-    } else {
-        None
-    };
-
-    // Extract response from result
-    match resolved {
-        Some(response) => extract_js_response(context_scope, response),
         None => Err(anyhow!("Handler returned None")),
     }
 }
@@ -875,7 +726,8 @@ impl WorkerPool {
                             // METRICS-01: Start timing for metrics collection
                             let request_start = std::time::Instant::now();
                             let hostname = task.hostname.clone();
-                            let entrypoint = task.entrypoint.clone();
+                            // Entrypoint is available in task if needed for logging/debugging
+                            let _entrypoint = &task.entrypoint;
 
                             // POOL-04: Reset context before each request
                             let reset_elapsed = match context_manager.reset_context() {
@@ -1274,6 +1126,10 @@ pub struct SliverWorkerPool {
     /// Unpacked sliver data containing snapshot and VFS entries
     unpacked_sliver: crate::sliver::UnpackedSliver,
     /// Optional temp entrypoint path for VFS-extracted JS files
+    /// 
+    /// Note: This is passed to workers during construction via cloned values.
+    /// The field is kept for reference/debugging but not directly accessed.
+    #[allow(dead_code)]
     temp_entrypoint: Option<std::path::PathBuf>,
 }
 

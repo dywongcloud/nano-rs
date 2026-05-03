@@ -3,8 +3,6 @@
 //! Provides a factory for creating VFS backends based on configuration.
 //! This allows dynamic backend selection at runtime based on app configuration.
 
-use std::sync::Arc;
-
 use crate::config::{VfsBackendType, VfsDiskConfig, VfsS3Config};
 use crate::vfs::types::{ResourceLimits, VfsError, VfsResult};
 use crate::vfs::{DiskBackend, MemoryBackend, VfsBackendEnum};

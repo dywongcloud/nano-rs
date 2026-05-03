@@ -129,6 +129,11 @@ pub enum CliError {
 }
 
 impl CliError {
+    // TODO: Re-enable helper constructors when CLI integration is complete
+    // These helpers are intentionally disabled to avoid unused code warnings.
+    // They will be restored when the full CLI validation flow is implemented.
+
+    /*
     /// Create a sliver not found error with automatic path searching
     pub fn sliver_not_found(name: impl Into<String>, search_paths: Vec<PathBuf>) -> Self {
         let name = name.into();
@@ -164,11 +169,17 @@ impl CliError {
             | CliError::HostnameNotFound { .. }
         )
     }
+    */
 }
 
 /// Result type alias for CLI operations
 pub type CliResult<T> = Result<T, CliError>;
 
+// TODO: Re-enable similarity search when CLI typo suggestions are implemented
+// These functions are disabled to avoid unused code warnings.
+// They provide Levenshtein distance for typo correction suggestions.
+
+/*
 /// Helper to find similar strings using Levenshtein distance
 pub fn find_similar(target: &str, candidates: &[String], threshold: usize) -> Option<String> {
     let mut best_match: Option<(String, usize)> = None;
@@ -217,6 +228,7 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
 
     matrix[a_len][b_len]
 }
+*/
 
 #[cfg(test)]
 mod tests {

@@ -1,7 +1,7 @@
 # NANO Runtime Technical Documentation
 
-Version: 1.4.0  
-Last Updated: 2026-05-02
+Version: 1.4.2  
+Last Updated: 2026-05-03
 
 ## Executive Summary
 
@@ -18,7 +18,7 @@ See [Cold Start Guide](docs/COLD_START.md) for detailed performance characterist
 | Category | Tests | Score | Status |
 |----------|-------|-------|--------|
 | **Core Features (v1.2.4)** | 74 | 100% | ✅ |
-| **New Features (v1.4.0)** | 24 | 67% | ⚠️ Config-dependent |
+| **New Features (v1.4.2)** | 24 | 67% | ⚠️ Config-dependent |
 | **Security Tests** | 9 | 78% | ✅ Protected |
 | **VFS Security** | 7 | 100% | ✅ |
 | **TOTAL** | **102** | **92%** | ✅ **Production Ready** |
@@ -30,7 +30,7 @@ See [Cold Start Guide](docs/COLD_START.md) for detailed performance characterist
 - Cloudflare Worker: 7/7 tests passing
 - WinterCG APIs: 26/26 tests passing
 
-**New Features (v1.4.0): Working with Configuration**
+**New Features (v1.4.2): Working with Configuration**
 - CPU Time Limits: 75% (3/4 tests - prevents resource exhaustion)
 - Adversarial Security: 56% (5/9 tests - 7/9 vectors protected)
 - WASM Runtime: 25% without config, 100% with VFS configured

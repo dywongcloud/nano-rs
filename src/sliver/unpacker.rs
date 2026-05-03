@@ -69,8 +69,6 @@ impl UnpackedSliver {
     /// # Returns
     /// SliverResult indicating success
     pub async fn restore_to_vfs(&self, vfs: &crate::vfs::IsolateVfs) -> SliverResult<()> {
-        use crate::vfs::VfsBackend;
-
         tracing::info!(
             "Restoring {} VFS entries to isolate",
             self.vfs_entries.len()

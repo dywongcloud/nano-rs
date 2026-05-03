@@ -14,7 +14,7 @@
 use bytes::Bytes;
 use hyper::{StatusCode, Uri};
 use std::time::Duration;
-use tracing::{debug, trace, error};
+use tracing::trace;
 
 /// HTTP client for outbound requests
 ///
@@ -27,6 +27,10 @@ pub struct HttpClient {
     /// Default timeout for requests
     timeout: Duration,
     /// Maximum number of redirects to follow
+    /// 
+    /// TODO: This is configured but currently relies on reqwest's default
+    /// redirect policy. Future enhancement: implement custom redirect handling.
+    #[allow(dead_code)]
     max_redirects: usize,
     /// Maximum response size in bytes (default: 100MB)
     max_response_size: usize,

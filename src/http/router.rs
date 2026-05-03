@@ -598,7 +598,11 @@ impl AppState {
 /// JSON error response structure (per D-11)
 ///
 /// Standard error format for routing errors and other failures.
+/// 
+/// Note: Defined for API completeness but currently unused. Will be used when
+/// structured error responses are implemented for the virtual host router.
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct ErrorResponse {
     error: String,
     message: String,
@@ -610,15 +614,8 @@ struct ErrorResponse {
 /// Returns a structured JSON error response with the format:
 /// `{"error": "...", "message": "...", "code": N}`
 ///
-/// # Arguments
-///
-/// * `error` - Short error identifier
-/// * `message` - Human-readable error description
-/// * `code` - HTTP status code
-///
-/// # Returns
-///
-/// A JSON response with the error details
+/// Note: Currently unused but kept for future error response standardization.
+#[allow(dead_code)]
 fn error_response(error: &str, message: &str, code: StatusCode) -> impl IntoResponse {
     (
         code,

@@ -1,7 +1,7 @@
-# NANO-RS v1.4.0 - Complete Test Report
+# NANO-RS v1.4.2 - Complete Test Report
 
 **Date:** 2026-05-02  
-**Binary Version:** nano-rs 1.4.0  
+**Binary Version:** nano-rs 1.4.2  
 **Test Suite Version:** v2.0 (Extended with WASM, CPU limits, Security)
 
 ---

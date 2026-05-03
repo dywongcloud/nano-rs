@@ -7,9 +7,7 @@ use axum::{
     body::Body,
     extract::State,
     http::{Request, Response, StatusCode},
-    response::IntoResponse,
 };
-use std::sync::Arc;
 use tokio::sync::oneshot;
 
 use crate::http::{NanoHeaders, NanoRequest, NanoResponse};
