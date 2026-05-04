@@ -10,6 +10,7 @@
 //!
 //! Reference: AP-02 from Zig version (prod.md)
 
+pub mod abstractions;
 pub mod context;
 pub mod isolate;
 pub mod module;

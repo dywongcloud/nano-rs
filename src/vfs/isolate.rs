@@ -111,8 +111,13 @@ impl IsolateVfs {
     fn prefix_namespace(&self, path: &str) -> VfsResult<VfsPath> {
         // Validate the path first
         let path = VfsPath::new(path)?;
-        // Format: "{namespace}::{path}"
-        let prefixed = format!("{}::{}", self.namespace.as_str(), path.as_str());
+        // Format: "{namespace}::{path}" or just "{path}" if namespace is empty
+        let ns = self.namespace.as_str();
+        let prefixed = if ns.is_empty() {
+            path.as_str().to_string()
+        } else {
+            format!("{}::{}", ns, path.as_str())
+        };
         VfsPath::new(prefixed)
     }
 }

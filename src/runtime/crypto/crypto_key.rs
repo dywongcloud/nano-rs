@@ -345,7 +345,7 @@ impl JwkObject {
     
     /// Parse a JWK from a JavaScript object
     pub fn from_v8_object(
-        scope: &mut v8::HandleScope,
+        scope: &mut v8::PinnedRef<v8::HandleScope>,
         obj: v8::Local<v8::Object>,
     ) -> Option<Self> {
         // Extract kty (required)
@@ -369,7 +369,7 @@ impl JwkObject {
     /// Convert this JWK to a V8 JavaScript object
     pub fn to_v8_object<'s>(
         &self,
-        scope: &mut v8::HandleScope<'s>,
+        scope: &mut v8::PinnedRef<'s, v8::HandleScope<'s>>,
     ) -> Option<v8::Local<'s, v8::Object>> {
         let obj = v8::Object::new(scope);
         
@@ -425,7 +425,7 @@ impl JwkObject {
     
     // Helper methods for property extraction
     fn get_string_property(
-        scope: &mut v8::HandleScope,
+        scope: &mut v8::PinnedRef<v8::HandleScope>,
         obj: v8::Local<v8::Object>,
         name: &str,
     ) -> Option<String> {
@@ -439,7 +439,7 @@ impl JwkObject {
     }
     
     fn get_bool_property(
-        scope: &mut v8::HandleScope,
+        scope: &mut v8::PinnedRef<v8::HandleScope>,
         obj: v8::Local<v8::Object>,
         name: &str,
     ) -> Option<bool> {
@@ -452,7 +452,7 @@ impl JwkObject {
     }
     
     fn get_string_array_property(
-        scope: &mut v8::HandleScope,
+        scope: &mut v8::PinnedRef<v8::HandleScope>,
         obj: v8::Local<v8::Object>,
         name: &str,
     ) -> Option<Vec<String>> {

@@ -11,10 +11,14 @@ use crate::worker::context::ContextManager;
 use crate::worker::eviction::{EvictionAction, EvictionManager, IsolateId, IsolateMetadata};
 use crate::worker::memory_monitor::{MemoryMonitor, MemoryPressureLevel};
 use crate::worker::oom::OomMonitorBuilder;
+use crate::worker::limits::RequestMemoryTracker;
 use crate::worker::HandlerTask;
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, RwLock};
+use std::time::SystemTime;
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
@@ -24,6 +28,77 @@ use std::fs;
 // This allows fetch() and other async operations to access the runtime
 thread_local! {
     static WORKER_RUNTIME: RefCell<Option<tokio::runtime::Handle>> = RefCell::new(None);
+}
+
+/// Code cache entry with modification time tracking
+struct CodeCacheEntry {
+    code: Arc<str>,
+    modified: SystemTime,
+}
+
+/// Thread-safe code cache to avoid disk reads on every request
+/// 
+/// This significantly reduces latency for frequently accessed entrypoints
+/// by caching the file contents in memory and only re-reading when the
+/// file modification time changes.
+static CODE_CACHE: RwLock<Option<HashMap<String, CodeCacheEntry>>> = RwLock::new(None);
+
+/// Initialize the code cache on first use
+fn init_code_cache() {
+    let mut cache = CODE_CACHE.write().unwrap();
+    if cache.is_none() {
+        *cache = Some(HashMap::new());
+    }
+}
+
+/// Read code from cache or disk, with automatic cache invalidation
+/// 
+/// This function caches file contents to avoid repeated disk reads,
+/// which is a significant latency optimization (can save 1-5ms per request).
+fn read_code_cached(entrypoint: &str) -> Result<Arc<str>> {
+    // Fast path: check if we can read from cache
+    {
+        let cache_read = CODE_CACHE.read().unwrap();
+        if let Some(cache) = cache_read.as_ref() {
+            if let Some(entry) = cache.get(entrypoint) {
+                // Check if file has been modified since we cached it
+                if let Ok(metadata) = fs::metadata(entrypoint) {
+                    if let Ok(modified) = metadata.modified() {
+                        if modified == entry.modified {
+                            // Cache hit - return cached code
+                            return Ok(entry.code.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Slow path: read from disk and update cache
+    let code = fs::read_to_string(entrypoint)
+        .map_err(|e| anyhow!("Failed to read entrypoint '{}': {}", entrypoint, e))?;
+    
+    let modified = fs::metadata(entrypoint)
+        .and_then(|m| m.modified())
+        .unwrap_or_else(|_| SystemTime::now());
+    
+    let code_arc: Arc<str> = code.into();
+    
+    // Update cache
+    {
+        let mut cache_write = CODE_CACHE.write().unwrap();
+        if cache_write.is_none() {
+            *cache_write = Some(HashMap::new());
+        }
+        if let Some(cache) = cache_write.as_mut() {
+            cache.insert(entrypoint.to_string(), CodeCacheEntry {
+                code: code_arc.clone(),
+                modified,
+            });
+        }
+    }
+    
+    Ok(code_arc)
 }
 
 /// Get the worker thread's Tokio runtime handle if available
@@ -45,10 +120,12 @@ where
 ///
 /// This function properly manages V8 scope lifecycle to avoid "active scope" errors.
 /// If cpu_time_limit_ms > 0, enforces CPU time limits via timer-based termination.
+/// If memory_checker is provided, enforces per-request memory limits during async execution.
 fn execute_with_context_manager(
     context_manager: &mut ContextManager,
     handler_ctx: &HandlerContext,
     cpu_time_limit_ms: u32,
+    memory_checker: Option<&dyn crate::runtime::async_support::MemoryLimitChecker>,
 ) -> Result<NanoResponse> {
     // Clone the Global<Context> (cheap - just a handle reference)
     let global_ctx = context_manager.clone_context();
@@ -91,7 +168,7 @@ fn execute_with_context_manager(
     let context_scope = &mut v8::ContextScope::new(handle_scope, v8_context);
 
     // Read and execute handler
-    execute_handler_code(context_scope, v8_context, handler_ctx)
+    execute_handler_code(context_scope, v8_context, handler_ctx, memory_checker)
 }
 
 // Thread-local storage for isolate termination request
@@ -179,11 +256,13 @@ impl Drop for CpuTimeoutGuard {
 }
 
 /// Execute the actual handler code within an established context scope
-/// Execute the actual handler code within an established context scope
+/// 
+/// If memory_checker is provided, enforces per-request memory limits during async execution.
 fn execute_handler_code(
     scope: &mut v8::ContextScope<v8::HandleScope>,
     v8_context: v8::Local<v8::Context>,
     handler_ctx: &HandlerContext,
+    memory_checker: Option<&dyn crate::runtime::async_support::MemoryLimitChecker>,
 ) -> Result<NanoResponse> {
     use crate::runtime::apis::RuntimeAPIs;
     use crate::v8::module::{is_esm_module, transform_module_code};
@@ -193,16 +272,16 @@ fn execute_handler_code(
     RuntimeAPIs::bind_all(scope, v8_context);
     tracing::debug!("Bound WinterCG APIs to handler context");
 
-    // Read the handler code
-    let code = fs::read_to_string(&handler_ctx.entrypoint)
-        .map_err(|e| anyhow!("Failed to read entrypoint: {}", e))?;
+    // Read the handler code from cache or disk
+    // Using a cache avoids repeated disk reads, significantly reducing latency
+    let code = read_code_cached(&handler_ctx.entrypoint)?;
 
     // Transform ES6 module syntax if this is an ESM module
     // This converts `export default { fetch }` to a global fetch function
-    let transformed_code = if is_esm_module(&code) {
+    let transformed_code: String = if is_esm_module(&code) {
         transform_module_code(&code)
     } else {
-        code
+        code.to_string()
     };
 
     // Compile and run script to define fetch function
@@ -297,11 +376,17 @@ fn execute_handler_code(
     let result = handler_fn.call(scope, global.into(), &[js_request.into()]);
 
     // Resolve the result using async support (handles Promises with microtask checkpoints)
+    // If memory_checker is provided, it will enforce per-request memory limits during execution
     let resolved = match result {
         Some(response) => {
             if response.is_promise() {
                 // Use async event loop to resolve Promise to completion
-                match async_support::resolve_promise_with_async(scope, response.cast::<v8::Promise>()) {
+                // Pass memory checker to enforce limits during async execution
+                match async_support::resolve_promise_with_async_and_memory(
+                    scope, 
+                    response.cast::<v8::Promise>(),
+                    memory_checker
+                ) {
                     Ok(value) => Some(value),
                     Err(e) => return Err(e),
                 }
@@ -802,8 +887,9 @@ impl WorkerPool {
 
                             // Execute handler with fresh context scope
                             // CPU timeout enforcement uses timer-based termination if cpu_time_limit_ms > 0
+                            // No per-request memory tracking in basic WorkQueue mode (use WorkerPool for full limits)
                             let mut result =
-                                execute_with_context_manager(&mut context_manager, &handler_ctx, task.cpu_time_limit_ms);
+                                execute_with_context_manager(&mut context_manager, &handler_ctx, task.cpu_time_limit_ms, None);
 
                             // Calculate request duration
                             let duration_ms = request_start.elapsed().as_millis() as u64;
@@ -1326,9 +1412,17 @@ impl WorkerPool {
                 let is_entrypoint = matches!(&worker_source, crate::worker::AppSource::Entrypoint { .. });
                 let namespace = if is_disk_backend && is_entrypoint {
                     // Empty namespace for entrypoint+DiskBackend - paths map directly
+                    tracing::info!(
+                        "Using empty VFS namespace for entrypoint+DiskBackend (worker: {}, hostname: {})",
+                        id, worker_hostname
+                    );
                     crate::vfs::VfsNamespace::from_hostname("")
                 } else {
                     // Use hostname namespace for memory backends or sliver apps
+                    tracing::info!(
+                        "Using hostname VFS namespace for {} backend (is_disk: {}, is_entrypoint: {})",
+                        worker_hostname, is_disk_backend, is_entrypoint
+                    );
                     VfsNamespace::from_hostname(&worker_hostname)
                 };
                 let vfs = IsolateVfs::new(
@@ -1560,12 +1654,61 @@ impl WorkerPool {
                                 request: task.request,
                             };
 
-                            // Execute handler with CPU timeout if configured
+                            // Per-request memory tracking to prevent memory DoS
+                            // Default limit: 16MB per request (prevents large array allocations)
+                            let per_request_limit_mb = 16u32;
+                            let mut request_memory_tracker = RequestMemoryTracker::new(
+                                per_request_limit_mb,
+                                hostname.clone()
+                            );
+                            
+                            // Start tracking memory before request execution
+                            let isolate_ref = context_manager.isolate_mut().isolate();
+                            request_memory_tracker.start(isolate_ref);
+
+                            // Create memory checker for mid-execution limit enforcement
+                            // This prevents memory DoS attacks during long-running async operations
+                            let memory_checker = crate::worker::RequestMemoryChecker::new(&request_memory_tracker);
+
+                            // Execute handler with CPU timeout and memory limit enforcement
+                            // Memory is checked both during execution (for async ops) and after
                             let mut result = execute_with_context_manager(
                                 &mut context_manager,
                                 &handler_ctx,
                                 task.cpu_time_limit_ms,
+                                Some(&memory_checker),
                             );
+                            
+                            // Also check if request exceeded per-request memory limit after execution
+                            // This catches synchronous allocations that happen too fast for mid-execution checks
+                            let isolate_ref = context_manager.isolate_mut().isolate();
+                            match request_memory_tracker.exceeded_limit(isolate_ref) {
+                                Ok(growth_mb) => {
+                                    if growth_mb > 0 {
+                                        tracing::debug!(
+                                            "Request {} allocated {}MB (limit: {}MB)",
+                                            request_id,
+                                            growth_mb / (1024 * 1024),
+                                            per_request_limit_mb
+                                        );
+                                    }
+                                }
+                                Err(oom_error) => {
+                                    tracing::warn!(
+                                        "Request {} exceeded per-request memory limit: {} (limit: {}MB)",
+                                        request_id,
+                                        oom_error,
+                                        per_request_limit_mb
+                                    );
+                                    // Return 503 for memory limit violation
+                                    result = Ok(NanoResponse::with_status(503)
+                                        .with_header("Content-Type", "application/json")
+                                        .with_body(format!(
+                                            r#"{{"error":"MemoryLimitExceeded","message":"Request exceeded {}MB memory limit","type":"per_request_limit"}}"#,
+                                            per_request_limit_mb
+                                        )));
+                                }
+                            }
 
                             // Calculate request duration
                             let duration_ms = request_start.elapsed().as_millis() as u64;

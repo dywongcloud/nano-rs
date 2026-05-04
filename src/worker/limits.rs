@@ -369,6 +369,221 @@ impl MemoryLimiter {
     }
 }
 
+/// Per-request memory tracker to detect memory DoS attacks
+///
+/// Tracks memory growth during a single request execution and enforces
+/// a per-request memory limit. This prevents individual requests from
+/// consuming excessive memory even if the total isolate memory is within limits.
+///
+/// ## Security Purpose
+///
+/// Prevents memory DoS attacks where a single request allocates large
+/// amounts of memory (e.g., `new Array(10000000).fill('x')`) that could
+/// impact other requests or cause OOM conditions.
+///
+/// ## Usage
+///
+/// 1. Call `RequestMemoryTracker::start()` before request execution
+/// 2. Call `check_limit()` during execution to get current growth
+/// 3. Call `exceeded_limit()` after execution to verify request stayed within bounds
+#[derive(Debug)]
+pub struct RequestMemoryTracker {
+    /// Heap statistics at request start
+    start_stats: Option<HeapStatistics>,
+    /// Per-request memory limit in bytes (0 = no limit)
+    limit_bytes: usize,
+    /// Hostname for error reporting
+    hostname: String,
+}
+
+impl RequestMemoryTracker {
+    /// Default per-request memory limit: 16MB
+    ///
+    /// This is a reasonable default that allows most legitimate requests
+    /// while preventing memory DoS attacks. Can be configured per-app.
+    pub const DEFAULT_LIMIT_MB: u32 = 16;
+
+    /// Create a new request memory tracker
+    ///
+    /// # Arguments
+    ///
+    /// * `limit_mb` - Per-request memory limit in MB (0 = use default)
+    /// * `hostname` - Application hostname for error reporting
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nano::worker::limits::RequestMemoryTracker;
+    ///
+    /// let tracker = RequestMemoryTracker::new(32, "api.example.com");
+    /// ```
+    pub fn new(limit_mb: u32, hostname: impl Into<String>) -> Self {
+        let limit = if limit_mb == 0 {
+            Self::DEFAULT_LIMIT_MB
+        } else {
+            limit_mb
+        };
+        Self {
+            start_stats: None,
+            limit_bytes: (limit as usize) * 1024 * 1024,
+            hostname: hostname.into(),
+        }
+    }
+
+    /// Start tracking memory for a request
+    ///
+    /// Captures the current heap statistics as the baseline.
+    /// Must be called before request execution.
+    ///
+    /// # Arguments
+    ///
+    /// * `isolate` - The V8 isolate to capture stats from
+    pub fn start(&mut self, isolate: &mut v8::Isolate) {
+        let v8_stats = isolate.get_heap_statistics();
+        self.start_stats = Some(HeapStatistics {
+            used_heap_size: v8_stats.used_heap_size(),
+            total_heap_size: v8_stats.total_heap_size(),
+            heap_size_limit: v8_stats.heap_size_limit(),
+            external_memory: v8_stats.external_memory(),
+            number_of_native_contexts: v8_stats.number_of_native_contexts(),
+            number_of_detached_contexts: v8_stats.number_of_detached_contexts(),
+        });
+    }
+
+    /// Get current memory growth during request execution
+    ///
+    /// Returns the number of bytes allocated since `start()` was called.
+    /// Returns 0 if start() hasn't been called or if memory decreased.
+    ///
+    /// # Arguments
+    ///
+    /// * `isolate` - The V8 isolate to get current stats from
+    ///
+    /// # Returns
+    ///
+    /// Memory growth in bytes
+    pub fn current_growth_bytes(&self, isolate: &mut v8::Isolate) -> usize {
+        let start = match self.start_stats {
+            Some(stats) => stats,
+            None => return 0,
+        };
+
+        let v8_stats = isolate.get_heap_statistics();
+        let current_used = v8_stats.used_heap_size();
+
+        // Calculate growth (don't report negative growth from GC)
+        if current_used > start.used_heap_size {
+            current_used - start.used_heap_size
+        } else {
+            0
+        }
+    }
+
+    /// Get current memory growth in MB
+    pub fn current_growth_mb(&self, isolate: &mut v8::Isolate) -> usize {
+        self.current_growth_bytes(isolate) / (1024 * 1024)
+    }
+
+    /// Check if current memory growth exceeds the limit
+    ///
+    /// # Arguments
+    ///
+    /// * `isolate` - The V8 isolate to check
+    ///
+    /// # Returns
+    ///
+    /// `Ok(growth_bytes)` if within limit, `Err(OomError)` if exceeded
+    pub fn check_limit(&self, isolate: &mut v8::Isolate) -> Result<usize, OomError> {
+        let growth = self.current_growth_bytes(isolate);
+
+        if self.limit_bytes > 0 && growth > self.limit_bytes {
+            return Err(OomError::LimitExceeded {
+                used_bytes: growth,
+                limit_bytes: self.limit_bytes,
+                app_hostname: self.hostname.clone(),
+            });
+        }
+
+        Ok(growth)
+    }
+
+    /// Check if request exceeded the memory limit
+    ///
+    /// Call this after request execution to verify the request
+    /// stayed within memory bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `isolate` - The V8 isolate to check
+    ///
+    /// # Returns
+    ///
+    /// `Ok(growth_bytes)` if within limit, `Err(OomError)` if exceeded
+    pub fn exceeded_limit(&self, isolate: &mut v8::Isolate) -> Result<usize, OomError> {
+        self.check_limit(isolate)
+    }
+
+    /// Get the configured limit in MB
+    pub fn limit_mb(&self) -> usize {
+        self.limit_bytes / (1024 * 1024)
+    }
+
+    /// Reset the tracker for a new request
+    pub fn reset(&mut self) {
+        self.start_stats = None;
+    }
+    
+    /// Check if current memory growth exceeds the limit without returning detailed error
+    ///
+    /// This is a lightweight check suitable for frequent polling during execution.
+    ///
+    /// # Arguments
+    /// * `isolate` - The V8 isolate to check
+    ///
+    /// # Returns
+    /// * `Ok(())` if within limit
+    /// * `Err(String)` with error message if limit exceeded
+    pub fn check_memory(&self, isolate: &mut v8::Isolate) -> Result<(), String> {
+        let growth = self.current_growth_bytes(isolate);
+        
+        if self.limit_bytes > 0 && growth > self.limit_bytes {
+            let growth_mb = growth / (1024 * 1024);
+            let limit_mb = self.limit_bytes / (1024 * 1024);
+            Err(format!(
+                "Memory growth {}MB exceeds limit {}MB for {}",
+                growth_mb, limit_mb, self.hostname
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Adapter to use RequestMemoryTracker as a MemoryLimitChecker
+///
+/// This allows the RequestMemoryTracker to be used with the async_support
+/// module's memory checking functions.
+pub struct RequestMemoryChecker<'a> {
+    tracker: &'a RequestMemoryTracker,
+}
+
+impl<'a> RequestMemoryChecker<'a> {
+    /// Create a new memory checker wrapper around a RequestMemoryTracker
+    pub fn new(tracker: &'a RequestMemoryTracker) -> Self {
+        Self { tracker }
+    }
+}
+
+impl<'a> crate::runtime::async_support::MemoryLimitChecker for RequestMemoryChecker<'a> {
+    fn check_memory(&self, isolate: &mut v8::Isolate) -> Result<(), String> {
+        self.tracker.check_memory(isolate)
+    }
+    
+    fn limit_mb(&self) -> u32 {
+        self.tracker.limit_mb() as u32
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

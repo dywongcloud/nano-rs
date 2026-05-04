@@ -9,7 +9,7 @@ use base64::Engine;
 
 /// Binds Request constructor and prototype methods to the V8 context
 pub fn bind_request_api(
-    scope: &mut v8::ContextScope<v8::HandleScope>,
+    scope: &mut v8::PinnedRef<v8::HandleScope<'_, ()>>,
     context: v8::Local<v8::Context>,
 ) {
     let global = context.global(scope);
@@ -60,7 +60,7 @@ pub fn bind_request_api(
 
 /// Request constructor callback - creates a new Request instance
 fn request_constructor_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -189,7 +189,7 @@ fn bind_request_method(
 /// Callback for Request.prototype.text()
 /// Returns the decoded body as a string
 fn request_text_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -222,7 +222,7 @@ fn request_text_callback(
 /// Callback for Request.prototype.json()
 /// Parses the body as JSON and returns the object
 fn request_json_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -266,7 +266,7 @@ fn request_json_callback(
 /// Callback for Request.prototype.arrayBuffer()
 /// Returns the decoded body as an ArrayBuffer
 fn request_arraybuffer_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {

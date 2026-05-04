@@ -31,7 +31,11 @@ impl RuntimeAPIs {
     ///
     /// This should be called once per context during handler setup.
     /// Makes all WinterCG APIs available to JavaScript.
-    pub fn bind_all(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    /// v147 API: Accepts PinnedRef<HandleScope<()>> (before context entry)
+    pub fn bind_all(
+        scope: &mut v8::PinnedRef<v8::HandleScope<'_, ()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         Self::bind_console(scope, context);
         Self::bind_text_encoder(scope, context);
         Self::bind_text_decoder(scope, context);
@@ -55,62 +59,67 @@ impl RuntimeAPIs {
     }
 
     /// Bind Streams API (ReadableStream, WritableStream)
-    fn bind_streams(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_streams(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         crate::runtime::stream::bind_streams(scope, context);
     }
 
     /// Bind Request API (text, json, arrayBuffer methods)
-    fn bind_request(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
-        // Enter context scope for binding
-        let context_scope = &mut v8::ContextScope::new(scope, context);
-        crate::runtime::request::bind_request_api(context_scope, context);
+    fn bind_request(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+        // v147 API: ContextScope requires PinnedRef<HandleScope>
+        // For now, we enter context scope manually after pinning
+        // This is handled by the caller after bind_all completes
+        crate::runtime::request::bind_request_api(scope, context);
     }
 
     /// Bind Nano.fs API for VFS operations
-    fn bind_nano_fs(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_nano_fs(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         crate::runtime::vfs_bindings::bind_nano_fs(scope, context);
     }
 
     /// Bind Node.js fs polyfill for compatibility
-    fn bind_fs_polyfill(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         crate::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
     }
 
     /// Bind fetch() API to global scope
-    fn bind_fetch(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_fetch(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         crate::runtime::fetch::bind_fetch(scope, context);
     }
 
     /// Bind console API (log/warn/error) to global scope
-    fn bind_console(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_console(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
-        let console = v8::Object::new(scope);
+
+        // Enter context scope for operations that need HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
+        let console = v8::Object::new(&mut ctx_scope);
 
         // Bind log method
-        if let Some(log_fn) = v8::Function::new(scope, console_log_callback) {
-            let key = v8::String::new(scope, "log").unwrap();
-            console.set(scope, key.into(), log_fn.into());
+        if let Some(log_fn) = v8::Function::new(&mut ctx_scope, console_log_callback) {
+            let key = v8::String::new(&mut ctx_scope, "log").unwrap();
+            console.set(&mut ctx_scope, key.into(), log_fn.into());
         }
 
         // Bind warn method
-        if let Some(warn_fn) = v8::Function::new(scope, console_warn_callback) {
-            let key = v8::String::new(scope, "warn").unwrap();
-            console.set(scope, key.into(), warn_fn.into());
+        if let Some(warn_fn) = v8::Function::new(&mut ctx_scope, console_warn_callback) {
+            let key = v8::String::new(&mut ctx_scope, "warn").unwrap();
+            console.set(&mut ctx_scope, key.into(), warn_fn.into());
         }
 
         // Bind error method
-        if let Some(error_fn) = v8::Function::new(scope, console_error_callback) {
-            let key = v8::String::new(scope, "error").unwrap();
-            console.set(scope, key.into(), error_fn.into());
+        if let Some(error_fn) = v8::Function::new(&mut ctx_scope, console_error_callback) {
+            let key = v8::String::new(&mut ctx_scope, "error").unwrap();
+            console.set(&mut ctx_scope, key.into(), error_fn.into());
         }
 
         // Attach console to global
-        let console_key = v8::String::new(scope, "console").unwrap();
-        global.set(scope, console_key.into(), console.into());
+        let console_key = v8::String::new(&mut ctx_scope, "console").unwrap();
+        global.set(&mut ctx_scope, console_key.into(), console.into());
     }
 
     /// Bind TextEncoder API to global scope
-    fn bind_text_encoder(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_text_encoder(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         // Create TextEncoder constructor function
@@ -130,7 +139,7 @@ impl RuntimeAPIs {
     }
 
     /// Bind TextDecoder API to global scope
-    fn bind_text_decoder(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_text_decoder(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         // Create TextDecoder constructor function
@@ -150,7 +159,7 @@ impl RuntimeAPIs {
     }
 
     /// Bind crypto API with getRandomValues and subtle
-    fn bind_crypto(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_crypto(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         // Create crypto object
@@ -223,7 +232,7 @@ impl RuntimeAPIs {
     }
 
     /// Bind performance API with now()
-    fn bind_performance(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_performance(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         // Initialize baseline on first call
@@ -248,7 +257,7 @@ impl RuntimeAPIs {
     }
 
     /// Bind structuredClone as global function
-    fn bind_structured_clone(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_structured_clone(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         if let Some(clone_fn) = v8::Function::new(scope, structured_clone) {
@@ -258,7 +267,7 @@ impl RuntimeAPIs {
     }
 
     /// Bind DOMException constructor
-    fn bind_dom_exception(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_dom_exception(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         // Create DOMException constructor
@@ -271,7 +280,7 @@ impl RuntimeAPIs {
     }
 
     /// Bind Blob constructor
-    fn bind_blob(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_blob(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         // Create Blob constructor
@@ -284,7 +293,7 @@ impl RuntimeAPIs {
     }
 
     /// Bind FormData constructor
-    fn bind_form_data(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_form_data(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         // Create FormData constructor
@@ -297,7 +306,7 @@ impl RuntimeAPIs {
     }
 
     /// Bind Response constructor for WinterCG compatibility
-    fn bind_response(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_response(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         use crate::runtime::fetch::{response_text_callback, response_json_callback, response_arraybuffer_callback, response_json_static_callback};
         
         let global = context.global(scope);
@@ -342,7 +351,7 @@ impl RuntimeAPIs {
     }
 
     /// Bind URL constructor for WinterCG compatibility
-    fn bind_url(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_url(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         // Create URLSearchParams constructor first (needed by URL)
@@ -415,7 +424,7 @@ impl RuntimeAPIs {
     }
 
     /// Bind Headers constructor for WinterCG compatibility
-    fn bind_headers(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_headers(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         // Create Headers constructor
@@ -428,7 +437,7 @@ impl RuntimeAPIs {
     }
 
     /// Bind timer APIs (setTimeout, setInterval, clearTimeout, clearInterval)
-    fn bind_timers(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_timers(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         // Bind setTimeout
@@ -457,13 +466,13 @@ impl RuntimeAPIs {
     }
 
     /// Bind WebAssembly API to context
-    fn bind_wasm(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_wasm(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         crate::wasm::WebAssemblyAPI::bind(scope, context);
         tracing::debug!("Bound WebAssembly API");
     }
 
     /// Bind Node.js Buffer API
-    fn bind_buffer(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    fn bind_buffer(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
         // Create Buffer constructor function
@@ -501,7 +510,7 @@ impl RuntimeAPIs {
 }
 
 /// Format console arguments into a single string
-fn format_console_args(scope: &mut v8::HandleScope, args: v8::FunctionCallbackArguments) -> String {
+fn format_console_args(scope: &mut v8::PinnedRef<v8::HandleScope>, args: v8::FunctionCallbackArguments) -> String {
     let mut parts = Vec::new();
     for i in 0..args.length() {
         let arg = args.get(i);
@@ -514,7 +523,7 @@ fn format_console_args(scope: &mut v8::HandleScope, args: v8::FunctionCallbackAr
 
 /// V8 callback for console.log
 fn console_log_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -524,7 +533,7 @@ fn console_log_callback(
 
 /// V8 callback for console.warn
 fn console_warn_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -534,7 +543,7 @@ fn console_warn_callback(
 
 /// V8 callback for console.error
 fn console_error_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -544,7 +553,7 @@ fn console_error_callback(
 
 /// TextEncoder constructor callback
 fn text_encoder_constructor(
-    _scope: &mut v8::HandleScope,
+    _scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -554,7 +563,7 @@ fn text_encoder_constructor(
 
 /// TextEncoder.encode() implementation
 fn text_encoder_encode(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -599,7 +608,7 @@ fn text_encoder_encode(
 
 /// TextDecoder constructor callback
 fn text_decoder_constructor(
-    _scope: &mut v8::HandleScope,
+    _scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -609,7 +618,7 @@ fn text_decoder_constructor(
 
 /// TextDecoder.decode() implementation
 fn text_decoder_decode(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -657,7 +666,7 @@ fn text_decoder_decode(
 
 /// crypto.getRandomValues implementation
 fn crypto_get_random_values(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -769,7 +778,7 @@ fn crypto_get_random_values(
 
 /// performance.now() implementation
 fn performance_now(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -788,7 +797,7 @@ fn performance_now(
 
 /// structuredClone() implementation
 fn structured_clone(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -817,7 +826,7 @@ fn structured_clone(
 
 /// DOMException constructor implementation
 fn dom_exception_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -864,7 +873,7 @@ fn dom_exception_constructor(
 
 /// Blob constructor implementation (simplified v1)
 fn blob_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -936,7 +945,7 @@ fn blob_constructor(
 
 /// FormData constructor implementation (simplified v1)
 fn form_data_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -953,7 +962,7 @@ fn form_data_constructor(
 
 /// Response constructor implementation for WinterCG compatibility
 fn response_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1054,7 +1063,7 @@ fn response_constructor(
 
 /// Callback for headers.set() method
 fn headers_set_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -1084,7 +1093,7 @@ fn headers_set_callback(
 
 /// URL constructor implementation (simplified v1)
 fn url_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1184,7 +1193,7 @@ fn url_constructor(
 
 /// URL.prototype.toString() callback - returns the href property
 fn url_tostring_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1205,7 +1214,7 @@ fn url_tostring_callback(
 
 /// URL.prototype.href getter callback
 fn url_href_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1224,7 +1233,7 @@ fn url_href_callback(
 
 /// URLSearchParams constructor implementation
 fn url_search_params_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1262,7 +1271,7 @@ fn url_search_params_constructor(
 
 /// URLSearchParams.get() callback
 fn usp_get_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1297,7 +1306,7 @@ fn usp_get_callback(
 
 /// URLSearchParams.set() callback
 fn usp_set_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1331,7 +1340,7 @@ fn usp_set_callback(
 
 /// URLSearchParams.has() callback
 fn usp_has_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1367,7 +1376,7 @@ fn usp_has_callback(
 
 /// URLSearchParams.delete() callback
 fn usp_delete_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1398,7 +1407,7 @@ fn usp_delete_callback(
 
 /// URLSearchParams.toString() callback
 fn usp_tostring_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1432,7 +1441,7 @@ fn usp_tostring_callback(
 
 /// Headers constructor implementation (simplified v1)
 fn headers_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1493,7 +1502,7 @@ fn headers_constructor(
 
 /// Callback for Headers.get() method
 fn headers_get_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1528,7 +1537,7 @@ fn headers_get_callback(
 
 /// Callback for Headers.set() method (version for Headers object)
 fn headers_set_callback_v2(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -1557,7 +1566,7 @@ fn headers_set_callback_v2(
 
 /// Callback for Headers.forEach() method
 fn headers_foreach_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -1601,7 +1610,7 @@ fn headers_foreach_callback(
 
 /// crypto.subtle.generateKey()
 fn subtle_generate_key(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -1743,7 +1752,7 @@ fn subtle_generate_key(
 
 /// Create a JavaScript CryptoKey object from a Rust CryptoKey
 fn create_crypto_key_js<'s>(
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinnedRef<v8::HandleScope<'s>>,
     key: crate::runtime::crypto::CryptoKey,
 ) -> Option<v8::Local<'s, v8::Object>> {
     let obj = v8::Object::new(scope);
@@ -1790,7 +1799,7 @@ fn create_crypto_key_js<'s>(
 
 /// Create a JavaScript algorithm object from an AlgorithmIdentifier
 fn create_algorithm_js<'s>(
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinnedRef<v8::HandleScope<'s>>,
     algorithm: &crate::runtime::crypto::AlgorithmIdentifier,
 ) -> Option<v8::Local<'s, v8::Object>> {
     let obj = v8::Object::new(scope);
@@ -1876,7 +1885,7 @@ fn create_algorithm_js<'s>(
 
 /// crypto.subtle.importKey()
 fn subtle_import_key(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2003,7 +2012,7 @@ fn subtle_import_key(
 
 /// crypto.subtle.exportKey()
 fn subtle_export_key(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2084,7 +2093,7 @@ fn subtle_export_key(
 
 /// crypto.subtle.encrypt()
 fn subtle_encrypt(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2211,7 +2220,7 @@ fn subtle_encrypt(
 
 /// crypto.subtle.decrypt()
 fn subtle_decrypt(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2336,7 +2345,7 @@ fn subtle_decrypt(
 
 /// Extract a CryptoKey from a JavaScript CryptoKey object
 fn extract_crypto_key(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     obj: v8::Local<v8::Object>,
 ) -> Option<crate::runtime::crypto::CryptoKey> {
     let external_key = v8::String::new(scope, "__crypto_key_ptr__")?;
@@ -2355,7 +2364,7 @@ fn extract_crypto_key(
 
 /// Extract bytes from an ArrayBufferView (Uint8Array, etc.)
 fn extract_array_buffer_view(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     value: v8::Local<v8::Value>,
 ) -> Option<Vec<u8>> {
     if let Some(uint8array) = value
@@ -2394,7 +2403,7 @@ fn extract_array_buffer_view(
 
 /// crypto.subtle.sign()
 fn subtle_sign(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2469,7 +2478,7 @@ fn subtle_sign(
 
 /// crypto.subtle.verify()
 fn subtle_verify(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2552,7 +2561,7 @@ fn subtle_verify(
 /// Arguments: algorithm (string), data (ArrayBufferView)
 /// Returns: Promise<ArrayBuffer> containing the hash
 fn subtle_digest(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2622,7 +2631,7 @@ fn subtle_digest(
 
 /// Timer callback for setTimeout
 fn set_timeout_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2646,7 +2655,7 @@ fn set_timeout_callback(
 
 /// Timer callback for setInterval
 fn set_interval_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2657,7 +2666,7 @@ fn set_interval_callback(
 
 /// Timer callback for clearTimeout
 fn clear_timeout_callback(
-    _scope: &mut v8::HandleScope,
+    _scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -2666,7 +2675,7 @@ fn clear_timeout_callback(
 
 /// Timer callback for clearInterval
 fn clear_interval_callback(
-    _scope: &mut v8::HandleScope,
+    _scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -2675,7 +2684,7 @@ fn clear_interval_callback(
 
 /// Buffer constructor callback
 fn buffer_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2705,7 +2714,7 @@ fn buffer_constructor(
 
 /// Helper to add toString method to a Uint8Array instance for Buffer compatibility
 fn add_buffer_tostring_to_instance(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     obj: v8::Local<v8::Object>,
 ) {
     // Create the toString function
@@ -2718,7 +2727,7 @@ fn add_buffer_tostring_to_instance(
 
 /// Buffer.from() static method
 fn buffer_from_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2784,7 +2793,7 @@ fn buffer_from_callback(
 
 /// Buffer.alloc() static method
 fn buffer_alloc_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -2826,7 +2835,7 @@ fn buffer_alloc_callback(
 
 /// Buffer.prototype.toString() callback - decodes buffer to UTF-8 string
 fn buffer_tostring_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {

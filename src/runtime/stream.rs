@@ -65,7 +65,7 @@ impl Default for StreamResourceTable {
 }
 
 /// Bind ReadableStream and related APIs to the global scope
-pub fn bind_streams(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+pub fn bind_streams(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
     let global = context.global(scope);
 
     // Create ReadableStream constructor
@@ -166,7 +166,7 @@ pub fn bind_streams(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>
 // ============== ReadableStream JavaScript Bindings ==============
 
 fn readable_stream_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -188,7 +188,7 @@ fn readable_stream_constructor(
 }
 
 fn readable_stream_get_reader(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -210,7 +210,7 @@ fn readable_stream_get_reader(
 }
 
 fn readable_stream_default_reader_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -227,7 +227,7 @@ fn readable_stream_default_reader_constructor(
 }
 
 fn reader_read_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -245,7 +245,7 @@ fn reader_read_callback(
 }
 
 fn reader_release_lock_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -255,7 +255,7 @@ fn reader_release_lock_callback(
 // ============== WritableStream JavaScript Bindings ==============
 
 fn writable_stream_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -272,7 +272,7 @@ fn writable_stream_constructor(
 }
 
 fn writable_stream_get_writer(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -294,7 +294,7 @@ fn writable_stream_get_writer(
 }
 
 fn writable_stream_default_writer_constructor(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -311,7 +311,7 @@ fn writable_stream_default_writer_constructor(
 }
 
 fn writer_write_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -333,7 +333,7 @@ fn writer_write_callback(
 }
 
 fn writer_close_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -355,7 +355,7 @@ fn writer_close_callback(
 }
 
 fn writer_release_lock_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {

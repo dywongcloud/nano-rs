@@ -118,18 +118,24 @@ impl DiskBackend {
 
     /// Convert a VfsPath to a filesystem path
     ///
-    /// Format: `{base}/{sanitized_namespace}/{path}`
+    /// Format: `{base}/{sanitized_namespace}/{path}` or `{base}/{path}` if no namespace
     fn to_filesystem_path(&self, path: &VfsPath) -> PathBuf {
         let path_str = path.as_str();
 
-        // Split namespace from path (format: "namespace::path")
+        // Split namespace from path (format: "namespace::path" or just "path" if no namespace)
         let (namespace, subpath) = match path_str.find("::") {
             Some(idx) => (&path_str[..idx], &path_str[idx + 2..]),
-            None => ("default", path_str),
+            None => ("", path_str),  // Empty namespace means no namespace prefix
         };
 
-        let sanitized_ns = Self::sanitize_namespace(namespace);
-        let mut fs_path = self.base_path.join(sanitized_ns);
+        let mut fs_path = if namespace.is_empty() {
+            // No namespace - path maps directly to base_path
+            self.base_path.clone()
+        } else {
+            // Has namespace - include sanitized namespace in path
+            let sanitized_ns = Self::sanitize_namespace(namespace);
+            self.base_path.join(sanitized_ns)
+        };
 
         // Append the subpath components
         if !subpath.is_empty() {

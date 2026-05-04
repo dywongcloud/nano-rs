@@ -17,7 +17,7 @@ pub struct WebAssemblyAPI;
 
 impl WebAssemblyAPI {
     /// Bind WebAssembly global to context
-    pub fn bind(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+    pub fn bind(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         // V8 already has WebAssembly built-in
         // We just need to ensure it's accessible on the global object
         // The native WebAssembly object is added by V8 automatically
@@ -34,7 +34,7 @@ impl WebAssemblyAPI {
             let wasm_obj = v8::Object::new(scope);
             
             // Create stub compile function
-            let compile_stub = v8::FunctionTemplate::new(scope, |scope: &mut v8::HandleScope, 
+            let compile_stub = v8::FunctionTemplate::new(scope, |scope: &mut v8::PinnedRef<v8::HandleScope>, 
                 _args: v8::FunctionCallbackArguments, 
                 mut _retval: v8::ReturnValue| {
                 let msg = v8::String::new(scope, "WebAssembly.compile is not available").unwrap();
@@ -46,7 +46,7 @@ impl WebAssemblyAPI {
             wasm_obj.set(scope, compile_name.into(), compile_fn.into());
             
             // Create stub instantiate function
-            let instantiate_stub = v8::FunctionTemplate::new(scope, |scope: &mut v8::HandleScope,
+            let instantiate_stub = v8::FunctionTemplate::new(scope, |scope: &mut v8::PinnedRef<v8::HandleScope>,
                 _args: v8::FunctionCallbackArguments,
                 mut _retval: v8::ReturnValue| {
                 let msg = v8::String::new(scope, "WebAssembly.instantiate is not available").unwrap();
@@ -82,7 +82,7 @@ impl WebAssemblyAPI {
 
 /// WebAssembly.validate() callback implementation
 fn wasm_validate_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {

@@ -57,7 +57,7 @@ where
 
 /// Helper to extract string argument from V8 callback
 fn extract_string_arg(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: &v8::FunctionCallbackArguments,
     index: i32,
 ) -> Option<String> {
@@ -71,7 +71,7 @@ fn extract_string_arg(
 
 /// Helper to extract bytes from V8 argument
 fn extract_bytes_arg(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: &v8::FunctionCallbackArguments,
     index: i32,
 ) -> Option<Vec<u8>> {
@@ -168,7 +168,7 @@ macro_rules! create_error_obj {
 /// and binds it to the global scope as both:
 /// - A global `require` function that can resolve 'fs'
 /// - Direct access via global._nano_fs for internal use
-pub fn bind_fs_polyfill(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+pub fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
     let global = context.global(scope);
 
     // Create the fs module object and immediately convert to Global to avoid lifetime issues
@@ -248,7 +248,7 @@ pub fn bind_fs_polyfill(scope: &mut v8::HandleScope, context: v8::Local<v8::Cont
 ///
 /// Currently only supports 'fs' module. Returns the fs polyfill.
 fn require_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -293,7 +293,7 @@ fn require_callback(
 /// Reads the entire contents of a file synchronously.
 /// Returns a Uint8Array (Buffer-like) containing the file contents.
 fn fs_read_file_sync(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -372,7 +372,7 @@ fn fs_read_file_sync(
 ///
 /// Writes data to a file synchronously.
 fn fs_write_file_sync(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -419,7 +419,7 @@ fn fs_write_file_sync(
 ///
 /// Returns true if the file exists, false otherwise.
 fn fs_exists_sync(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -459,7 +459,7 @@ fn fs_exists_sync(
 ///
 /// Deletes a file synchronously.
 fn fs_unlink_sync(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -498,7 +498,7 @@ fn fs_unlink_sync(
 ///
 /// Asynchronously reads the entire contents of a file.
 fn fs_read_file(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -576,7 +576,7 @@ fn fs_read_file(
 ///
 /// Asynchronously writes data to a file.
 fn fs_write_file(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -646,7 +646,7 @@ fn fs_write_file(
 ///
 /// Asynchronously test whether a file exists.
 fn fs_exists(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -703,7 +703,7 @@ fn fs_exists(
 ///
 /// Asynchronously delete a file.
 fn fs_unlink(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {

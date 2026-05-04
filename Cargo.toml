@@ -20,7 +20,7 @@ path = "tools/cve_scanner.rs"
 
 [dependencies]
 # Core V8 bindings (v139 - conservative upgrade from v137)
-v8 = "139"
+v8 = "147"
 
 # Async runtime
 tokio = { version = "1.52", features = ["full"] }

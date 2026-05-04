@@ -46,7 +46,7 @@ where
 ///
 /// This creates the `Nano` global object with an `fs` property containing
 /// all VFS methods. Each method returns a Promise for async operations.
-pub fn bind_nano_fs(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+pub fn bind_nano_fs(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
     let global = context.global(scope);
 
     // Create Nano object
@@ -102,7 +102,7 @@ pub fn bind_nano_fs(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>
 
 /// Helper to extract string argument from V8 callback
 fn extract_string_arg(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: &v8::FunctionCallbackArguments,
     index: i32,
 ) -> Option<String> {
@@ -116,7 +116,7 @@ fn extract_string_arg(
 
 /// Helper to extract bytes from V8 argument (string, Uint8Array, or ArrayBuffer)
 fn extract_bytes_arg(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: &v8::FunctionCallbackArguments,
     index: i32,
 ) -> Option<Vec<u8>> {
@@ -184,7 +184,7 @@ fn throw_vfs_error(scope: &mut v8::HandleScope, error: &VfsError) {
 ///
 /// Returns Uint8Array containing file contents (or string if encoding specified), or throws on error
 fn nano_fs_read_file_sync(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -252,7 +252,7 @@ fn nano_fs_read_file_sync(
 ///
 /// Writes data to file, throws on error
 fn nano_fs_write_file_sync(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -300,7 +300,7 @@ fn nano_fs_write_file_sync(
 ///
 /// Returns boolean indicating if file exists
 fn nano_fs_exists_sync(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -343,7 +343,7 @@ fn nano_fs_exists_sync(
 ///
 /// Deletes file, throws on error
 fn nano_fs_delete_sync(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
@@ -381,7 +381,7 @@ fn nano_fs_delete_sync(
 ///
 /// Returns a Promise that resolves to Uint8Array containing file contents
 fn nano_fs_read_file(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -468,7 +468,7 @@ fn nano_fs_read_file(
 ///
 /// Returns a Promise that resolves when write completes
 fn nano_fs_write_file(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {

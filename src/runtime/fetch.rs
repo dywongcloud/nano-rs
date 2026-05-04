@@ -113,7 +113,7 @@ where
 /// Bind fetch() to the global scope
 ///
 /// This creates the global fetch() function that JavaScript can call.
-pub fn bind_fetch(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
+pub fn bind_fetch(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
     // Initialize fetch state for this thread
     if let Err(e) = init_fetch_state() {
         tracing::error!("Failed to initialize fetch state: {}", e);
@@ -160,7 +160,7 @@ impl ResponseBodyData {
 
 /// V8 callback for fetch() function
 fn fetch_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -415,7 +415,7 @@ fn fetch_callback(
 
 /// Helper to get response data from JavaScript object
 pub(crate) fn get_response_data(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     this: v8::Local<v8::Object>,
 ) -> Option<&'static ResponseBodyData> {
     let external_key = v8::String::new(scope, "__response_data").unwrap();
@@ -431,7 +431,7 @@ pub(crate) fn get_response_data(
 
 /// Callback for Response.text()
 pub fn response_text_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -463,7 +463,7 @@ pub fn response_text_callback(
 
 /// Callback for Response.json()
 pub fn response_json_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -503,7 +503,7 @@ pub fn response_json_callback(
 
 /// Callback for Response.arrayBuffer()
 pub fn response_arraybuffer_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
@@ -538,7 +538,7 @@ pub fn response_arraybuffer_callback(
 }
 
 /// Reject with an error
-fn reject_with_error(scope: &mut v8::HandleScope, retval: &mut v8::ReturnValue, message: &str) {
+fn reject_with_error(scope: &mut v8::PinnedRef<v8::HandleScope>, retval: &mut v8::ReturnValue, message: &str) {
     let error_msg = v8::String::new(scope, message).unwrap();
     let error = v8::Exception::type_error(scope, error_msg);
     retval.set(error);
@@ -550,7 +550,7 @@ fn reject_with_error(scope: &mut v8::HandleScope, retval: &mut v8::ReturnValue, 
 /// - data: any JavaScript value (will be JSON.stringified)
 /// - options: optional { status, headers }
 pub fn response_json_static_callback(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {

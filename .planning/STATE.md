@@ -14,7 +14,12 @@
 **Milestone Goal:** Fix all test infrastructure discrepancies, achieve TRUE 100% test pass rate
 
 **Critical Context from TEST_CLAIMS_AUDIT.md:**
-- WASM async execution: Claims 100%, actually 0% (returns "Promise still pending")
+- **WASM execution: Claims 100%, actually NOT WORKING (V8 limitation, not async loop)**
+  - Investigation (2026-05-04) proved bytes are preserved perfectly through all layers
+  - `WasmModuleObject::compile()` (native V8 API) returns `None`
+  - `WebAssembly.compile()` rejects with "section was shorter than expected"
+  - Root cause: V8 in rusty_v9 v139 cannot compile WASM modules (likely build config)
+  - See: `docs/WASM_INVESTIGATION_SUMMARY.md`
 - Test count: Claims 981, actual ~227 (4.3x inflated)
 - Missing tests: CRUD (6), Performance (4), Edge Cases (10) — claimed but don't exist
 - WebCrypto: Claims 100%, actually 75% (missing RSA, ECDSA, deriveKey)
@@ -51,7 +56,7 @@
 
 | Metric | Claimed | Actual | Gap |
 |--------|---------|--------|-----|
-| WASM execution | 100% (4/4) | 0% (always pending) | ❌ 100% |
+| **WASM execution | 100% (4/4) | NOT WORKING (V8 limitation) | ❌ 100%** |
 | Test count | 981 | ~227 | ❌ 4.3x inflation |
 | CRUD tests | 6/6 passing | 0 exist | ❌ 100% missing |
 | Performance tests | 4/4 passing | 0 exist | ❌ 100% missing |
@@ -77,9 +82,13 @@
 
 ### Decisions Made
 
-1. **WASM Async Event Loop Priority:** P0 — Blocks all WASM testing
-   - "Promise still pending" must be fixed before any WASM tests can pass
-   - Microtask checkpoints need V8/Tokio integration
+1. **WASM Investigation COMPLETE (2026-05-04):** NOT an async loop issue
+   - **Finding:** V8 in rusty_v8 v139 cannot compile WASM modules
+   - Bytes preserved perfectly (6 debug tests passing)
+   - `WasmModuleObject::compile()` returns `None` (native V8 API)
+   - Likely V8 build configuration issue, not nano-rs code
+   - Decision: Document as known V8 limitation, investigate wasmtime alternative
+   - See: `docs/WASM_INVESTIGATION_SUMMARY.md`
 
 2. **Test Count Accuracy:** P0 — Must fix inflated claims
    - Update all docs (README, PROJECT, COMPATIBILITY) with accurate ~227 count
@@ -101,9 +110,14 @@
 
 ### Todos (High Priority)
 
-- [ ] Plan Phase 28: WASM Async Event Loop
-- [ ] Research V8 microtask checkpoint integration
-- [ ] Research Tokio/V8 async integration patterns
+- [x] **WASM Investigation COMPLETE:** V8 v139 limitation identified, not async loop
+  - 6 debug tests prove bytes preserved perfectly through all layers
+  - `WasmModuleObject::compile()` returns `None` (native V8 API failure)
+  - v146+ has `WasmModuleCompilation` API that could fix issue
+  - See: `docs/WASM_INVESTIGATION_SUMMARY.md` and `docs/V8_UPGRADE_ANALYSIS.md`
+- [ ] **WASM Decision:** Evaluate v146 upgrade path (requires dependency updates)
+- [ ] **WASM Documentation:** Update claims to reflect V8 v139 limitation
+- [ ] Plan Phase 28: Remove WASM focus (issue is V8, not async loop)
 - [ ] Create test plan for CRUD operations
 - [ ] Create test plan for Performance benchmarks
 - [ ] Create test plan for Edge Cases
@@ -119,7 +133,11 @@ From previous phases (documented, intentional):
 - ESM Module Execution: Transformation approach (works, documented)
 
 New technical debt (to be fixed in v1.5):
-- WASM async execution: No event loop integration (being fixed in Phase 28)
+- **WASM execution: V8 in rusty_v8 v139 cannot compile WASM modules** 
+  - Not an async loop issue (bytes preserved perfectly, 6 debug tests passing)
+  - `WasmModuleObject::compile()` returns `None`
+  - Likely V8 build configuration issue in rusty_v8
+  - Workaround needed: use wasmtime or update rusty_v8 version
 - Inflated test claims: Being corrected in Phases 29-34
 
 ---
@@ -170,7 +188,7 @@ New technical debt (to be fixed in v1.5):
 
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| V8 async integration complex | High | High | Research before Phase 28, have fallback plan |
+| **V8 WASM limitation can't be fixed** | High | High | Document honestly, evaluate wasmtime alternative |
 | Missing tests reveal more bugs | Medium | Medium | Budget extra time for fixes in Phase 28-29 |
 | WebCrypto algorithms complex | Medium | Medium | Document as 75% if not completed |
 | Test count updates break CI | Low | Low | Update incrementally, verify each step |
@@ -181,10 +199,14 @@ New technical debt (to be fixed in v1.5):
 ## Key Files
 
 - `docs/TEST_CLAIMS_AUDIT.md` — Full audit findings and evidence
+- `docs/WASM_INVESTIGATION_SUMMARY.md` — WASM investigation results (V8 limitation identified)
+- `docs/WASM_DEBUG_ANALYSIS.md` — Technical analysis of WASM byte preservation
+- `docs/V8_UPGRADE_ANALYSIS.md` — V8 v146+ upgrade path analysis (has WASM fixes)
+- `tests/wasm_binary_debug_test.rs` — 8 tests proving bytes preserved, V8 compile fails
 - `.planning/REQUIREMENTS-v1.5.md` — 26 requirements for this milestone
 - `.planning/ROADMAP.md` — Phases 28-34 for v1.5
 - `.planning/PROJECT.md` — Updated with v1.5 milestone and honest limitations
 
 ---
 
-*Last updated: 2026-05-03 — v1.5 milestone initialized, ready for Phase 28 planning*
+*Last updated: 2026-05-04 — WASM investigation complete: V8 v139 limitation, v146+ has potential fix*
