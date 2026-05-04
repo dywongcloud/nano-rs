@@ -1,4 +1,4 @@
-//! ESM Module Loader for V8 Module API
+//! ESM Module Loader for V8 Module API (v147 Compatible)
 //!
 //! This module provides the infrastructure for executing ECMAScript Modules (ESM)
 //! using V8's Module API instead of the classic Script API. This enables proper
@@ -6,6 +6,13 @@
 //!
 //! The module loader integrates with the VFS for resolving relative imports
 //! within the isolate's namespace.
+//!
+//! # V147 API Changes
+//!
+//! In v147:
+//! - ContextScope requires 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
+//! - ContextScope implements Deref/DerefMut to PinnedRef<HandleScope>
+//! - When passing scope to V8 APIs, use `&**scope` to dereference through the ContextScope
 
 use crate::http::NanoResponse;
 use crate::http::v8_bridge::serialize_request_to_json;
@@ -219,13 +226,20 @@ impl ModuleLoader {
 /// accordingly.
 ///
 /// # Arguments
-/// * `scope` - The V8 context scope
+/// * `scope` - The V8 context scope (v147: ContextScope with 2 lifetimes)
 /// * `v8_context` - The V8 context to execute in
 /// * `code` - The JavaScript code to execute
 /// * `entrypoint` - The path to the entrypoint (for import resolution)
 /// * `handler_ctx` - The handler context with request information
+///
+/// # V147 API Note
+/// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
+/// When calling V8 APIs, use `&**scope` to dereference through the ContextScope to the PinnedRef.
+/// 
+/// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
+/// to `HandleScope<'a, Context>`. The type parameter reflects this.
 pub fn execute_esm_or_script<'a>(
-    scope: &'a mut v8::ContextScope<'a, v8::HandleScope<'a>>,
+    scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
     v8_context: v8::Local<'a, v8::Context>,
     code: &str,
     entrypoint: &str,
@@ -245,8 +259,15 @@ pub fn execute_esm_or_script<'a>(
 ///
 /// This provides backward compatibility for existing handlers that
 /// don't use ESM syntax.
+///
+/// # V147 API Note
+/// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
+/// When calling V8 APIs, use `&**scope` to dereference through the ContextScope.
+/// 
+/// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
+/// to `HandleScope<'a, Context>`.
 pub fn execute_classic_script<'a>(
-    scope: &'a mut v8::ContextScope<'a, v8::HandleScope<'a>>,
+    scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
     v8_context: v8::Local<'a, v8::Context>,
     code: &str,
     handler_ctx: &HandlerContext,
@@ -255,16 +276,17 @@ pub fn execute_classic_script<'a>(
     let transformed_code = transform_module_code(code);
 
     // Compile and run script to define fetch function
-    let code_str = v8::String::new(scope, &transformed_code)
+    // v147 API: Dereference ContextScope to get PinnedRef via &**scope
+    let code_str = v8::String::new(&**scope, &transformed_code)
         .ok_or_else(|| anyhow!("Failed to create code string"))?;
-    let script = v8::Script::compile(scope, code_str, None)
+    let script = v8::Script::compile(&**scope, code_str, None)
         .ok_or_else(|| anyhow!("Script compilation failed"))?;
-    script.run(scope);
+    script.run(&**scope);
 
     // Get global and look for fetch function
-    let global = v8_context.global(scope);
-    let fetch_key = v8::String::new(scope, "fetch").unwrap();
-    let fetch_val = match global.get(scope, fetch_key.into()) {
+    let global = v8_context.global(&**scope);
+    let fetch_key = v8::String::new(&**scope, "fetch").unwrap();
+    let fetch_val = match global.get(&**scope, fetch_key.into()) {
         Some(val) => val,
         None => {
             return Ok(NanoResponse::ok()
@@ -282,26 +304,26 @@ pub fn execute_classic_script<'a>(
 
     // Create request object using full WinterCG serialization
     let request_json = serialize_request_to_json(&handler_ctx.request);
-    let request_str = v8::String::new(scope, &request_json)
+    let request_str = v8::String::new(&**scope, &request_json)
         .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
 
     // Parse JSON to create proper JS object
-    let json_key = v8::String::new(scope, "JSON").unwrap();
-    let json_val = global.get(scope, json_key.into())
+    let json_key = v8::String::new(&**scope, "JSON").unwrap();
+    let json_val = global.get(&**scope, json_key.into())
         .ok_or_else(|| anyhow!("JSON not found"))?;
-    let json_obj = json_val.to_object(scope)
+    let json_obj = json_val.to_object(&**scope)
         .ok_or_else(|| anyhow!("JSON is not an object"))?;
-    let parse_key = v8::String::new(scope, "parse").unwrap();
-    let parse_val = json_obj.get(scope, parse_key.into())
+    let parse_key = v8::String::new(&**scope, "parse").unwrap();
+    let parse_val = json_obj.get(&**scope, parse_key.into())
         .filter(|v| v.is_function())
         .ok_or_else(|| anyhow!("JSON.parse not found or not a function"))?;
     let parse_fn = parse_val.cast::<v8::Function>();
 
-    let js_request = parse_fn.call(scope, json_val.into(), &[request_str.into()])
+    let js_request = parse_fn.call(&**scope, json_val.into(), &[request_str.into()])
         .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
 
     // Call fetch function with parsed JS object
-    let result = fetch_fn.call(scope, global.into(), &[js_request.into()]);
+    let result = fetch_fn.call(&**scope, global.into(), &[js_request.into()]);
 
     // Perform microtask checkpoint to resolve any Promises
     scope.perform_microtask_checkpoint();
@@ -325,8 +347,7 @@ pub fn execute_classic_script<'a>(
     // Extract response
     match resolved {
         Some(response) => {
-            let nested_scope = &mut *scope;
-            extract_js_response(nested_scope, response)
+            extract_js_response(scope, response)
         }
         None => Err(anyhow!("Handler returned None")),
     }
@@ -353,23 +374,32 @@ pub fn transform_module_code(code: &str) -> String {
 }
 
 /// Extract a NanoResponse from a V8 JavaScript object
+///
+/// # V147 API Note
+/// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
+/// When calling V8 APIs, use `&**scope` to dereference through the ContextScope.
+/// 
+/// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
+/// to `HandleScope<'a, Context>`.
 fn extract_js_response<'s>(
-    scope: &'s mut v8::ContextScope<'s, v8::HandleScope<'s>>,
+    scope: &mut v8::ContextScope<'s, 's, v8::HandleScope<'s, v8::Context>>,
     js_response: v8::Local<'s, v8::Value>,
 ) -> Result<NanoResponse> {
     use crate::http::NanoHeaders;
     use bytes::Bytes;
 
+    // v147 API: Dereference ContextScope to get PinnedRef via &**scope
+
     // Verify the response is an object
-    let obj = match js_response.to_object(scope) {
+    let obj = match js_response.to_object(&**scope) {
         Some(o) => o,
         None => return Err(anyhow!("Response is not an object")),
     };
 
     // Extract status property (default to 200)
-    let status_key = v8::String::new(scope, "status").unwrap();
-    let status = match obj.get(scope, status_key.into()) {
-        Some(val) if !val.is_null() && !val.is_undefined() => match val.to_integer(scope) {
+    let status_key = v8::String::new(&**scope, "status").unwrap();
+    let status = match obj.get(&**scope, status_key.into()) {
+        Some(val) if !val.is_null() && !val.is_undefined() => match val.to_integer(&**scope) {
             Some(int) => int.value() as u16,
             None => 200,
         },
@@ -378,24 +408,24 @@ fn extract_js_response<'s>(
 
     // Extract headers property
     let mut nano_headers = NanoHeaders::new();
-    let headers_key = v8::String::new(scope, "headers").unwrap();
+    let headers_key = v8::String::new(&**scope, "headers").unwrap();
 
-    if let Some(headers_val) = obj.get(scope, headers_key.into()) {
-        if let Some(headers_obj) = headers_val.to_object(scope) {
+    if let Some(headers_val) = obj.get(&**scope, headers_key.into()) {
+        if let Some(headers_obj) = headers_val.to_object(&**scope) {
             // Headers may be stored internally in __headers__ property (for Headers class instances)
             // or directly on the object (for plain objects used by Response)
-            let internal_headers_key = v8::String::new(scope, "__headers__").unwrap();
+            let internal_headers_key = v8::String::new(&**scope, "__headers__").unwrap();
             let headers_source = headers_obj
-                .get(scope, internal_headers_key.into())
-                .and_then(|v| v.to_object(scope))
+                .get(&**scope, internal_headers_key.into())
+                .and_then(|v| v.to_object(&**scope))
                 .unwrap_or(headers_obj);
 
-            if let Some(names) = headers_source.get_own_property_names(scope, Default::default()) {
+            if let Some(names) = headers_source.get_own_property_names(&**scope, Default::default()) {
                 let len = names.length();
                 for i in 0..len {
-                    if let Some(key) = names.get_index(scope, i) {
-                        if let Some(key_str) = key.to_string(scope) {
-                            let key_name = key_str.to_rust_string_lossy(scope);
+                    if let Some(key) = names.get_index(&**scope, i) {
+                        if let Some(key_str) = key.to_string(&**scope) {
+                            let key_name = key_str.to_rust_string_lossy(&**scope);
                             // Skip internal properties and methods (functions)
                             if key_name.starts_with("__")
                                 || key_name == "set"
@@ -404,11 +434,11 @@ fn extract_js_response<'s>(
                             {
                                 continue;
                             }
-                            if let Some(value) = headers_source.get(scope, key.into()) {
+                            if let Some(value) = headers_source.get(&**scope, key.into()) {
                                 // Only include string values (not functions)
                                 if !value.is_function() {
-                                    if let Some(value_str) = value.to_string(scope) {
-                                        let value_string = value_str.to_rust_string_lossy(scope);
+                                    if let Some(value_str) = value.to_string(&**scope) {
+                                        let value_string = value_str.to_rust_string_lossy(&**scope);
                                         nano_headers.set(&key_name, &value_string);
                                     }
                                 }
@@ -421,10 +451,10 @@ fn extract_js_response<'s>(
     }
 
     // Extract body property
-    let body_key = v8::String::new(scope, "body").unwrap();
-    let body = match obj.get(scope, body_key.into()) {
-        Some(val) if !val.is_null() && !val.is_undefined() => match val.to_string(scope) {
-            Some(s) => Some(Bytes::from(s.to_rust_string_lossy(scope))),
+    let body_key = v8::String::new(&**scope, "body").unwrap();
+    let body = match obj.get(&**scope, body_key.into()) {
+        Some(val) if !val.is_null() && !val.is_undefined() => match val.to_string(&**scope) {
+            Some(s) => Some(Bytes::from(s.to_rust_string_lossy(&**scope))),
             None => None,
         },
         _ => None,
@@ -437,18 +467,27 @@ fn extract_js_response<'s>(
 ///
 /// Uses V8's Module API to compile and execute the module with proper
 /// import resolution.
+///
+/// # V147 API Note
+/// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
+/// When calling V8 APIs, use `&**scope` to dereference through the ContextScope.
+/// 
+/// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
+/// to `HandleScope<'a, Context>`.
 fn execute_esm_module<'a>(
-    scope: &'a mut v8::ContextScope<'a, v8::HandleScope<'a>>,
+    scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
     _v8_context: v8::Local<'a, v8::Context>,
     code: &str,
     entrypoint: &str,
     handler_ctx: &HandlerContext,
 ) -> Result<NanoResponse> {
+    // v147 API: Dereference ContextScope to get PinnedRef via &**scope
+
     // Create module origin
-    let resource_name = v8::String::new(scope, entrypoint).unwrap();
-    let source_map_url: Option<v8::Local<v8::Value>> = Some(v8::undefined(scope).into());
+    let resource_name = v8::String::new(&**scope, entrypoint).unwrap();
+    let source_map_url: Option<v8::Local<v8::Value>> = Some(v8::undefined(&**scope).into());
     let origin = v8::ScriptOrigin::new(
-        scope,
+        &**scope,
         resource_name.into(),
         0,      // line offset
         0,      // column offset
@@ -462,12 +501,12 @@ fn execute_esm_module<'a>(
     );
 
     // Create source
-    let code_str = v8::String::new(scope, code)
+    let code_str = v8::String::new(&**scope, code)
         .ok_or_else(|| anyhow!("Failed to create code string"))?;
     let mut source = v8::script_compiler::Source::new(code_str, Some(&origin));
 
     // Compile module
-    let module = v8::script_compiler::compile_module(scope, &mut source)
+    let module = v8::script_compiler::compile_module(&**scope, &mut source)
         .ok_or_else(|| anyhow!("Module compilation failed"))?;
 
     // Create module loader for import resolution
@@ -630,6 +669,9 @@ fn execute_esm_module<'a>(
 ///
 /// The signature matches V8's ResolveModuleCallback which is automatically
 /// converted via MapFnFrom trait.
+///
+/// # V147 API Note
+/// CallbackScope uses the same pin! + init() pattern as HandleScope.
 fn module_resolve_callback<'a>(
     context: v8::Local<'a, v8::Context>,
     specifier: v8::Local<'a, v8::String>,
@@ -645,8 +687,13 @@ fn module_resolve_callback<'a>(
     let loader = unsafe { &mut *loader_ptr };
 
     // Convert specifier to Rust string
-    let scope = &mut unsafe { v8::CallbackScope::new(context) };
-    let specifier_str = specifier.to_rust_string_lossy(scope);
+    // v147 API: CallbackScope uses pin! + init() pattern
+    let callback_scope = unsafe { v8::CallbackScope::new(context) };
+    let mut callback_scope = std::pin::pin!(callback_scope);
+    let callback_scope = callback_scope.init();
+    // v147 API: to_rust_string_lossy expects &Isolate, get via Deref from PinnedRef
+    // Note: CallbackScope derefs to PinnedRef<HandleScope>, which derefs to Isolate
+    let specifier_str = specifier.to_rust_string_lossy(&**callback_scope);
 
     // Resolve the import path
     // We need to determine the base path - for now, use a placeholder
@@ -663,8 +710,10 @@ fn module_resolve_callback<'a>(
     }
 
     // Check cache
+    // v147 API: v8::Local::new expects &PinnedRef<HandleScope>
+    // Note: CallbackScope derefs to PinnedRef<HandleScope>, which is compatible
     if let Some(cached) = loader.get_cached(&resolved_path) {
-        return Some(v8::Local::new(scope, &cached));
+        return Some(v8::Local::new(&*callback_scope, &cached));
     }
 
     // Load module from VFS
@@ -677,10 +726,12 @@ fn module_resolve_callback<'a>(
     loader.push_loading(&resolved_path);
 
     // Create origin for the module
-    let resource_name = v8::String::new(scope, &resolved_path).unwrap();
-    let source_map_url: Option<v8::Local<v8::Value>> = Some(v8::undefined(scope).into());
+    // v147 API: All V8 APIs that expect &PinnedRef<HandleScope> work with CallbackScope
+    // via Deref (CallbackScope -> PinnedRef<HandleScope>)
+    let resource_name = v8::String::new(&*callback_scope, &resolved_path).unwrap();
+    let source_map_url: Option<v8::Local<v8::Value>> = Some(v8::undefined(&*callback_scope).into());
     let origin = v8::ScriptOrigin::new(
-        scope,
+        &*callback_scope,
         resource_name.into(),
         0,
         0,
@@ -694,7 +745,7 @@ fn module_resolve_callback<'a>(
     );
 
     // Create source
-    let code_str = match v8::String::new(scope, &code) {
+    let code_str = match v8::String::new(&*callback_scope, &code) {
         Some(s) => s,
         None => {
             loader.pop_loading();
@@ -704,7 +755,8 @@ fn module_resolve_callback<'a>(
     let mut source = v8::script_compiler::Source::new(code_str, Some(&origin));
 
     // Compile module
-    let module = match v8::script_compiler::compile_module(scope, &mut source) {
+    // v147 API: compile_module expects &PinnedRef<HandleScope>
+    let module = match v8::script_compiler::compile_module(&*callback_scope, &mut source) {
         Some(m) => m,
         None => {
             loader.pop_loading();
@@ -713,14 +765,16 @@ fn module_resolve_callback<'a>(
     };
 
     // Cache the module
-    let global_module = v8::Global::new(scope, module);
+    // v147 API: Global::new expects &Isolate (accessed via Deref from PinnedRef)
+    let global_module = v8::Global::new(&**callback_scope, module);
     loader.cache_module(&resolved_path, global_module.clone());
 
     // Pop from loading stack
     loader.pop_loading();
 
     // Return the module
-    Some(v8::Local::new(scope, &global_module))
+    // v147 API: v8::Local::new expects &PinnedRef<HandleScope>
+    Some(v8::Local::new(&*callback_scope, &global_module))
 }
 
 #[cfg(test)]

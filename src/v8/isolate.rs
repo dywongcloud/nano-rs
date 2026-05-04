@@ -68,6 +68,18 @@ pub struct NanoIsolate {
     vfs: IsolateVfs,
 }
 
+/// Callback to allow WebAssembly code generation
+///
+/// This callback is called by V8 when WebAssembly.compile() or
+/// WebAssembly.instantiate() is invoked. Returning true allows
+/// WASM code generation to proceed.
+unsafe extern "C" fn allow_wasm_code_generation(
+    _context: v8::Local<v8::Context>,
+    _source: v8::Local<v8::String>,
+) -> bool {
+    true
+}
+
 impl NanoIsolate {
     /// Create a new V8 isolate with the EPT fix sentinel and default VFS
     ///
@@ -127,15 +139,22 @@ impl NanoIsolate {
         // Create the isolate with default params - returns OwnedIsolate
         let mut isolate = v8::Isolate::new(Default::default());
 
+        // Enable WebAssembly code generation
+        // This callback allows WebAssembly.compile() and WebAssembly.instantiate()
+        // to work. Without this, WASM operations will fail.
+        isolate.set_allow_wasm_code_generation_callback(allow_wasm_code_generation);
+
         // Create the EPT fix sentinel
-        // We need a HandleScope temporarily to create the Global
+        // v147 API: Create HandleScope using pin! pattern, init to get PinnedRef
         let sentinel = {
-            let scope = &mut v8::HandleScope::new(&mut isolate);
+            let scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+            let scope = scope.init();
             // Create a Global holding undefined as a Value
-            // v8::undefined() returns a Primitive, we need to cast it to Value
-            let undefined = v8::undefined(scope);
+            // v8::undefined() takes &PinnedRef
+            let undefined = v8::undefined(&scope);
             let value: v8::Local<v8::Value> = undefined.into();
-            v8::Global::new(scope, value)
+            // Global::new needs &Isolate - PinnedRef derefs to Isolate via Deref
+            v8::Global::new(&*scope, value)
         };
         // HandleScope is dropped here, but sentinel survives (it's a Global)
 
@@ -255,11 +274,13 @@ impl NanoIsolate {
     /// // Execute scripts in the context...
     /// ```
     pub fn create_context(&mut self) -> v8::Local<'_, v8::Context> {
-        // Create a HandleScope for working with this isolate
-        let scope = &mut v8::HandleScope::new(&mut self.isolate);
+        // v147 API: Create HandleScope using pin! pattern, init to get PinnedRef
+        let scope = std::pin::pin!(v8::HandleScope::new(&mut self.isolate));
+        let scope = scope.init();
 
         // Create a context with default options
-        let context = v8::Context::new(scope, Default::default());
+        // v147 API: Context::new takes &PinnedRef
+        let context = v8::Context::new(&scope, Default::default());
 
         context
     }
@@ -345,23 +366,29 @@ impl NanoIsolate {
         
         // Create a default context for the snapshot
         // V8 requires a default context to be set before create_blob() can work
+        // v147 API: Use pin! pattern and init() for HandleScope, direct creation for ContextScope
         let sentinel = {
-            let handle_scope = &mut v8::HandleScope::new(&mut isolate);
-            
+            let handle_scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+            let mut handle_scope = handle_scope.init();
+
             // Create a default context
-            let context = v8::Context::new(handle_scope, Default::default());
-            
+            // v147 API: Context::new takes &PinnedRef
+            let context = v8::Context::new(&handle_scope, Default::default());
+
             // Enter the context and set it as default for snapshotting
-            let context_scope = &mut v8::ContextScope::new(handle_scope, context);
-            
+            // v147 API: ContextScope does NOT need pin! or init() - use directly
+            let mut context_scope = v8::ContextScope::new(&mut handle_scope, context);
+
             // Set as default context (required for snapshot creation)
             context_scope.set_default_context(context);
-            
+
             // Create the EPT fix sentinel within the context scope
-            let undefined = v8::undefined(context_scope);
+            // v147 API: v8::undefined takes &ContextScope (which derefs to scope)
+            let undefined = v8::undefined(&context_scope);
             let value: v8::Local<v8::Value> = undefined.into();
-            let sentinel = v8::Global::new(context_scope, value);
-            
+            // v147 API: Global::new takes &Isolate, PinnedRef derefs to Isolate via Deref
+            let sentinel = v8::Global::new(&*context_scope, value);
+
             sentinel
         };
         

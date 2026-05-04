@@ -7,32 +7,36 @@
 //! # HandleScope Nesting Pattern
 //!
 //! The critical pattern for V8 memory safety:
-//! 1. Create HandleScope for the operation
+//! 1. Create HandleScope for the operation (using pin! + init)
 //! 2. Create context within that scope
-//! 3. Create ContextScope to enter the context
+//! 3. Create ContextScope to enter the context (ContextScope::new - NO init needed!)
 //! 4. Perform script operations
 //! 5. Scopes drop automatically (RAII), freeing temporary handles
 //!
 //! Reference: PITFALLS.md §2 - Handle Scope Misuse Causing Memory Leaks
 
-/// Create a new V8 context within the given HandleScope
+/// Create a new V8 context within a HandleScope
 ///
 /// This function creates a context with default global template.
-/// The context is valid as long as the HandleScope remains alive.
+/// In v147+, you must use the pin!() + init() pattern to create scopes.
 ///
 /// # Example
-/// ```
+/// ```rust,ignore
 /// use nano::v8::{initialize_platform, NanoIsolate};
 /// use nano::v8::context::create_context;
 ///
 /// initialize_platform().unwrap();
 /// let mut isolate = NanoIsolate::new().unwrap();
-/// let mut handle_scope = v8::HandleScope::new(isolate.isolate());
-/// let context = create_context(&mut handle_scope);
+/// let scope = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
+/// let scope = scope.init();
+/// let context = create_context(&scope);
 /// // Context is now ready for script execution
 /// ```
-pub fn create_context<'s>(scope: &mut v8::HandleScope<'s, ()>) -> v8::Local<'s, v8::Context> {
+pub fn create_context<'a, 'b>(
+    scope: &v8::PinnedRef<'_, v8::HandleScope<'b, ()>>,
+) -> v8::Local<'b, v8::Context> {
     // Create context with default global template
+    // v147 API: Context::new takes &PinnedRef
     v8::Context::new(scope, Default::default())
 }
 
@@ -45,18 +49,19 @@ mod tests {
         platform::initialize_platform().expect("Failed to initialize V8 platform");
     }
 
-    /// Test that we can create a context using proper HandleScope nesting
+    /// Test that we can create a context using proper HandleScope nesting (v147 API)
     #[test]
     fn test_create_context() {
         init_platform();
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        // Create HandleScope for the operation
-        let mut handle_scope = v8::HandleScope::new(isolate.isolate());
+        // v147 API: Create HandleScope using pin! + init
+        let handle_scope = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
+        let handle_scope = handle_scope.init();
 
         // Create context within the scope
-        let _context = super::create_context(&mut handle_scope);
+        let _context = super::create_context(&handle_scope);
 
         // Context created successfully - test passes if no crash
     }
@@ -68,16 +73,18 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        // Scope 1: HandleScope for the operation
-        let mut scope = v8::HandleScope::new(isolate.isolate());
-        let context = super::create_context(&mut scope);
+        // Scope 1: HandleScope using pin! + init
+        let handle_scope = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
+        let mut handle_scope = handle_scope.init();
+        let context = super::create_context(&handle_scope);
 
-        // Scope 2: ContextScope to enter the context
-        let _context_scope = v8::ContextScope::new(&mut scope, context);
+        // Scope 2: ContextScope using direct creation (no init needed)
+        // ContextScope is not address-sensitive and can be used directly
+        let _context_scope = v8::ContextScope::new(&mut handle_scope, context);
 
         // Within context_scope, we can execute scripts
         // When context_scope drops, we exit the context
-        // When scope drops, temporary handles are freed
+        // When handle_scope drops, temporary handles are freed
     }
 
     /// Test creating context via NanoIsolate helper

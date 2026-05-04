@@ -75,41 +75,45 @@ pub fn execute_handler_with_context(
     // Set up VFS context for Nano.fs API (must be before HandleScope borrows isolate)
     let vfs_ref = std::sync::Arc::new(isolate.vfs().clone());
     vfs_bindings::set_current_vfs(Some(vfs_ref));
-    
-    // Create HandleScope for the isolate
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
+
+    // Create HandleScope for the isolate (v147 API: pin! + init pattern)
+    let scope = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
+    let mut scope = scope.init();
 
     // Enter the provided context with ContextScope
-    let scope = &mut v8::ContextScope::new(scope, v8_context);
+    // v147 API: ContextScope::new takes &mut PinnedRef<HandleScope>
+    let mut scope = v8::ContextScope::new(&mut scope, v8_context);
 
     // Get global object
-    let global = v8_context.global(scope);
+    // v147 API: Use &**scope to dereference ContextScope to PinnedRef
+    let global = v8_context.global(&**scope);
 
     // Compile and execute the script
-    let code_string = v8::String::new(scope, &transformed_code)
+    // v147 API: All V8 APIs expect &PinnedRef, use &**scope
+    let code_string = v8::String::new(&**scope, &transformed_code)
         .ok_or_else(|| anyhow!("Failed to create code string"))?;
-    let script = v8::Script::compile(scope, code_string, None)
+    let script = v8::Script::compile(&**scope, code_string, None)
         .ok_or_else(|| anyhow!("Script compilation failed"))?;
 
     // Execute script to define the fetch function
-    script.run(scope);
+    script.run(&**scope);
 
     // Look for the fetch function on global scope
     // For ESM modules, check __nano_user_fetch first (set by transform_module_code)
     let fetch_val = if is_esm {
-        let fetch_key = v8::String::new(scope, "__nano_user_fetch").unwrap();
-        global.get(scope, fetch_key.into())
+        let fetch_key = v8::String::new(&**scope, "__nano_user_fetch").unwrap();
+        global.get(&**scope, fetch_key.into())
             .filter(|val| !val.is_undefined() && !val.is_null())
     } else {
         None
     };
-    
+
     let fetch_val = match fetch_val {
         Some(val) => val,
         None => {
             // Fall back to checking for global fetch function
-            let fetch_key = v8::String::new(scope, "fetch").unwrap();
-            match global.get(scope, fetch_key.into()) {
+            let fetch_key = v8::String::new(&**scope, "fetch").unwrap();
+            match global.get(&**scope, fetch_key.into()) {
                 Some(val) if !val.is_undefined() && !val.is_null() => val,
                 _ => {
                     // Return a default response for now - handler doesn't define fetch
