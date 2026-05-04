@@ -9,6 +9,7 @@ use std::fs;
 
 use crate::http::{NanoHeaders, NanoRequest, NanoResponse};
 use crate::http::v8_bridge::serialize_request_to_json;
+use crate::runtime::async_support;
 
 /// Context for executing a JavaScript handler
 #[derive(Debug, Clone)]
@@ -317,20 +318,12 @@ fn execute_in_v8(
     match result {
         Some(response) => {
             // Check if response is a Promise and resolve if needed
+            // Resolve using async event loop for Promises
             let resolved = if response.is_promise() {
                 let promise = response.cast::<v8::Promise>();
-                match promise.state() {
-                    v8::PromiseState::Fulfilled => Some(promise.result(scope)),
-                    v8::PromiseState::Rejected => {
-                        let error = promise.result(scope);
-                        let error_str = error.to_string(scope)
-                            .map(|s| s.to_rust_string_lossy(scope))
-                            .unwrap_or_else(|| "Unknown error".to_string());
-                        return Err(anyhow!("Promise rejected: {}", error_str));
-                    }
-                    v8::PromiseState::Pending => {
-                        return Err(anyhow!("Promise still pending - async execution not fully supported"));
-                    }
+                match async_support::resolve_promise_with_async(scope, promise) {
+                    Ok(value) => Some(value),
+                    Err(e) => return Err(e),
                 }
             } else {
                 Some(response)
@@ -338,7 +331,7 @@ fn execute_in_v8(
             
             match resolved {
                 Some(response) => extract_js_response(scope, response),
-                None => Err(anyhow!("Failed to resolve Promise")),
+                None => Err(anyhow!("Handler returned None")),
             }
         }
         None => Err(anyhow!("Handler returned None")),
@@ -361,12 +354,12 @@ pub fn extract_js_response(
     let status_val_opt = obj.get(scope, status_key.into());
     let status = match status_val_opt {
         Some(val) if !val.is_null() && !val.is_undefined() => {
-            tracing::info!("Status value found: is_number={}, is_int32={}, to_integer={:?}",
+            tracing::debug!("Status value found: is_number={}, is_int32={}, to_integer={:?}",
                 val.is_number(), val.is_int32(), val.to_integer(scope).map(|i| i.value()));
             match val.to_integer(scope) {
                 Some(int) => {
                     let s = int.value() as u16;
-                    tracing::info!("Status extracted from integer: {}", s);
+                    tracing::debug!("Status extracted from integer: {}", s);
                     s
                 }
                 None => {
@@ -374,7 +367,7 @@ pub fn extract_js_response(
                     match val.to_number(scope) {
                         Some(num) => {
                             let s = num.value() as u16;
-                            tracing::info!("Status extracted from number: {}", s);
+                            tracing::debug!("Status extracted from number: {}", s);
                             s
                         }
                         None => {
@@ -386,15 +379,15 @@ pub fn extract_js_response(
             }
         }
         Some(val) if val.is_null() => {
-            tracing::info!("Status value is null, defaulting to 200");
+            tracing::debug!("Status value is null, defaulting to 200");
             200
         }
         Some(val) if val.is_undefined() => {
-            tracing::info!("Status value is undefined, defaulting to 200");
+            tracing::debug!("Status value is undefined, defaulting to 200");
             200
         }
         _ => {
-            tracing::info!("Status property not found, defaulting to 200");
+            tracing::debug!("Status property not found, defaulting to 200");
             200
         }
     };
@@ -443,12 +436,12 @@ pub fn extract_js_response(
     let body_key = v8::String::new(scope, "body").unwrap();
     let body = match obj.get(scope, body_key.into()) {
         Some(val) if !val.is_null() && !val.is_undefined() => {
-            tracing::debug!("Response body value: type check - is_string={}, is_object={}, is_array={}", 
+            tracing::debug!("Response body value: type check - is_string={}, is_object={}, is_array={}",
                 val.is_string(), val.is_object(), val.is_array());
             match val.to_string(scope) {
                 Some(s) => {
                     let body_str = s.to_rust_string_lossy(scope);
-                    tracing::info!("Extracted response body: {} bytes", body_str.len());
+                    tracing::debug!("Extracted response body: {} bytes", body_str.len());
                     Some(Bytes::from(body_str))
                 }
                 None => {
@@ -466,12 +459,12 @@ pub fn extract_js_response(
             None
         }
         _ => {
-            tracing::warn!("Response body property not found or not accessible");
+            tracing::debug!("Response body property not found or not accessible");
             None
         }
     };
 
-    tracing::info!("Final NanoResponse: status={}, has_body={}, body_len={}", 
+    tracing::debug!("Final NanoResponse: status={}, has_body={}, body_len={}",
         status, body.is_some(), body.as_ref().map(|b| b.len()).unwrap_or(0));
     
     Ok(NanoResponse::new(status, nano_headers, body))

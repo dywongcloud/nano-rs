@@ -13,13 +13,13 @@ use nano::vfs::*;
 use std::sync::Arc;
 
 /// Helper to create a VFS backend with proper type annotation
-fn create_backend() -> Arc<dyn VfsBackend> {
-    Arc::new(MemoryBackend::default())
+fn create_backend() -> VfsBackendEnum {
+    VfsBackendEnum::Memory(Arc::new(MemoryBackend::default()))
 }
 
 /// Helper to create a VFS backend with custom limits
-fn create_backend_with_limits(limits: ResourceLimits) -> Arc<dyn VfsBackend> {
-    Arc::new(MemoryBackend::with_limits(limits))
+fn create_backend_with_limits(limits: ResourceLimits) -> VfsBackendEnum {
+    VfsBackendEnum::Memory(Arc::new(MemoryBackend::with_limits(limits)))
 }
 
 // ============================================================================
@@ -98,12 +98,12 @@ async fn test_cross_namespace_isolation() {
 
     let vfs_a = IsolateVfs::new(
         VfsNamespace::from_hostname("app-a.example.com"),
-        Arc::clone(&shared_backend),
+        shared_backend.clone(),
     );
 
     let vfs_b = IsolateVfs::new(
         VfsNamespace::from_hostname("app-b.example.com"),
-        Arc::clone(&shared_backend),
+        shared_backend.clone(),
     );
 
     // Write in app A
@@ -125,12 +125,12 @@ async fn test_same_namespace_shares_files() {
     // Two isolates with SAME namespace
     let vfs_1 = IsolateVfs::new(
         VfsNamespace::from_hostname("shared.example.com"),
-        Arc::clone(&shared_backend),
+        shared_backend.clone(),
     );
 
     let vfs_2 = IsolateVfs::new(
         VfsNamespace::from_hostname("shared.example.com"),
-        Arc::clone(&shared_backend),
+        shared_backend.clone(),
     );
 
     // Write via vfs_1
@@ -192,11 +192,11 @@ async fn test_traversal_with_namespace_prefix() {
     let backend = create_backend();
     let vfs_a = IsolateVfs::new(
         VfsNamespace::from_hostname("app-a.example.com"),
-        Arc::clone(&backend),
+        backend.clone(),
     );
     let vfs_b = IsolateVfs::new(
         VfsNamespace::from_hostname("app-b.example.com"),
-        Arc::clone(&backend),
+        backend.clone(),
     );
 
     // Write in app A
@@ -319,7 +319,7 @@ async fn test_concurrent_writes() {
     let backend = create_backend();
     let vfs = IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::clone(&backend),
+        backend.clone(),
     );
 
     let mut handles = vec![];
@@ -328,7 +328,7 @@ async fn test_concurrent_writes() {
     for i in 0..10 {
         let vfs_clone = Arc::new(IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
-            Arc::clone(&backend),
+            backend.clone(),
         ));
         handles.push(tokio::spawn(async move {
             vfs_clone
@@ -353,11 +353,11 @@ async fn test_concurrent_read_write() {
     let backend = create_backend();
     let vfs_write = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::clone(&backend),
+        backend.clone(),
     ));
     let vfs_read = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::clone(&backend),
+        backend.clone(),
     ));
 
     // Write initial content
@@ -495,7 +495,7 @@ async fn test_error_codes_match_nodejs() {
 
     // EQUOTA - quota exceeded
     let limits = ResourceLimits::test_limits();
-    let quota_backend = Arc::new(MemoryBackend::with_limits(limits));
+    let quota_backend = VfsBackendEnum::Memory(Arc::new(MemoryBackend::with_limits(limits)));
     let quota_vfs = IsolateVfs::new(
         VfsNamespace::from_hostname("quota.test.com"),
         quota_backend,

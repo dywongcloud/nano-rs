@@ -76,10 +76,16 @@
     }
     
     if (url.pathname === '/json') {
-      return Response.json({ 
-        message: 'Hello from NANO!',
-        time: Date.now()
-      });
+      // Return a plain object (simplest, always works)
+      return {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello from NANO!',
+          runtime: 'nano-rs',
+          time: Date.now()
+        })
+      };
     }
     
     return new Response('Not Found', { status: 404 });
@@ -441,6 +447,226 @@ curl http://localhost:8080/version
                         <h3 class="text-lg font-semibold text-white mb-2">Slivers Guide</h3>
                         <p class="text-slate-400 text-sm">Learn about sub-millisecond cold starts</p>
                     </a>
+                </div>
+            </section>
+
+            <!-- Workers Section -->
+            <section class="mb-16">
+                <div class="flex items-center gap-4 mb-6">
+                    <div class="w-10 h-10 bg-amber-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">?</div>
+                    <h2 class="text-2xl font-semibold text-white">Understanding Workers</h2>
+                </div>
+
+                <!-- What is a Worker -->
+                <div class="ml-14 mb-8">
+                    <h3 class="text-lg font-medium text-white mb-3">What is a Worker?</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4">
+                        <p class="text-slate-300 mb-3">A <strong class="text-white">worker</strong> is a dedicated OS thread that:</p>
+                        <ul class="text-slate-400 text-sm space-y-1 ml-4 list-disc">
+                            <li>Owns one V8 isolate (JavaScript execution environment)</li>
+                            <li>Processes requests sequentially in a loop</li>
+                            <li>Cannot share isolates with other workers (V8 requirement)</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Request Routing -->
+                <div class="ml-14 mb-8">
+                    <h3 class="text-lg font-medium text-white mb-3">Request Routing (Round-Robin)</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4">
+                        <p class="text-slate-300 mb-3">NANO uses <strong class="text-white">round-robin routing</strong> to distribute requests:</p>
+                        <pre class="text-sm text-slate-400 font-mono bg-slate-800 p-2 rounded">Request 1 → Worker 0
+Request 2 → Worker 1  
+Request 3 → Worker 2
+Request 4 → Worker 0 (wraps around)</pre>
+                        <div class="mt-4 p-3 bg-amber-900/20 border border-amber-800 rounded">
+                            <p class="text-amber-300 text-sm"><strong>Key Points:</strong></p>
+                            <ul class="text-amber-300/80 text-sm mt-1 ml-4 list-disc">
+                                <li>No shared state between workers (isolation)</li>
+                                <li>Same hostname can hit different workers</li>
+                                <li>Memory is per-isolate (4 workers = 4× memory)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Log Output Explained -->
+                <div class="ml-14 mb-8">
+                    <h3 class="text-lg font-medium text-white mb-3">Understanding the Logs</h3>
+                    <p class="text-slate-400 mb-4">When you run NANO, you'll see two types of logs:</p>
+                    
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">HTTP Access Logs (includes worker_id)</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300"><span class="text-green-400">HTTP GET / → 200 in 5.23ms (worker: 0)</span>
+<span class="text-green-400">HTTP GET /json → 200 in 3.45ms (worker: 1)</span>
+<span class="text-red-400">HTTP GET /notfound → 404 in 1.20ms (worker: 2)</span></pre>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                        <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Worker Processing Logs</div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300"><span class="text-blue-400">Worker 0 processed GET / → 200 in 5ms (isolate: worker_0_localhost)</span>
+<span class="text-blue-400">Worker 1 processed GET /json → 200 in 3ms (isolate: worker_1_localhost)</span></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Log Fields Reference -->
+                <div class="ml-14 mb-8">
+                    <h3 class="text-lg font-medium text-white mb-3">Log Fields</h3>
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+                            <h4 class="text-white font-medium mb-2">HTTP Access Log</h4>
+                            <ul class="text-slate-400 text-sm space-y-1">
+                                <li><code class="text-slate-300">method</code> - GET, POST, etc.</li>
+                                <li><code class="text-slate-300">path</code> - Request path</li>
+                                <li><code class="text-slate-300">host</code> - Virtual hostname</li>
+                                <li><code class="text-slate-300">status</code> - HTTP code (200, 404...)</li>
+                                <li><code class="text-slate-300">worker_id</code> - Which worker (0, 1, 2...)</li>
+                                <li><code class="text-slate-300">duration_ms</code> - Total time</li>
+                            </ul>
+                        </div>
+                        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+                            <h4 class="text-white font-medium mb-2">Worker Processing Log</h4>
+                            <ul class="text-slate-400 text-sm space-y-1">
+                                <li><code class="text-slate-300">worker_id</code> - Thread (0, 1, 2...)</li>
+                                <li><code class="text-slate-300">isolate_id</code> - V8 isolate name</li>
+                                <li><code class="text-slate-300">hostname</code> - Tenant</li>
+                                <li><code class="text-slate-300">method/path</code> - Request</li>
+                                <li><code class="text-slate-300">status</code> - Response code</li>
+                                <li><code class="text-slate-300">duration_ms</code> - JS exec time</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Configuring Workers -->
+                <div class="ml-14">
+                    <h3 class="text-lg font-medium text-white mb-3">Configuring Workers</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                        <div class="bg-slate-800 px-4 py-2 flex justify-between items-center">
+                            <span class="text-xs text-slate-400 font-mono">nano.json</span>
+                        </div>
+                        <div class="p-4">
+                            <pre class="text-sm text-slate-300">{
+  "apps": [{
+    "hostname": "localhost",
+    "entrypoint": "./app.js",
+    "limits": {
+      "workers": 4,
+      "memory_mb": 128
+    }
+  }]
+}</pre>
+                        </div>
+                    </div>
+                    <div class="grid md:grid-cols-3 gap-4">
+                        <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                            <h4 class="text-green-400 font-medium mb-1">Low Traffic</h4>
+                            <p class="text-slate-400 text-sm">1-2 workers</p>
+                        </div>
+                        <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                            <h4 class="text-blue-400 font-medium mb-1">Standard</h4>
+                            <p class="text-slate-400 text-sm">4 workers (default)</p>
+                        </div>
+                        <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                            <h4 class="text-amber-400 font-medium mb-1">High Traffic</h4>
+                            <p class="text-slate-400 text-sm">8-16 workers</p>
+                        </div>
+                    </div>
+                    <div class="mt-4 p-4 bg-red-900/20 border border-red-800 rounded-lg">
+                        <p class="text-red-300 text-sm"><strong>Memory Warning:</strong> Each worker = 1 isolate. With 4 workers and 128MB limit, that's ~512MB total memory usage.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Understanding Logs -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-6">Understanding Logs</h2>
+                <div class="bg-slate-900 border border-slate-800 rounded-lg p-6 mb-6">
+                    <p class="text-slate-400 mb-4">NANO uses structured JSON logging with request tracing. Each request generates multiple log entries showing the complete lifecycle.</p>
+
+                    <h3 class="text-white font-medium mb-2">Log Format</h3>
+                    <div class="bg-slate-950 border border-slate-800 rounded-lg p-4 mb-4">
+                        <pre class="text-sm text-slate-300">{
+  "ts": "2026-05-03T12:34:56.789Z",
+  "level": "INFO",
+  "message": "HTTP GET / - 200 in 5.23ms (worker: 0, isolate: iso_a3f7b2d8_00000001)",
+  "request_id": "req_a3f7b2d8",
+  "worker_id": 0,
+  "isolate_id": "iso_a3f7b2d8_00000001",
+  "hostname": "localhost",
+  "fields": {
+    "method": "GET",
+    "path": "/",
+    "status": 200,
+    "duration_ms": "5.23",
+    "worker_id": 0,
+    "isolate_id": "iso_a3f7b2d8_00000001"
+  }
+}</pre>
+                    </div>
+
+                    <h3 class="text-white font-medium mb-2">Key Fields</h3>
+                    <div class="grid md:grid-cols-2 gap-4 text-sm">
+                        <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+                            <code class="text-blue-400">request_id</code>
+                            <p class="text-slate-400 mt-1">Unique hash: req_{uuid_first_8}</p>
+                        </div>
+                        <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+                            <code class="text-blue-400">worker_id</code>
+                            <p class="text-slate-400 mt-1">Worker thread number (0, 1, 2...)</p>
+                        </div>
+                        <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+                            <code class="text-blue-400">isolate_id</code>
+                            <p class="text-slate-400 mt-1">Unique V8 isolate hash: iso_{uuid}_{counter}</p>
+                        </div>
+                        <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+                            <code class="text-blue-400">hostname</code>
+                            <p class="text-slate-400 mt-1">Virtual host the request was routed to</p>
+                        </div>
+                    </div>
+
+                    <h3 class="text-white font-medium mb-2 mt-4">Log Types</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex gap-3">
+                            <span class="text-green-400 font-mono">HTTP</span>
+                            <span class="text-slate-400">Access log showing method, path, status, duration with worker_id/isolate_id</span>
+                        </div>
+                        <div class="flex gap-3">
+                            <span class="text-blue-400 font-mono">Worker</span>
+                            <span class="text-slate-400">Worker thread log showing request processing details</span>
+                        </div>
+                        <div class="flex gap-3">
+                            <span class="text-purple-400 font-mono">V8</span>
+                            <span class="text-slate-400">JavaScript execution log with memory usage and errors</span>
+                        </div>
+                    </div>
+
+                    <h3 class="text-white font-medium mb-2 mt-4">Debugging Isolates</h3>
+                    <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-sm">
+                        <p class="text-slate-400 mb-3">Use the three-part combo for full request tracing:</p>
+                        <div class="space-y-2 font-mono text-xs">
+                            <div class="flex gap-2">
+                                <span class="text-blue-400">request_id</span>
+                                <span class="text-slate-500">-</span>
+                                <span class="text-slate-400">Tracks single HTTP request</span>
+                            </div>
+                            <div class="flex gap-2">
+                                <span class="text-green-400">worker_id</span>
+                                <span class="text-slate-500">-</span>
+                                <span class="text-slate-400">OS thread (never changes)</span>
+                            </div>
+                            <div class="flex gap-2">
+                                <span class="text-purple-400">isolate_id</span>
+                                <span class="text-slate-500">-</span>
+                                <span class="text-slate-400">V8 isolate (changes on OOM)</span>
+                            </div>
+                        </div>
+                        <p class="text-slate-400 mt-3">See <a href="../../docs/DEBUGGING_ISOLATES.md" class="text-blue-400 hover:underline">Debugging and Profiling NANO Isolates</a> for complete guide.</p>
+                    </div>
                 </div>
             </section>
 

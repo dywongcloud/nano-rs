@@ -9,7 +9,7 @@
 
 use crate::http::NanoResponse;
 use crate::http::v8_bridge::serialize_request_to_json;
-use crate::runtime::HandlerContext;
+use crate::runtime::{HandlerContext, async_support};
 use crate::vfs::IsolateVfs;
 use anyhow::{anyhow, Result};
 use std::cell::RefCell;
@@ -307,21 +307,13 @@ pub fn execute_classic_script<'a>(
     scope.perform_microtask_checkpoint();
 
     // Check if result is a Promise and resolve if needed
+    // Resolve using async event loop for Promises
     let resolved = if let Some(response) = result {
         if response.is_promise() {
             let promise = response.cast::<v8::Promise>();
-            match promise.state() {
-                v8::PromiseState::Fulfilled => Some(promise.result(scope)),
-                v8::PromiseState::Rejected => {
-                    let error = promise.result(scope);
-                    let error_str = error.to_string(scope)
-                        .map(|s| s.to_rust_string_lossy(scope))
-                        .unwrap_or_else(|| "Promise rejected".to_string());
-                    return Err(anyhow!("Promise rejected: {}", error_str));
-                }
-                v8::PromiseState::Pending => {
-                    return Err(anyhow!("Promise still pending - async execution not fully supported"));
-                }
+            match async_support::resolve_promise_with_async(scope, promise) {
+                Ok(value) => Some(value),
+                Err(e) => return Err(e),
             }
         } else {
             Some(response)
@@ -612,41 +604,12 @@ fn execute_esm_module<'a>(
             None => return Err(anyhow!("Handler returned None")),
         };
 
+        // Resolve using async event loop for Promises
         let resolved_val = if response.is_promise() {
             let promise = response.cast::<v8::Promise>();
-
-            match promise.state() {
-                v8::PromiseState::Fulfilled => promise.result(scope),
-                v8::PromiseState::Rejected => {
-                    let error = promise.result(scope);
-                    let error_str = error
-                        .to_string(scope)
-                        .map(|s| s.to_rust_string_lossy(scope))
-                        .unwrap_or_else(|| "Promise rejected".to_string());
-                    return Err(anyhow!("Promise rejected: {}", error_str));
-                }
-                v8::PromiseState::Pending => {
-                    // Run microtasks to try to settle the promise
-                    scope.perform_microtask_checkpoint();
-
-                    // Check again
-                    match promise.state() {
-                        v8::PromiseState::Fulfilled => promise.result(scope),
-                        v8::PromiseState::Rejected => {
-                            let error = promise.result(scope);
-                            let error_str = error
-                                .to_string(scope)
-                                .map(|s| s.to_rust_string_lossy(scope))
-                                .unwrap_or_else(|| "Promise rejected".to_string());
-                            return Err(anyhow!("Promise rejected: {}", error_str));
-                        }
-                        v8::PromiseState::Pending => {
-                            return Err(anyhow!(
-                                "Promise still pending - async execution incomplete"
-                            ));
-                        }
-                    }
-                }
+            match async_support::resolve_promise_with_async(scope, promise) {
+                Ok(value) => value,
+                Err(e) => return Err(e),
             }
         } else {
             response

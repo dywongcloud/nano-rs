@@ -9,8 +9,10 @@ use axum::{
     http::{Request, Response, StatusCode},
 };
 use tokio::sync::oneshot;
+use tracing::Instrument;
 
 use crate::http::{NanoHeaders, NanoRequest, NanoResponse};
+use crate::logging::create_request_span;
 use crate::worker::HandlerTask;
 
 /// State for sliver-based request handling
@@ -35,12 +37,31 @@ pub async fn sliver_js_handler(
     request: Request<Body>,
 ) -> Response<Body> {
     let start = std::time::Instant::now();
-    
+
     // Extract request components
     let method = request.method().clone();
     let uri = request.uri().clone();
     let headers = request.headers().clone();
-    
+
+    // Generate request ID for distributed tracing
+    let request_id = format!("req_{}", uuid::Uuid::new_v4().to_string()[..8].to_string());
+
+    // Build full URL from request
+    let host = headers
+        .get("host")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("localhost");
+    let path_and_query = uri.path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+    let full_url = format!("http://{}{}", host, path_and_query);
+
+    // Create request span for distributed tracing
+    let span = create_request_span(&state.worker_pool.hostname, &request_id);
+    let _enter = span.enter();
+
+    tracing::debug!("Sliver handler received request: {} {}", method, path_and_query);
+
     // Read body (with 1MB limit)
     let body_bytes = match axum::body::to_bytes(request.into_body(), 1048576).await {
         Ok(bytes) => bytes,
@@ -52,17 +73,7 @@ pub async fn sliver_js_handler(
                 .unwrap();
         }
     };
-    
-    // Build full URL from request
-    let host = headers
-        .get("host")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("localhost");
-    let path_and_query = uri.path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or("/");
-    let full_url = format!("http://{}{}", host, path_and_query);
-    
+
     // Parse URL for NanoRequest
     let nano_url = match crate::http::NanoUrl::parse(&full_url) {
         Ok(url) => url,
@@ -74,10 +85,10 @@ pub async fn sliver_js_handler(
                 .unwrap();
         }
     };
-    
+
     // Convert headers
     let nano_headers = NanoHeaders::from_axum_headers(&headers);
-    
+
     // Create NanoRequest
     let nano_request = NanoRequest::new(
         method.to_string(),
@@ -85,17 +96,17 @@ pub async fn sliver_js_handler(
         nano_headers,
         if body_bytes.is_empty() { None } else { Some(body_bytes) },
     );
-    
+
     // Create oneshot channel for response
     let (tx, rx) = oneshot::channel();
-    
-    // Create handler task with hostname for metrics tracking
+
+    // Create handler task with hostname and request_id for distributed tracing
     let task = HandlerTask::with_hostname(
         state.entrypoint.clone(),
         nano_request,
         tx,
         state.worker_pool.hostname.clone(),
-    );
+    ).with_request_id(request_id.clone());
     
     // Dispatch to worker pool
     if let Err(e) = state.worker_pool.dispatch(task) {
@@ -122,18 +133,55 @@ pub async fn sliver_js_handler(
                 .with_body("Internal error: handler channel closed")
         }
     };
-    
+
+    // Extract worker_id, isolate_id and status for logging
+    let worker_id = nano_response.worker_id();
+    let isolate_id = nano_response.isolate_id().map(|s| s.to_string());
+    let status = nano_response.status();
+
     // Convert to axum response
     let axum_response = nano_response.to_axum_response();
-    
+
     let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-    tracing::info!(
-        "Sliver JS handler completed: {} {} → {} in {:.2}ms",
-        method,
-        path_and_query,
-        nano_response.status(),
-        duration_ms
-    );
-    
+
+    // Include worker_id and isolate_id in log when available
+    match (worker_id, isolate_id) {
+        (Some(wid), Some(iso)) => {
+            let worker_id_u64 = wid as u64;
+            tracing::info!(
+                worker_id = worker_id_u64,
+                isolate_id = %iso,
+                "Sliver JS handler completed: {} {} - {} in {:.2}ms (worker: {}, isolate: {})",
+                method,
+                path_and_query,
+                status,
+                duration_ms,
+                wid,
+                iso
+            );
+        }
+        (Some(wid), None) => {
+            let worker_id_u64 = wid as u64;
+            tracing::info!(
+                worker_id = worker_id_u64,
+                "Sliver JS handler completed: {} {} - {} in {:.2}ms (worker: {})",
+                method,
+                path_and_query,
+                status,
+                duration_ms,
+                wid
+            );
+        }
+        _ => {
+            tracing::info!(
+                "Sliver JS handler completed: {} {} - {} in {:.2}ms",
+                method,
+                path_and_query,
+                status,
+                duration_ms
+            );
+        }
+    }
+
     axum_response
 }

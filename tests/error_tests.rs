@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, ResourceLimits};
+use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, ResourceLimits, VfsBackendEnum};
 use nano::runtime::fs_polyfill::set_current_vfs;
 use nano::runtime::vfs_bindings::set_current_vfs as set_nano_vfs;
 use nano::v8::platform;
@@ -21,7 +21,7 @@ fn test_error_code_enoent() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
@@ -56,7 +56,7 @@ fn test_error_message_enoent() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
@@ -91,7 +91,7 @@ fn test_error_code_einval() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
@@ -126,7 +126,7 @@ fn test_error_code_property() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
@@ -160,7 +160,7 @@ fn test_error_path_property() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
@@ -194,7 +194,7 @@ fn test_async_error_callback() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
@@ -229,7 +229,7 @@ fn test_trycatch_sync() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
@@ -266,7 +266,7 @@ fn test_error_instanceof_error() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
@@ -299,7 +299,7 @@ fn test_nano_fs_error_codes() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_nano_vfs(Some(vfs));
 
@@ -333,7 +333,7 @@ fn test_error_has_stack() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 

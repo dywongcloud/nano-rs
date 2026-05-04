@@ -124,6 +124,10 @@ pub struct NanoResponse {
     status_text: String,
     headers: NanoHeaders,
     body: Option<Bytes>,
+    /// Worker ID that processed this request (for logging/debugging)
+    worker_id: Option<usize>,
+    /// Isolate ID that processed this request (for logging/debugging)
+    isolate_id: Option<String>,
 }
 
 impl NanoResponse {
@@ -140,7 +144,27 @@ impl NanoResponse {
     /// A new `NanoResponse` with auto-generated status text
     pub fn new(status: u16, headers: NanoHeaders, body: Option<Bytes>) -> Self {
         let status_text = Self::default_status_text(status);
-        Self { status, status_text, headers, body }
+        Self { status, status_text, headers, body, worker_id: None, isolate_id: None }
+    }
+
+    /// Get the worker ID that processed this request
+    pub fn worker_id(&self) -> Option<usize> {
+        self.worker_id
+    }
+
+    /// Set the worker ID that processed this request
+    pub fn set_worker_id(&mut self, worker_id: usize) {
+        self.worker_id = Some(worker_id);
+    }
+
+    /// Get the isolate ID that processed this request
+    pub fn isolate_id(&self) -> Option<&str> {
+        self.isolate_id.as_deref()
+    }
+
+    /// Set the isolate ID that processed this request
+    pub fn set_isolate_id(&mut self, isolate_id: impl Into<String>) {
+        self.isolate_id = Some(isolate_id.into());
     }
     
     /// HTTP status code

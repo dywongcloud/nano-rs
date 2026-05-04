@@ -24,11 +24,23 @@ export default {
     }
     
     if (url.pathname === '/json') {
-      return Response.json({ 
-        message: 'Hello from NANO!',
-        runtime: 'nano-rs',
-        time: Date.now()
-      });
+      // Option 1: Return a plain object (simplest, always works)
+      return {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello from NANO!',
+          runtime: 'nano-rs',
+          time: Date.now()
+        })
+      };
+      
+      // Option 2: Use Response.json() static method (WinterTC standard)
+      // return Response.json({
+      //   message: 'Hello from NANO!',
+      //   runtime: 'nano-rs',
+      //   time: Date.now()
+      // });
     }
     
     return new Response('Not Found', { status: 404 });
@@ -369,6 +381,85 @@ curl http://localhost:8080/json
 
 ---
 
+## Understanding Workers and Request Routing
+
+### What is a Worker?
+
+A **worker** is a dedicated OS thread that:
+- Owns one V8 isolate (JavaScript execution environment)
+- Processes requests sequentially in a loop
+- Cannot share isolates with other workers (V8 requirement)
+
+### How Requests Are Distributed
+
+NANO uses **round-robin routing** to distribute requests:
+
+```
+Request 1 → Worker 0
+Request 2 → Worker 1
+Request 3 → Worker 2
+Request 4 → Worker 0 (wraps around)
+```
+
+Each worker has its own isolate, so:
+- **No shared state** between workers (isolation)
+- **Same hostname** can hit different workers
+- **Memory is per-isolate** (4 workers = 4× memory usage)
+
+### Worker Logs Explained
+
+When you run NANO, you'll see two types of logs:
+
+**HTTP Access Logs** (from the HTTP layer, includes which worker processed the request):
+```
+HTTP GET / → 200 in 5.23ms (worker: 0)
+HTTP GET /json → 200 in 3.45ms (worker: 1)
+HTTP GET /notfound → 404 in 1.20ms (worker: 2)
+```
+
+**Worker Processing Logs** (from inside the worker thread):
+```
+Worker 0 processed GET / → 200 in 5ms (isolate: worker_0_localhost)
+Worker 1 processed GET /json → 200 in 3ms (isolate: worker_1_localhost)
+```
+
+**Log Fields:**
+- `worker_id` - Which worker thread (0, 1, 2...)
+- `isolate_id` - V8 isolate identifier
+- `hostname` - Virtual host/tenant
+- `method` - HTTP method (GET, POST, etc.)
+- `path` - Request path
+- `status` - HTTP status code (200, 404, 500...)
+- `duration_ms` - Processing time
+
+### Configuring Workers
+
+Set workers per app in your config:
+
+```json
+{
+  "apps": [{
+    "hostname": "localhost",
+    "entrypoint": "./app.js",
+    "limits": {
+      "workers": 4
+    }
+  }]
+}
+```
+
+**Worker Guidelines:**
+- **Low traffic:** 1-2 workers
+- **Standard:** 4 workers (default)
+- **High traffic:** 8-16 workers
+- **Max:** 32 workers per app
+
+**Memory considerations:**
+- Each worker = 1 isolate = memory_limit_mb RAM
+- 4 workers × 128MB = ~512MB total
+
+---
+
 ## Troubleshooting
 
 ### "Failed to parse config JSON: unknown field `port`"
@@ -414,6 +505,159 @@ nano-rs run --sliver ./my-app.sliver
 # Find and kill the process
 lsof -ti:8080 | xargs kill -9
 ```
+
+---
+
+## Understanding NANO Logs
+
+NANO uses structured JSON logging with request tracing across the system.
+
+### Log Format
+
+All logs are JSON with consistent fields:
+
+```json
+{
+  "ts": "2026-05-03T12:34:56.789Z",
+  "level": "INFO",
+  "message": "HTTP GET / - 200 in 5.23ms (worker: 0, isolate: iso_a3f7b2d8_00000001)",
+  "request_id": "req_a3f7b2d8",
+  "worker_id": 0,
+  "isolate_id": "iso_a3f7b2d8_00000001",
+  "hostname": "localhost",
+  "event": "src/http/router.rs:123",
+  "fields": {
+    "method": "GET",
+    "path": "/",
+    "status": 200,
+    "duration_ms": "5.23",
+    "worker_id": 0,
+    "isolate_id": "iso_a3f7b2d8_00000001"
+  }
+}
+```
+
+### Key Fields
+
+| Field | Description |
+|-------|-------------|
+| `ts` | ISO 8601 timestamp |
+| `level` | Log level: DEBUG, INFO, WARN, ERROR |
+| `message` | Human-readable summary |
+| `request_id` | Unique hash tracking request: `req_{uuid_first_8}` |
+| `worker_id` | Which worker thread processed the request (0, 1, 2...) |
+| `isolate_id` | Unique hash for V8 isolate instance: `iso_{uuid}_{counter}` |
+| `hostname` | Virtual host the request was routed to |
+| `event` | Source code location |
+| `fields` | Event-specific key-value pairs |
+
+### Workers vs Isolates
+
+NANO uses separate concepts for **workers** and **isolates**:
+
+- **Worker**: A dedicated OS thread (identified by number: 0, 1, 2...)
+  - Lives for the entire process lifetime
+  - Handles many requests over time
+  
+- **Isolate**: A V8 JavaScript sandbox (identified by unique hash: `iso_a3f7b2d8_00000001`)
+  - Created fresh when a worker starts
+  - Replaced after OOM or memory pressure
+  - Each isolate instance has a unique hash, even on the same worker
+
+**Round-robin routing**: Requests cycle through workers (0, 1, 2, ..., 0, 1...)
+**Thread affinity**: Each isolate stays on its assigned thread
+**Context reset**: ~5ms between requests (isolate reused, context fresh)
+
+Configure workers per app in your config:
+
+```json
+{
+  "apps": [{
+    "hostname": "localhost",
+    "limits": { "workers": 4 }
+  }]
+}
+```
+
+### Request Lifecycle in Logs
+
+Each request generates multiple log entries:
+
+1. **HTTP Access Log** (from router):
+   - Shows method, path, status, duration
+   - Includes `worker_id` and `isolate_id` when available
+   - Example: `HTTP GET / - 200 in 5.23ms (worker: 0, isolate: iso_a3f7b2d8_00000001)`
+
+2. **Worker Processing Log** (from worker thread):
+   - Shows the same request from the worker's perspective
+   - Includes all context: `request_id`, `worker_id`, `isolate_id`, `hostname`
+   - Example: `Worker 0 processed request req_a3f7b2d8: GET / - 200 in 5ms (isolate: iso_a3f7b2d8_00000001)`
+
+3. **Isolate Execution Log** (from V8 runtime):
+   - Shows JavaScript handler execution
+   - Includes memory usage and any JS errors
+
+### Tracing Requests: request_id + worker_id + isolate_id
+
+Use the three-part combo to trace any request through the system:
+
+| Combo | Purpose | Example |
+|-------|---------|---------|
+| `request_id` | Track a single HTTP request end-to-end | `req_a3f7b2d8` |
+| `worker_id` | See which thread handled it | `0` |
+| `isolate_id` | Identify the exact V8 instance | `iso_a3f7b2d8_00000001` |
+
+**OOM Recovery Example** - Notice the isolate_id changes after memory pressure:
+```json
+// Request 1 - Normal execution
+{"request_id":"req_111","worker_id":0,"isolate_id":"iso_a3f7b2d8_00000001","message":"HTTP GET / - 200 in 5ms"}
+
+// Request 2 - Same worker, NEW isolate after OOM
+{"request_id":"req_222","worker_id":0,"isolate_id":"iso_b8e4c9f1_00000002","message":"HTTP GET / - 200 in 8ms"}
+```
+
+### Reading the Logs
+
+```bash
+# Pretty-print JSON logs
+nano-rs run -c config.toml | jq .
+
+# Filter for specific worker
+nano-rs run -c config.toml | jq 'select(.worker_id == 0)'
+
+# Filter for specific isolate (e.g., after OOM to see replacement)
+nano-rs run -c config.toml | jq 'select(.isolate_id | contains("00000002"))'
+
+# Filter for slow requests (>100ms)
+nano-rs run -c config.toml | jq 'select(.fields.duration_ms | tonumber > 100)'
+
+# Follow a single request by ID
+nano-rs run -c config.toml | jq 'select(.request_id == "req_a3f7b2d8")'
+
+# See all requests that hit a specific isolate
+nano-rs run -c config.toml | jq 'select(.isolate_id == "iso_a3f7b2d8_00000001")'
+
+# Show isolate age on every request
+RUST_LOG=debug nano-rs run -c config.toml 2>&1 | grep "received request"
+
+# Monitor memory pressure and OOM events
+RUST_LOG=info nano-rs run -c config.toml 2>&1 | grep -E "(memory pressure|OOM|evicting)"
+```
+
+---
+
+## Debugging and Profiling
+
+For comprehensive debugging and profiling guidance, see:
+
+**[Debugging and Profiling NANO Isolates](docs/DEBUGGING_ISOLATES.md)**
+
+This guide covers:
+- Understanding isolate lifecycle and the three-part tracing combo (`request_id` + `worker_id` + `isolate_id`)
+- Debugging isolate age, OOM recovery, and memory pressure
+- Profiling context reset timing and memory usage
+- Common debugging scenarios and solutions
+- jq queries for log analysis
 
 ---
 

@@ -279,7 +279,7 @@ async fn run_from_sliver(
         workers,
         0, // No memory limit for now
         unpacked,
-        temp_entrypoint.clone(),
+        Some(temp_entrypoint.clone()),
     ));
 
     tracing::info!("Created SliverWorkerPool with {} workers for {}", workers, hostname);

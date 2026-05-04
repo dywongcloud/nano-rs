@@ -8,6 +8,7 @@
 //! - Shared backend data leak
 //! - Worker pool isolation
 
+
 use std::sync::Arc;
 use crate::security_utils::init_platform;
 use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, VfsBackend};
@@ -24,18 +25,18 @@ fn test_cross_tenant_file_access_blocked() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     
     // Shared backend for both apps
-    let backend: Arc<dyn VfsBackend> = Arc::new(MemoryBackend::default());
+    let backend: Arc<MemoryBackend> = Arc::new(MemoryBackend::default());
     
     // App A's VFS
     let vfs_a = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("app-a.example.com"),
-        Arc::clone(&backend),
+        nano::vfs::VfsBackendEnum::Memory(backend.clone()),
     ));
-    
+
     // App B's VFS
     let vfs_b = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("app-b.example.com"),
-        Arc::clone(&backend),
+        nano::vfs::VfsBackendEnum::Memory(backend.clone()),
     ));
     
     // App A creates a file
@@ -240,13 +241,13 @@ fn test_shared_backend_data_leak() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     
     // Shared backend
-    let backend: Arc<dyn VfsBackend> = Arc::new(MemoryBackend::default());
+    let backend: Arc<MemoryBackend> = Arc::new(MemoryBackend::default());
     
     // Multiple tenants on same backend
     let tenants: Vec<_> = (0..5).map(|i| {
         Arc::new(IsolateVfs::new(
             VfsNamespace::from_hostname(&format!("tenant-{}.example.com", i)),
-            Arc::clone(&backend),
+            nano::vfs::VfsBackendEnum::Memory(backend.clone()),
         ))
     }).collect();
     

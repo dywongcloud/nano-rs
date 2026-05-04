@@ -19,21 +19,12 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{sync_channel, TrySendError};
 use std::sync::Arc;
-use std::thread::{self, JoinHandle};
 
-use crate::http::{NanoHeaders, NanoResponse};
-use crate::runtime::HandlerContext;
-use crate::v8::initialize_platform;
-use base64::Engine;
-use crate::vfs::{BackendFactory, IsolateVfs, MemoryBackend, VfsNamespace};
+use crate::vfs::{BackendFactory, MemoryBackend};
 use crate::config::{VfsBackendType, VfsDiskConfig};
 use crate::worker::HandlerTask;
-use crate::worker::context::ContextManager;
 use crate::app::registry::AppRegistry;
-
-use anyhow::anyhow;
 
 /// Error types for queue operations
 #[derive(Debug, Clone, PartialEq)]
@@ -119,17 +110,6 @@ pub struct StatsSnapshot {
     pub active_workers: usize,
 }
 
-/// Handle to a worker thread
-#[derive(Debug)]
-pub struct WorkerHandle {
-    /// Worker thread ID
-    pub id: usize,
-    /// The worker thread join handle
-    pub thread: JoinHandle<()>,
-    /// Task sender channel (bounded MPSC)
-    pub task_tx: std::sync::mpsc::SyncSender<HandlerTask>,
-}
-
 /// A pool of worker threads for a specific hostname
 ///
 /// This pool is designed for entrypoint-based dispatch where each worker
@@ -150,16 +130,22 @@ pub struct WorkerHandle {
 /// - Custom VFS backend configuration needed
 ///
 /// For production snapshot execution, use `SliverWorkerPool` instead.
+///
+/// # Deprecation Notice
+///
+/// This type is now a thin wrapper around `WorkerPool` for backward compatibility.
+/// New code should use `WorkerPool::with_source()` directly with `AppSource::Entrypoint`.
 #[derive(Debug)]
 pub struct EntrypointWorkerPool {
-    /// Worker threads in this pool
-    pub workers: Vec<WorkerHandle>,
-    /// Number of workers in pool
-    pub worker_count: usize,
-    /// Hostname this pool serves
-    pub hostname: String,
-    /// Next worker index for round-robin dispatch (atomic for thread safety)
-    next_worker: std::sync::atomic::AtomicUsize,
+    /// Inner WorkerPool that handles all execution
+    /// 
+    /// This wraps the unified WorkerPool created with AppSource::Entrypoint.
+    /// Public for backward compatibility with code that accesses .inner
+    pub inner: crate::worker::pool::WorkerPool,
+    /// Hostname this pool serves (cached for quick access)
+    hostname: String,
+    /// Number of workers (cached for quick access)
+    worker_count: usize,
 }
 
 impl EntrypointWorkerPool {
@@ -176,6 +162,11 @@ impl EntrypointWorkerPool {
     /// # Returns
     ///
     /// A new `EntrypointWorkerPool` with workers ready to receive tasks
+    ///
+    /// # Deprecation
+    ///
+    /// This method delegates to `WorkerPool::with_source()`. For new code,
+    /// use `WorkerPool::with_source(hostname, worker_count, 0, AppSource::entrypoint(path))`.
     pub fn new(hostname: &str, worker_count: usize) -> Self {
         Self::with_backend(hostname, worker_count, crate::vfs::VfsBackendEnum::memory(MemoryBackend::new()))
     }
@@ -191,119 +182,33 @@ impl EntrypointWorkerPool {
     /// # Returns
     ///
     /// A new `EntrypointWorkerPool` with workers ready to receive tasks
+    ///
+    /// # Deprecation
+    ///
+    /// This method delegates to `WorkerPool::with_source_and_backend()`. For new code,
+    /// use the unified constructor directly.
     pub fn with_backend(hostname: &str, worker_count: usize, vfs_backend: crate::vfs::VfsBackendEnum) -> Self {
-        let mut workers = Vec::with_capacity(worker_count);
-        let channel_capacity = 256; // POOL-02 requirement
-        let hostname_owned = hostname.to_string();
-
-        for id in 0..worker_count {
-            // Create bounded MPSC channel (256 slots per POOL-02)
-            let (task_tx, task_rx) = sync_channel::<HandlerTask>(channel_capacity);
-
-            // Clone VFS backend for this worker
-            let worker_vfs_backend = vfs_backend.clone();
-
-            // Spawn worker thread with V8 execution
-            let hostname_thread = hostname_owned.clone();
-            let thread = thread::spawn(move || {
-                tracing::info!("Worker {} started for {}", id, hostname_thread);
-
-                // Initialize V8 platform for this thread
-                if let Err(e) = initialize_platform() {
-                    tracing::error!("Worker {} failed to initialize V8: {}", id, e);
-                    return;
-                }
-
-                // Create VFS for this worker with the provided backend
-                let vfs = IsolateVfs::new(
-                    VfsNamespace::from_hostname(&hostname_thread),
-                    worker_vfs_backend,
-                );
-
-                // Create isolate with VFS in this thread
-                let isolate = match crate::v8::NanoIsolate::new_with_vfs(vfs) {
-                    Ok(isol) => isol,
-                    Err(e) => {
-                        tracing::error!("Worker {} failed to create isolate: {}", id, e);
-                        return;
-                    }
-                };
-
-                // Create context manager for this worker
-                let mut context_manager = ContextManager::new(isolate);
-                if let Err(e) = context_manager.create_initial_context() {
-                    tracing::error!("Worker {} failed to create context: {}", id, e);
-                    return;
-                }
-                
-                // Inject runtime APIs into the context
-                // First clone the context handle (cheap - just a reference)
-                let global_ctx = match context_manager.clone_context() {
-                    Some(g) => g,
-                    None => {
-                        tracing::error!("Worker {} failed to get context for API binding", id);
-                        return;
-                    }
-                };
-                
-                // Now get isolate and create scopes
-                {
-                    let handle_scope = &mut v8::HandleScope::new(context_manager.isolate_mut().isolate());
-                    let local_ctx = v8::Local::new(handle_scope, &global_ctx);
-                    let context_scope = &mut v8::ContextScope::new(handle_scope, local_ctx);
-                    crate::runtime::apis::RuntimeAPIs::bind_all(context_scope, local_ctx);
-                }
-                
-                tracing::info!("Worker {} initialized with V8 context and runtime APIs", id);
-
-                // Worker loop - blocks on channel receive
-                loop {
-                    match task_rx.recv() {
-                        Ok(task) => {
-                            // Execute the JavaScript handler
-                            tracing::debug!("Worker {} executing task for {}", id, task.entrypoint);
-
-                            let handler_ctx = HandlerContext {
-                                entrypoint: task.entrypoint.clone(),
-                                request: task.request,
-                            };
-
-                            // Execute handler using context manager
-                            let response = execute_with_context_manager(&mut context_manager, &handler_ctx);
-
-                            // Send response back
-                            let _ = task.response_tx.send(response);
-                        }
-                        Err(_) => {
-                            // Channel closed, exit gracefully
-                            tracing::info!("Worker {} channel closed, exiting", id);
-                            break;
-                        }
-                    }
-                }
-
-                tracing::info!("Worker {} stopped for {}", id, hostname_thread);
-            });
-
-            workers.push(WorkerHandle {
-                id,
-                thread,
-                task_tx,
-            });
-        }
-
-        tracing::info!(
-            "Created WorkerPool for {} with {} workers ({} capacity each)",
-            hostname,
+        use crate::worker::AppSource;
+        
+        let source = AppSource::entrypoint("index.js"); // Placeholder, actual entrypoint from task
+        let inner = crate::worker::pool::WorkerPool::with_source_and_backend(
+            hostname.to_string(),
             worker_count,
-            channel_capacity
+            0, // No memory limit by default for backward compatibility
+            vfs_backend,
+            source,
         );
-
+        
+        tracing::info!(
+            "EntrypointWorkerPool for {} delegates to unified WorkerPool ({} workers)",
+            hostname,
+            worker_count
+        );
+        
         Self {
-            workers,
-            worker_count,
+            inner,
             hostname: hostname.to_string(),
-            next_worker: std::sync::atomic::AtomicUsize::new(0),
+            worker_count,
         }
     }
 
@@ -317,17 +222,15 @@ impl EntrypointWorkerPool {
     /// # Returns
     ///
     /// `Ok(())` if task was sent, `Err(QueueError::ChannelFull)` if channel is full
-    pub fn try_dispatch(&self, task: HandlerTask, worker_index: usize) -> Result<(), QueueError> {
-        let idx = worker_index % self.workers.len();
-        let worker = &self.workers[idx];
-
-        match worker.task_tx.try_send(task) {
-            Ok(()) => Ok(()),
-            Err(TrySendError::Full(_)) => Err(QueueError::ChannelFull),
-            Err(TrySendError::Disconnected(_)) => Err(QueueError::SendError(
-                "Worker channel disconnected".to_string(),
-            )),
-        }
+    ///
+    /// # Note
+    ///
+    /// The unified WorkerPool uses unbounded channels. This method now delegates
+    /// to the standard `dispatch()` which provides equivalent functionality.
+    pub fn try_dispatch(&self, task: HandlerTask, _worker_index: usize) -> Result<(), QueueError> {
+        // Delegate to inner WorkerPool dispatch (round-robin)
+        // The _worker_index parameter is ignored as WorkerPool manages its own routing
+        self.inner.dispatch(task).map_err(|e| QueueError::SendError(e.to_string()))
     }
 
     /// Shutdown the worker pool gracefully
@@ -336,28 +239,35 @@ impl EntrypointWorkerPool {
     /// any pending tasks.
     pub fn shutdown(self) {
         tracing::info!("Shutting down EntrypointWorkerPool for {}", self.hostname);
-
-        // Drop the workers (which drops the senders)
-        // Workers will exit their loops when channels close
-        drop(self.workers);
+        // Delegate to inner WorkerPool shutdown
+        let _ = self.inner.shutdown();
+    }
+    
+    /// Get the number of workers in this pool
+    ///
+    /// Provided for backward compatibility with code that accessed the field directly.
+    pub fn worker_count(&self) -> usize {
+        self.worker_count
+    }
+    
+    /// Get the hostname this pool serves
+    ///
+    /// Provided for backward compatibility with code that accessed the field directly.
+    pub fn hostname(&self) -> &str {
+        &self.hostname
     }
 }
 
 impl crate::worker::r#trait::WorkerPool for EntrypointWorkerPool {
     fn dispatch(&self, task: HandlerTask) -> anyhow::Result<()> {
-        // Use round-robin dispatch
-        let worker_idx = self.next_worker.fetch_add(1, Ordering::SeqCst) % self.workers.len();
-        self.workers[worker_idx]
-            .task_tx
-            .try_send(task)
-            .map_err(|e| anyhow::anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
+        // Delegate to inner WorkerPool
+        self.inner.dispatch(task)
     }
 
     fn shutdown(self) -> anyhow::Result<()> {
         tracing::info!("Shutting down EntrypointWorkerPool for {}", self.hostname);
-        // Drop the workers (which drops the senders)
-        drop(self.workers);
-        Ok(())
+        // Delegate to inner WorkerPool
+        self.inner.shutdown()
     }
 
     fn worker_count(&self) -> usize {
@@ -509,8 +419,69 @@ impl WorkQueue {
                                 EntrypointWorkerPool::new(hostname, self.workers_per_pool)
                             }
                         }
-                        VfsBackendType::Memory | _ => {
-                            tracing::debug!("Using memory backend for hostname: {}", hostname);
+                        VfsBackendType::Memory => {
+                            // Auto-detect: if app has an entrypoint, use DiskBackend
+                            // pointing to the entrypoint's parent directory, or a subdirectory
+                            // matching the entrypoint's stem (e.g., app.js -> app/)
+                            if !app_config.entrypoint.is_empty() {
+                                let entrypoint_path = std::path::Path::new(&app_config.entrypoint);
+                                if let Some(parent) = entrypoint_path.parent() {
+                                    // Check if there's a subdirectory matching the entrypoint's stem
+                                    // e.g., for app.js, check if app/ directory exists
+                                    let stem = entrypoint_path.file_stem()
+                                        .map(|s| s.to_string_lossy().to_string())
+                                        .unwrap_or_default();
+                                    let subdir = parent.join(&stem);
+                                    
+                                    // Use subdirectory if it exists, otherwise use parent
+                                    let base_path = if subdir.exists() && subdir.is_dir() {
+                                        tracing::debug!(
+                                            "Found matching subdirectory '{}' for entrypoint, using as VFS root",
+                                            stem
+                                        );
+                                        subdir
+                                    } else {
+                                        parent.to_path_buf()
+                                    };
+                                    
+                                    match BackendFactory::new()
+                                        .create_backend(
+                                            VfsBackendType::Disk,
+                                            Some(&VfsDiskConfig { base_path: base_path.to_string_lossy().to_string() }),
+                                            None,
+                                        )
+                                        .await
+                                    {
+                                        Ok(backend) => {
+                                            tracing::info!(
+                                                "Auto-created disk backend for entrypoint app at hostname: {} with base_path: {:?}",
+                                                hostname, base_path
+                                            );
+                                            EntrypointWorkerPool::with_backend(
+                                                hostname,
+                                                self.workers_per_pool,
+                                                backend,
+                                            )
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Failed to auto-create disk backend for entrypoint app at {:?}, falling back to memory: {}",
+                                                base_path, e
+                                            );
+                                            EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                                        }
+                                    }
+                                } else {
+                                    tracing::debug!("No parent directory for entrypoint, using memory backend for hostname: {}", hostname);
+                                    EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                                }
+                            } else {
+                                tracing::debug!("Using memory backend for hostname: {} (no entrypoint)", hostname);
+                                EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                            }
+                        }
+                        VfsBackendType::S3 | _ => {
+                            tracing::debug!("Using default memory backend for hostname: {}", hostname);
                             EntrypointWorkerPool::new(hostname, self.workers_per_pool)
                         }
                     }
@@ -652,220 +623,6 @@ pub fn hash_hostname(hostname: &str) -> u64 {
     hasher.finish()
 }
 
-/// Execute a handler within a specific V8 context
-///
-/// This function properly manages V8 scope lifecycle to avoid "active scope" errors.
-fn execute_with_context_manager(
-    context_manager: &mut ContextManager,
-    handler_ctx: &HandlerContext,
-) -> anyhow::Result<NanoResponse> {
-    use crate::v8::module::{is_esm_module, transform_module_code};
-    use std::fs;
-
-    // Clone the Global<Context> (cheap - just a handle reference)
-    let global_ctx = context_manager.clone_context();
-
-    // Get VFS reference BEFORE the mutable borrow for isolate access
-    // The VFS is stored in thread-local storage so VFS bindings can access it
-    let vfs_opt = context_manager.vfs().cloned();
-
-    // Now get the isolate pointer - this borrows context_manager mutably
-    let isolate = context_manager.isolate_mut().isolate();
-
-    // Create fresh HandleScope
-    let handle_scope = &mut v8::HandleScope::new(isolate);
-
-    // Reopen Local<Context> from Global within the new scope
-    let v8_context = match global_ctx {
-        Some(g) => v8::Local::new(handle_scope, &g),
-        None => return Err(anyhow!("No context available")),
-    };
-
-    // Enter context scope and execute
-    let context_scope = &mut v8::ContextScope::new(handle_scope, v8_context);
-
-    // Set up VFS context for Nano.fs and require('fs') operations
-    if let Some(vfs) = vfs_opt {
-        let vfs_arc = std::sync::Arc::new(vfs);
-        crate::runtime::vfs_bindings::set_current_vfs(Some(vfs_arc.clone()));
-        crate::runtime::fs_polyfill::set_current_vfs(Some(vfs_arc));
-    }
-
-    // Read the handler code
-    let code = fs::read_to_string(&handler_ctx.entrypoint)
-        .map_err(|e| anyhow!("Failed to read entrypoint: {}", e))?;
-
-    // Transform ES6 module syntax if this is an ESM module
-    let transformed_code = if is_esm_module(&code) {
-        transform_module_code(&code)
-    } else {
-        code
-    };
-
-    // Compile and run script to define fetch function
-    let code_str = v8::String::new(context_scope, &transformed_code)
-        .ok_or_else(|| anyhow!("Failed to create code string"))?;
-    let script = v8::Script::compile(context_scope, code_str, None)
-        .ok_or_else(|| anyhow!("Script compilation failed"))?;
-    script.run(context_scope);
-
-    // Get global and look for the user's handler function
-    // The handler is stored in __nano_user_fetch by transform_module_code
-    let global = v8_context.global(context_scope);
-    let handler_key = v8::String::new(context_scope, "__nano_user_fetch").unwrap();
-    let handler_val = match global.get(context_scope, handler_key.into()) {
-        Some(val) if val.is_function() => {
-            tracing::debug!("Found user handler function in global scope");
-            val
-        }
-        _ => {
-            // Fallback: try 'fetch' for non-ESM modules
-            let fetch_key = v8::String::new(context_scope, "fetch").unwrap();
-            match global.get(context_scope, fetch_key.into()) {
-                Some(val) if val.is_function() => {
-                    tracing::debug!("Found handler via 'fetch' global");
-                    val
-                }
-                _ => {
-                    tracing::warn!("No handler function found - looking for __nano_user_fetch or fetch");
-                    return Ok(NanoResponse::ok()
-                        .with_header("Content-Type", "text/plain")
-                        .with_body("Handler executed (no handler function defined)"));
-                }
-            }
-        }
-    };
-
-    let fetch_fn = handler_val.cast::<v8::Function>();
-
-    // Create Request instance using the Request constructor
-    // This ensures the request has Request.prototype methods (text, json, arrayBuffer)
-    let request_key = v8::String::new(context_scope, "Request").unwrap();
-    let request_obj = if let Some(request_ctor) = global.get(context_scope, request_key.into()) {
-        if request_ctor.is_function() {
-            let request_fn = request_ctor.cast::<v8::Function>();
-            
-            // Create URL string
-            let url_str = v8::String::new(context_scope, &handler_ctx.request.url_string()).unwrap();
-            
-            // Create init object with method, headers, and body
-            let init_obj = v8::Object::new(context_scope);
-            
-            // Set method
-            let method_key = v8::String::new(context_scope, "method").unwrap();
-            let method_val = v8::String::new(context_scope, handler_ctx.request.method()).unwrap();
-            let _ = init_obj.set(context_scope, method_key.into(), method_val.into());
-            
-            // Set headers using Headers constructor for proper Headers instance
-            let headers_key = v8::String::new(context_scope, "headers").unwrap();
-            let headers_ctor_key = v8::String::new(context_scope, "Headers").unwrap();
-            let headers_obj = if let Some(headers_ctor) = global.get(context_scope, headers_ctor_key.into()) {
-                if headers_ctor.is_function() {
-                    // Create Headers instance
-                    let headers_fn = headers_ctor.cast::<v8::Function>();
-                    headers_fn.new_instance(context_scope, &[])
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            
-            // Populate headers using Headers.set() method
-            if let Some(headers_instance) = headers_obj {
-                let set_key = v8::String::new(context_scope, "set").unwrap();
-                if let Some(set_fn) = headers_instance.get(context_scope, set_key.into()) {
-                    if set_fn.is_function() {
-                        let set_method = set_fn.cast::<v8::Function>();
-                        handler_ctx.request.headers().for_each(|name, value| {
-                            let name_key = v8::String::new(context_scope, name).unwrap();
-                            let value_str = v8::String::new(context_scope, value).unwrap();
-                            let _ = set_method.call(context_scope, headers_instance.into(), &[name_key.into(), value_str.into()]);
-                        });
-                    }
-                }
-                let _ = init_obj.set(context_scope, headers_key.into(), headers_instance.into());
-            } else {
-                // Fallback: create plain headers object if Headers constructor not available
-                let plain_headers = v8::Object::new(context_scope);
-                handler_ctx.request.headers().for_each(|name, value| {
-                    let name_key = v8::String::new(context_scope, name).unwrap();
-                    let value_str = v8::String::new(context_scope, value).unwrap();
-                    let _ = plain_headers.set(context_scope, name_key.into(), value_str.into());
-                });
-                let _ = init_obj.set(context_scope, headers_key.into(), plain_headers.into());
-            }
-            
-            // Set body if present (as base64 string)
-            if let Some(body) = handler_ctx.request.body() {
-                let body_key = v8::String::new(context_scope, "body").unwrap();
-                let base64_body = base64::engine::general_purpose::STANDARD.encode(body);
-                let body_val = v8::String::new(context_scope, &base64_body).unwrap();
-                let _ = init_obj.set(context_scope, body_key.into(), body_val.into());
-            }
-            
-            // Create Request instance
-            let request_instance = request_fn.new_instance(context_scope, &[url_str.into(), init_obj.into()]);
-            request_instance.map(|i| i.into())
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    
-    // Fallback: create plain object if Request constructor not available
-    let request_value = match request_obj {
-        Some(obj) => obj,
-        None => {
-            // Create plain object as fallback
-            let obj = v8::Object::new(context_scope);
-            
-            let method_key = v8::String::new(context_scope, "method").unwrap();
-            let method_val = v8::String::new(context_scope, handler_ctx.request.method()).unwrap();
-            let _ = obj.set(context_scope, method_key.into(), method_val.into());
-            
-            let url_key = v8::String::new(context_scope, "url").unwrap();
-            let url_val = v8::String::new(context_scope, &handler_ctx.request.url_string()).unwrap();
-            let _ = obj.set(context_scope, url_key.into(), url_val.into());
-            
-            obj.into()
-        }
-    };
-
-    // Call fetch function with request object
-    let result = fetch_fn.call(context_scope, global.into(), &[request_value]);
-
-    // Handle promise if needed
-    if let Some(result_val) = result {
-        // Check if it's a promise
-        if result_val.is_promise() {
-            let promise = result_val.cast::<v8::Promise>();
-            // Run microtasks to settle promise
-            context_scope.perform_microtask_checkpoint();
-
-            match promise.state() {
-                v8::PromiseState::Fulfilled => {
-                    let response_val = promise.result(context_scope);
-                    return crate::runtime::handler::extract_js_response(context_scope, response_val);
-                }
-                v8::PromiseState::Rejected => {
-                    let error = promise.result(context_scope);
-                    let error_str = error.to_rust_string_lossy(context_scope);
-                    return Ok(NanoResponse::new(500, NanoHeaders::new(), Some(format!("Promise rejected: {}", error_str).into())));
-                }
-                v8::PromiseState::Pending => {
-                    return Ok(NanoResponse::new(500, NanoHeaders::new(), Some("Promise still pending".into())));
-                }
-            }
-        } else {
-            // Direct response (not a promise)
-            return crate::runtime::handler::extract_js_response(context_scope, result_val);
-        }
-    }
-
-    Ok(NanoResponse::new(500, NanoHeaders::new(), Some("Handler returned no result".into())))
-}
 
 #[cfg(test)]
 mod tests {
@@ -880,18 +637,6 @@ mod tests {
             NanoHeaders::new(),
             None,
         )
-    }
-
-    fn create_dummy_task() -> HandlerTask {
-        let (tx, _rx) = oneshot::channel();
-        HandlerTask {
-            entrypoint: "/dev/null".to_string(),
-            request: create_dummy_request(),
-            response_tx: tx,
-            hostname: "test.example.com".to_string(),
-            start_time: std::time::Instant::now(),
-            cpu_time_limit_ms: 0, // 0 means no limit for tests
-        }
     }
 
     #[test]
@@ -1009,6 +754,7 @@ mod tests {
             hostname: "test.local".to_string(),
             start_time: std::time::Instant::now(),
             cpu_time_limit_ms: 0, // 0 means no limit for tests
+            request_id: "req_test_002".to_string(),
         };
 
         // Should succeed (channel is empty)

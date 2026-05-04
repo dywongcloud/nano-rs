@@ -5,7 +5,7 @@
 //! and responses are returned via oneshot channels.
 
 use crate::http::NanoResponse;
-use crate::runtime::HandlerContext;
+use crate::runtime::{HandlerContext, async_support};
 use crate::v8::{initialize_platform, NanoIsolate};
 use crate::worker::context::ContextManager;
 use crate::worker::eviction::{EvictionAction, EvictionManager, IsolateId, IsolateMetadata};
@@ -53,6 +53,10 @@ fn execute_with_context_manager(
     // Clone the Global<Context> (cheap - just a handle reference)
     let global_ctx = context_manager.clone_context();
 
+    // Get VFS reference BEFORE the mutable borrow for isolate access
+    // The VFS is stored in thread-local storage so VFS bindings can access it
+    let vfs_opt = context_manager.vfs().cloned();
+
     // Now get the isolate pointer - this borrows context_manager mutably
     let isolate = context_manager.isolate_mut().isolate();
 
@@ -63,6 +67,16 @@ fn execute_with_context_manager(
     } else {
         None
     };
+
+    // Set up VFS context for Nano.fs API (must be before HandleScope borrows isolate)
+    // This makes the VFS available for VFS operations during handler execution
+    let vfs_ref = std::sync::Arc::new(vfs_opt.unwrap_or_else(|| {
+        crate::vfs::IsolateVfs::new(
+            crate::vfs::VfsNamespace::from_hostname("default"),
+            crate::vfs::VfsBackendEnum::memory(crate::vfs::MemoryBackend::default()),
+        )
+    }));
+    crate::runtime::vfs_bindings::set_current_vfs(Some(vfs_ref));
 
     // Create fresh HandleScope
     let handle_scope = &mut v8::HandleScope::new(isolate);
@@ -282,31 +296,20 @@ fn execute_handler_code(
     // Call the user's handler function with the request
     let result = handler_fn.call(scope, global.into(), &[js_request.into()]);
 
-    // Perform microtask checkpoint to resolve any Promises
-    scope.perform_microtask_checkpoint();
-
-    // Check if result is a Promise and resolve if needed
-    let resolved = if let Some(response) = result {
-        if response.is_promise() {
-            let promise = response.cast::<v8::Promise>();
-            match promise.state() {
-                v8::PromiseState::Fulfilled => Some(promise.result(scope)),
-                v8::PromiseState::Rejected => {
-                    let error = promise.result(scope);
-                    let error_str = error.to_string(scope)
-                        .map(|s| s.to_rust_string_lossy(scope))
-                        .unwrap_or_else(|| "Promise rejected".to_string());
-                    return Err(anyhow!("Promise rejected: {}", error_str));
+    // Resolve the result using async support (handles Promises with microtask checkpoints)
+    let resolved = match result {
+        Some(response) => {
+            if response.is_promise() {
+                // Use async event loop to resolve Promise to completion
+                match async_support::resolve_promise_with_async(scope, response.cast::<v8::Promise>()) {
+                    Ok(value) => Some(value),
+                    Err(e) => return Err(e),
                 }
-                v8::PromiseState::Pending => {
-                    return Err(anyhow!("Promise still pending - async execution not fully supported"));
-                }
+            } else {
+                Some(response)
             }
-        } else {
-            Some(response)
         }
-    } else {
-        None
+        None => None,
     };
 
     // Extract response
@@ -627,20 +630,25 @@ impl WorkerPool {
                 };
 
                 // Create context manager for this worker
+                // This generates a unique isolate_id internally for tracking
                 let mut context_manager = ContextManager::new(isolate);
                 if let Err(e) = context_manager.create_initial_context() {
                     error!("Worker {} failed to create context: {}", id, e);
                     return;
                 }
 
-                // Register this isolate with the eviction manager
-                let isolate_id = IsolateId::from_worker_index(id);
+                // Get the isolate_id from ContextManager and register with eviction manager
+                // This is mutable because it changes when isolate is replaced (OOM recovery)
+                let mut isolate_id = context_manager.isolate_id().clone();
                 eviction_manager.register_isolate(
                     isolate_id.clone(),
                     IsolateMetadata::new(&worker_hostname, id),
                 );
 
-                info!("Worker {} initialized with context and memory monitoring", id);
+                info!(
+                    "Worker {} initialized with context and memory monitoring (isolate_id: {}, initial_age: 0s)",
+                    id, isolate_id
+                );
 
                 // Event loop: receive tasks and execute
                 loop {
@@ -698,16 +706,19 @@ impl WorkerPool {
                                                     error!("Worker {} failed to create new context after OOM: {}", id, e);
                                                     break; // Exit worker if can't recover
                                                 }
+                                                // Update isolate_id with the NEW id from fresh ContextManager
+                                                isolate_id = context_manager.isolate_id().clone();
                                                 // Reset OOM monitor for fresh isolate
                                                 monitor.reset();
-                                                // Reactivate isolate in eviction manager
+                                                // Reactivate isolate in eviction manager with NEW id
                                                 eviction_manager.reactivate_isolate(
                                                     isolate_id.clone(),
                                                     IsolateMetadata::new(&worker_hostname, id),
                                                 );
                                                 info!(
-                                                    "Worker {} created fresh isolate after OOM",
-                                                    id
+                                                    "Worker {} created fresh isolate after OOM (new isolate_id: {})",
+                                                    id,
+                                                    isolate_id
                                                 );
                                             }
                                             Err(e) => {
@@ -756,6 +767,33 @@ impl WorkerPool {
                                 }
                             };
 
+                            // Extract request info for logging before moving task.request
+                            let request_method = task.request.method().to_string();
+                            let request_path = task.request.url().pathname();
+                            let request_id = task.request_id.clone();
+
+                            // Create a span with worker_id, isolate_id, and request_id for proper JSON logging context
+                            // This ensures worker/isolate/request info appears in the span context for distributed tracing
+                            let worker_span = tracing::info_span!(
+                                "worker_request",
+                                worker_id = id,
+                                isolate_id = %isolate_id,
+                                request_id = %request_id,
+                                hostname = %hostname,
+                                method = %request_method,
+                                path = %request_path
+                            );
+                            let _worker_enter = worker_span.enter();
+
+                            // Log when the worker receives the request (distributed tracing checkpoint)
+                            // Include isolate age for debugging lifecycle management
+                            let isolate_age = eviction_manager.get_isolate_age_formatted(&isolate_id)
+                                .unwrap_or_else(|| "unknown".to_string());
+                            tracing::debug!(
+                                "Worker {} received request {} (isolate: {}, age: {})",
+                                id, request_id, isolate_id, isolate_age
+                            );
+
                             // Create handler context
                             let handler_ctx = HandlerContext {
                                 entrypoint: task.entrypoint,
@@ -764,7 +802,7 @@ impl WorkerPool {
 
                             // Execute handler with fresh context scope
                             // CPU timeout enforcement uses timer-based termination if cpu_time_limit_ms > 0
-                            let result =
+                            let mut result =
                                 execute_with_context_manager(&mut context_manager, &handler_ctx, task.cpu_time_limit_ms);
 
                             // Calculate request duration
@@ -772,6 +810,37 @@ impl WorkerPool {
 
                             // Mark request complete in eviction manager
                             eviction_manager.mark_complete(&isolate_id);
+
+                            // Extract status code from result for logging and set worker_id/isolate_id on response
+                            // These are used by the HTTP layer for access logging
+                            let status_code = match &mut result {
+                                Ok(ref mut response) => {
+                                    response.set_worker_id(id);
+                                    response.set_isolate_id(isolate_id.to_string());
+                                    response.status()
+                                }
+                                Err(_) => 500,
+                            };
+
+                            // Worker processing log - shows which worker handled the request
+                            // This helps debug request routing and worker load distribution
+                            // The worker_id/isolate_id/request_id are now in the span context due to the worker_span above
+                            let worker_id_u64 = id as u64;
+                            tracing::info!(
+                                request_id = %request_id,
+                                worker_id = worker_id_u64,
+                                isolate_id = %isolate_id,
+                                status = status_code,
+                                duration_ms = duration_ms,
+                                "Worker {} processed request {}: {} {} - {} in {}ms (isolate: {})",
+                                id,
+                                request_id,
+                                request_method,
+                                request_path,
+                                status_code,
+                                duration_ms,
+                                isolate_id
+                            );
 
                             // Post-execution memory monitoring (27-02)
                             if let Some(ref mut mem_monitor) = memory_monitor {
@@ -918,13 +987,15 @@ impl WorkerPool {
                                                 error!("Worker {} failed to create new context after post-request OOM: {}", id, e);
                                                 break;
                                             }
+                                            // Update isolate_id with the new one from ContextManager
+                                            isolate_id = context_manager.isolate_id().clone();
                                             monitor.reset();
-                                            // Reactivate in eviction manager
+                                            // Reactivate in eviction manager with NEW id
                                             eviction_manager.reactivate_isolate(
                                                 isolate_id.clone(),
                                                 IsolateMetadata::new(&worker_hostname, id),
                                             );
-                                            info!("Worker {} created fresh isolate after post-request OOM", id);
+                                            info!("Worker {} created fresh isolate after post-request OOM (new isolate_id: {})", id, isolate_id);
                                         }
                                         Err(e) => {
                                             error!("Worker {} failed to create replacement isolate: {}", id, e);
@@ -1072,6 +1143,583 @@ impl WorkerPool {
     pub fn worker_count(&self) -> usize {
         self.worker_count
     }
+
+    /// Create worker pool from unified AppSource enum
+    ///
+    /// This is the unified constructor that handles both entrypoint and sliver modes
+    /// through a single code path. It replaces the separate WorkerPool/SliverWorkerPool
+    /// constructors.
+    ///
+    /// # Arguments
+    ///
+    /// * `hostname` - Hostname this pool serves (for logging)
+    /// * `worker_count` - Number of worker threads to spawn
+    /// * `memory_limit_mb` - Memory limit per isolate in MB (0 = no limit)
+    /// * `source` - AppSource enum (Entrypoint, Sliver, or Static)
+    ///
+    /// # Returns
+    ///
+    /// A new WorkerPool configured for the specified source type
+    ///
+    /// # Panics
+    ///
+    /// Panics if V8 platform is not initialized or worker_count is 0
+    pub fn with_source(
+        hostname: String,
+        worker_count: usize,
+        memory_limit_mb: u32,
+        source: crate::worker::AppSource,
+    ) -> Self {
+        use crate::vfs::MemoryBackend;
+        use crate::worker::AppSource;
+
+        // Select appropriate VFS backend based on AppSource type
+        let vfs_backend = match &source {
+            AppSource::Entrypoint { path } => {
+                // For entrypoint apps, use DiskBackend pointing to the parent directory
+                // This allows the app to access files relative to its entrypoint
+                let path_obj = std::path::Path::new(path);
+                let base_dir = path_obj
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| std::path::PathBuf::from("."));
+                
+                // Clone for the thread and for error messages
+                let base_dir_for_thread = base_dir.clone();
+                let base_dir_for_error = base_dir.clone();
+                
+                // Create disk backend - DiskBackend::new is async so we block on it
+                let backend_result = std::thread::spawn(move || {
+                    match tokio::runtime::Runtime::new() {
+                        Ok(rt) => rt.block_on(async {
+                            crate::vfs::DiskBackend::new(&base_dir_for_thread).await
+                        }),
+                        Err(e) => Err(crate::vfs::VfsError::IoError(format!("Failed to create tokio runtime: {}", e)))
+                    }
+                }).join();
+                
+                match backend_result {
+                    Ok(Ok(disk_backend)) => {
+                        tracing::info!(
+                            "Created DiskBackend for entrypoint app at hostname: {}, base_dir: {:?}",
+                            hostname,
+                            base_dir
+                        );
+                        crate::vfs::VfsBackendEnum::disk(disk_backend)
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(
+                            "Failed to create DiskBackend for entrypoint app at {:?}, falling back to MemoryBackend: {}",
+                            base_dir_for_error,
+                            e
+                        );
+                        crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Thread panic creating DiskBackend for entrypoint app at {:?}, falling back to MemoryBackend: {:?}",
+                            base_dir_for_error,
+                            e
+                        );
+                        crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
+                    }
+                }
+            }
+            AppSource::Sliver { .. } => {
+                // For sliver apps, use MemoryBackend (sliver contains embedded VFS data)
+                tracing::debug!("Using MemoryBackend for sliver app at hostname: {}", hostname);
+                crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
+            }
+            AppSource::Static { .. } => {
+                // Static apps don't need a pool at all - this should panic before we get here
+                panic!("Static sources should not create WorkerPool - use StaticPool instead");
+            }
+        };
+        
+        Self::with_source_and_backend(hostname, worker_count, memory_limit_mb, vfs_backend, source)
+    }
+
+    /// Create worker pool from AppSource with custom VFS backend
+    ///
+    /// This is the most flexible constructor allowing both source type selection
+    /// and custom storage backends.
+    ///
+    /// # Arguments
+    ///
+    /// * `hostname` - Hostname this pool serves
+    /// * `worker_count` - Number of worker threads to spawn
+    /// * `memory_limit_mb` - Memory limit per isolate in MB (0 = no limit)
+    /// * `vfs_backend` - Custom VFS backend (memory, disk, S3)
+    /// * `source` - AppSource enum determining initialization mode
+    pub fn with_source_and_backend(
+        hostname: String,
+        worker_count: usize,
+        memory_limit_mb: u32,
+        vfs_backend: crate::vfs::VfsBackendEnum,
+        source: crate::worker::AppSource,
+    ) -> Self {
+        use crate::worker::AppSource;
+
+        // Ensure platform is initialized
+        if !crate::v8::is_initialized() {
+            initialize_platform().expect("Failed to initialize V8 platform");
+        }
+
+        assert!(worker_count > 0, "Worker count must be at least 1");
+
+        // For static sites, we don't spawn isolates - handled separately
+        if source.is_static() {
+            panic!("Static sources should not create WorkerPool - use StaticPool instead");
+        }
+
+        // Clone values for worker threads
+        let hostname_for_workers = hostname.clone();
+        let vfs_backend_for_workers = vfs_backend.clone();
+        let source_for_workers = source.clone();
+
+        let mut workers = Vec::with_capacity(worker_count);
+
+        for id in 0..worker_count {
+            let worker_hostname = hostname_for_workers.clone();
+            let worker_vfs_backend = vfs_backend_for_workers.clone();
+            let worker_source = source_for_workers.clone();
+            let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
+
+            // Spawn unified worker thread
+            let thread = thread::spawn(move || {
+                info!("UnifiedWorker {} starting for {}", id, worker_hostname);
+
+                // Create Tokio runtime for async operations
+                let rt = tokio::runtime::Runtime::new()
+                    .expect("Failed to create tokio runtime");
+                let rt_handle = rt.handle().clone();
+                WORKER_RUNTIME.with(|runtime| {
+                    *runtime.borrow_mut() = Some(rt_handle);
+                });
+
+                // Create OOM monitor
+                let oom_monitor = if memory_limit_mb > 0 {
+                    Some(
+                        OomMonitorBuilder::new(format!("worker_{}_{}", worker_hostname, id))
+                            .with_limit_mb(memory_limit_mb)
+                            .for_hostname(&worker_hostname)
+                            .build(),
+                    )
+                } else {
+                    None
+                };
+
+                // Create memory monitor
+                let mut memory_monitor = if memory_limit_mb > 0 {
+                    Some(MemoryMonitor::new(memory_limit_mb))
+                } else {
+                    None
+                };
+
+                // Create eviction manager
+                let mut eviction_manager = EvictionManager::new();
+
+                // Create VFS for this worker with shared backend
+                // For entrypoint apps with DiskBackend, use empty namespace to avoid
+                // creating subdirectory - files are already organized by base_dir
+                let is_disk_backend = matches!(&worker_vfs_backend, crate::vfs::VfsBackendEnum::Disk(_));
+                let is_entrypoint = matches!(&worker_source, crate::worker::AppSource::Entrypoint { .. });
+                let namespace = if is_disk_backend && is_entrypoint {
+                    // Empty namespace for entrypoint+DiskBackend - paths map directly
+                    crate::vfs::VfsNamespace::from_hostname("")
+                } else {
+                    // Use hostname namespace for memory backends or sliver apps
+                    VfsNamespace::from_hostname(&worker_hostname)
+                };
+                let vfs = IsolateVfs::new(
+                    namespace,
+                    worker_vfs_backend,
+                );
+
+                // Extract temp entrypoint override for sliver mode (if any)
+                let temp_entrypoint_override: Option<std::path::PathBuf> = match &worker_source {
+                    AppSource::Sliver { temp_entrypoint, .. } => temp_entrypoint.clone(),
+                    _ => None,
+                };
+
+                // Initialize isolate based on source type
+                let isolate = match &worker_source {
+                    AppSource::Entrypoint { .. } => {
+                        // Fresh isolate for entrypoint mode
+                        match NanoIsolate::new_with_vfs(vfs) {
+                            Ok(isol) => isol,
+                            Err(e) => {
+                                error!("Worker {} failed to create isolate: {}", id, e);
+                                return;
+                            }
+                        }
+                    }
+                    AppSource::Sliver { data, .. } => {
+                        // Restore VFS entries from sliver before creating isolate
+                        if let Err(e) = rt.block_on(data.restore_to_vfs(&vfs)) {
+                            error!("Worker {} failed to restore VFS: {}", id, e);
+                            // Continue anyway - app might work without VFS
+                        } else {
+                            debug!(
+                                "Worker {} restored {} VFS entries",
+                                id,
+                                data.vfs_entries.len()
+                            );
+                        }
+
+                        // Restore isolate from snapshot, fallback to fresh
+                        let vfs_clone = vfs.clone();
+                        match crate::v8::restore_from_snapshot(&data.heap_data, vfs_clone) {
+                            Ok(isol) => {
+                                info!("Worker {} restored isolate from snapshot", id);
+                                isol
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Worker {} snapshot restore failed ({}), creating fresh isolate",
+                                    id, e
+                                );
+                                match NanoIsolate::new_with_vfs(vfs) {
+                                    Ok(isol) => isol,
+                                    Err(e) => {
+                                        error!("Worker {} failed to create isolate: {}", id, e);
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    AppSource::Static { .. } => {
+                        // Should not reach here - panic earlier for static
+                        error!("Worker {} received Static source - should not spawn isolate", id);
+                        return;
+                    }
+                };
+
+                // Create context manager with unique isolate_id
+                let mut context_manager = ContextManager::new(isolate);
+                if let Err(e) = context_manager.create_initial_context() {
+                    error!("Worker {} failed to create context: {}", id, e);
+                    return;
+                }
+
+                let mut isolate_id = context_manager.isolate_id().clone();
+                eviction_manager.register_isolate(
+                    isolate_id.clone(),
+                    IsolateMetadata::new(&worker_hostname, id),
+                );
+
+                info!(
+                    "UnifiedWorker {} initialized (isolate_id: {}, source: {})",
+                    id,
+                    isolate_id,
+                    if worker_source.is_sliver() {
+                        "sliver"
+                    } else {
+                        "entrypoint"
+                    }
+                );
+
+                // Unified event loop - identical for all source types
+                // This is the full implementation, shared across entrypoint and sliver modes
+                loop {
+                    match task_rx.recv() {
+                        Ok(task) => {
+                            debug!("UnifiedWorker {} received task for {}", id, task.entrypoint);
+
+                            // Check if isolate is in draining mode (soft eviction)
+                            if eviction_manager.is_draining(&isolate_id) {
+                                warn!("Worker {} is draining, rejecting new request", id);
+                                let _ = task.response_tx.send(Err(anyhow!(
+                                    "Service temporarily unavailable - memory pressure"
+                                )));
+                                continue;
+                            }
+
+                            // Check if isolate has been evicted
+                            if eviction_manager.is_evicted(&isolate_id) {
+                                warn!("Worker {} is evicted, rejecting request", id);
+                                let _ = task.response_tx.send(Err(anyhow!(
+                                    "Service unavailable - isolate evicted"
+                                )));
+                                continue;
+                            }
+
+                            // OOM-04: Pre-request OOM check
+                            if let Some(ref monitor) = oom_monitor {
+                                let isolate_ref = context_manager.isolate_mut().isolate();
+                                match monitor.check(isolate_ref) {
+                                    Ok(_) => {}
+                                    Err(oom_error) => {
+                                        let request_id = format!("req_{}", uuid::Uuid::new_v4());
+                                        monitor.log_oom_event(&oom_error, &request_id);
+
+                                        let oom_response = monitor.create_oom_response(&oom_error);
+                                        let _ = task.response_tx.send(Ok(oom_response));
+
+                                        // Dispose isolate and create fresh one
+                                        warn!(
+                                            "Worker {} disposing isolate due to OOM (oom_count: {})",
+                                            id,
+                                            monitor.oom_count()
+                                        );
+
+                                        match NanoIsolate::new() {
+                                            Ok(new_isolate) => {
+                                                context_manager = ContextManager::new(new_isolate);
+                                                if let Err(e) = context_manager.create_initial_context() {
+                                                    error!("Worker {} failed to create new context after OOM: {}", id, e);
+                                                    break;
+                                                }
+                                                // Update isolate_id with the NEW id
+                                                isolate_id = context_manager.isolate_id().clone();
+                                                monitor.reset();
+                                                eviction_manager.reactivate_isolate(
+                                                    isolate_id.clone(),
+                                                    IsolateMetadata::new(&worker_hostname, id),
+                                                );
+                                                info!(
+                                                    "Worker {} created fresh isolate after OOM (new isolate_id: {})",
+                                                    id, isolate_id
+                                                );
+                                            }
+                                            Err(e) => {
+                                                error!("Worker {} failed to create replacement isolate: {}", id, e);
+                                                break;
+                                            }
+                                        }
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            // Mark active request in eviction manager
+                            eviction_manager.mark_active(&isolate_id);
+
+                            // Start timing for metrics
+                            let request_start = std::time::Instant::now();
+                            let hostname = task.hostname.clone();
+
+                            // Reset context before each request (POOL-04)
+                            let reset_elapsed = match context_manager.reset_context() {
+                                Ok(elapsed) => {
+                                    let ms = elapsed.as_secs_f64() * 1000.0;
+                                    if ms > 10.0 {
+                                        warn!(
+                                            "Worker {} context reset took {:.2}ms (target <10ms)",
+                                            id, ms
+                                        );
+                                    } else {
+                                        debug!("Worker {} context reset took {:.2}ms", id, ms);
+                                    }
+                                    if !hostname.is_empty() {
+                                        crate::metrics::TENANT_METRICS.record_context_reset(&hostname);
+                                    }
+                                    elapsed
+                                }
+                                Err(e) => {
+                                    error!("Worker {} context reset failed: {}", id, e);
+                                    let _ = task.response_tx.send(Err(anyhow!("Context reset failed")));
+                                    eviction_manager.mark_complete(&isolate_id);
+                                    continue;
+                                }
+                            };
+
+                            // Extract request info for logging
+                            let request_method = task.request.method().to_string();
+                            let request_path = task.request.url().pathname();
+                            let request_id = task.request_id.clone();
+
+                            // Create a span with worker_id, isolate_id, and request_id
+                            let worker_span = tracing::info_span!(
+                                "worker_request",
+                                worker_id = id,
+                                isolate_id = %isolate_id,
+                                request_id = %request_id,
+                                hostname = %hostname,
+                                method = %request_method,
+                                path = %request_path
+                            );
+                            let _worker_enter = worker_span.enter();
+
+                            let isolate_age = eviction_manager.get_isolate_age_formatted(&isolate_id)
+                                .unwrap_or_else(|| "unknown".to_string());
+                            tracing::debug!(
+                                "Worker {} received request {} (isolate: {}, age: {})",
+                                id, request_id, isolate_id, isolate_age
+                            );
+
+                            // Create handler context
+                            // Use temp entrypoint override for sliver mode if available
+                            let entrypoint = temp_entrypoint_override
+                                .as_ref()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|| task.entrypoint.clone());
+                            let handler_ctx = HandlerContext {
+                                entrypoint,
+                                request: task.request,
+                            };
+
+                            // Execute handler with CPU timeout if configured
+                            let mut result = execute_with_context_manager(
+                                &mut context_manager,
+                                &handler_ctx,
+                                task.cpu_time_limit_ms,
+                            );
+
+                            // Calculate request duration
+                            let duration_ms = request_start.elapsed().as_millis() as u64;
+
+                            // Mark request complete in eviction manager
+                            eviction_manager.mark_complete(&isolate_id);
+
+                            // Extract status code and set worker_id/isolate_id on response
+                            let status_code = match &mut result {
+                                Ok(ref mut response) => {
+                                    response.set_worker_id(id);
+                                    response.set_isolate_id(isolate_id.to_string());
+                                    response.status()
+                                }
+                                Err(_) => 500,
+                            };
+
+                            // Log worker processing
+                            let worker_id_u64 = id as u64;
+                            tracing::info!(
+                                request_id = %request_id,
+                                worker_id = worker_id_u64,
+                                isolate_id = %isolate_id,
+                                status = status_code,
+                                duration_ms = duration_ms,
+                                "Worker {} processed request {}: {} {} - {} in {}ms (isolate: {})",
+                                id,
+                                request_id,
+                                request_method,
+                                request_path,
+                                status_code,
+                                duration_ms,
+                                isolate_id
+                            );
+
+                            // Post-execution memory monitoring
+                            if let Some(ref mut mem_monitor) = memory_monitor {
+                                let isolate_ref = context_manager.isolate_mut().isolate();
+                                let snapshot = mem_monitor.check_after(isolate_ref);
+
+                                eviction_manager.record_usage(&isolate_id, snapshot.total_memory_bytes());
+
+                                match snapshot.pressure_level {
+                                    MemoryPressureLevel::Normal => {}
+                                    MemoryPressureLevel::Warning => {
+                                        warn!(
+                                            "Worker {} memory warning: {:.1}MB ({}% of limit)",
+                                            id,
+                                            snapshot.total_memory_mb(),
+                                            (snapshot.total_memory_mb() / memory_limit_mb as f64 * 100.0) as u32
+                                        );
+                                    }
+                                    MemoryPressureLevel::Critical | MemoryPressureLevel::Emergency => {
+                                        let action = eviction_manager.evaluate_pressure(
+                                            snapshot.pressure_level,
+                                            None,
+                                        );
+
+                                        match action {
+                                            EvictionAction::SoftEvict(_) => {
+                                                warn!(
+                                                    "Worker {} memory pressure detected ({}), initiating soft eviction",
+                                                    id,
+                                                    snapshot.pressure_level.description()
+                                                );
+                                                eviction_manager.initiate_soft_eviction(&isolate_id);
+                                            }
+                                            EvictionAction::HardEvict(_) => {
+                                                error!(
+                                                    "Worker {} emergency memory pressure, disposing isolate",
+                                                    id
+                                                );
+                                                eviction_manager.hard_evict(&isolate_id);
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+
+                                if mem_monitor.is_trending_to_leak() {
+                                    warn!(
+                                        "Worker {} memory leak detected, isolate may need disposal",
+                                        id
+                                    );
+                                }
+
+                                // Record per-tenant metrics
+                                if !hostname.is_empty() {
+                                    let result_type = match &result {
+                                        Ok(_) => crate::metrics::tenant::RequestResult::Success,
+                                        Err(e) => {
+                                            if e.to_string().contains("timeout") {
+                                                crate::metrics::tenant::RequestResult::Timeout
+                                            } else {
+                                                crate::metrics::tenant::RequestResult::Error
+                                            }
+                                        }
+                                    };
+
+                                    // Estimate CPU time from context reset duration (microseconds)
+                                    let cpu_us = reset_elapsed.as_micros() as u64;
+
+                                    crate::metrics::TENANT_METRICS.record_request(
+                                        &hostname,
+                                        result_type,
+                                        cpu_us,
+                                        snapshot.total_memory_bytes() as usize,
+                                        duration_ms,
+                                    );
+
+                                    // Update current memory gauge
+                                    crate::metrics::TENANT_METRICS.update_memory(
+                                        &hostname,
+                                        snapshot.heap_used as usize,
+                                        snapshot.external as usize,
+                                    );
+
+                                    // Record pressure events if applicable
+                                    if snapshot.pressure_level > MemoryPressureLevel::Normal {
+                                        crate::metrics::TENANT_METRICS.record_pressure_event(
+                                            &hostname,
+                                            snapshot.pressure_level,
+                                        );
+                                    }
+                                }
+                            }
+
+                            // Send response back
+                            let _ = task.response_tx.send(result);
+                        }
+                        Err(_) => {
+                            debug!("UnifiedWorker {} channel closed, exiting", id);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            workers.push(WorkerHandle {
+                id,
+                thread: Some(thread),
+                task_tx,
+            });
+        }
+
+        WorkerPool {
+            workers,
+            worker_count,
+            hostname,
+            next_worker: AtomicUsize::new(0),
+            vfs_backend,
+            memory_limit_mb,
+        }
+    }
 }
 
 impl Drop for WorkerPool {
@@ -1112,36 +1760,33 @@ impl Drop for WorkerPool {
 /// - VFS entries are restored before the worker accepts tasks
 /// - Falls back to fresh isolate if snapshot restoration fails
 /// - Shares the same dispatch interface as regular WorkerPool
+///
+/// # Deprecation Notice
+///
+/// This type is now a thin wrapper around `WorkerPool` for backward compatibility.
+/// New code should use `WorkerPool::with_source()` directly with `AppSource::Sliver`.
 pub struct SliverWorkerPool {
-    /// Worker handles for all threads in the pool
-    workers: Vec<WorkerHandle>,
-    /// Number of workers (for verification)
-    pub worker_count: usize,
-    /// Hostname this pool serves
+    /// Inner WorkerPool that handles all execution
+    ///
+    /// This wraps the unified WorkerPool created with AppSource::Sliver.
+    inner: WorkerPool,
+    /// Hostname this pool serves (cached for quick access)
     pub hostname: String,
-    /// Round-robin counter for dispatch
-    next_worker: AtomicUsize,
-    /// Shared VFS backend for all workers
-    vfs_backend: crate::vfs::VfsBackendEnum,
-    /// Unpacked sliver data containing snapshot and VFS entries
+    /// Number of workers (cached for quick access)
+    pub worker_count: usize,
+    /// Unpacked sliver data (kept for reference/debugging)
     unpacked_sliver: crate::sliver::UnpackedSliver,
-    /// Optional temp entrypoint path for VFS-extracted JS files
-    /// 
-    /// Note: This is passed to workers during construction via cloned values.
-    /// The field is kept for reference/debugging but not directly accessed.
-    #[allow(dead_code)]
+    /// Optional temp entrypoint path (kept for reference/debugging)
     temp_entrypoint: Option<std::path::PathBuf>,
 }
 
 impl std::fmt::Debug for SliverWorkerPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SliverWorkerPool")
-            .field("workers", &self.workers.len())
             .field("worker_count", &self.worker_count)
             .field("hostname", &self.hostname)
-            .field("hostname", &self.hostname)
-            .field("vfs_backend", &"<dyn VfsBackend>")
             .field("unpacked_sliver", &self.unpacked_sliver.metadata.hostname)
+            .field("temp_entrypoint", &self.temp_entrypoint)
             .finish()
     }
 }
@@ -1149,10 +1794,8 @@ impl std::fmt::Debug for SliverWorkerPool {
 impl SliverWorkerPool {
     /// Create a new sliver worker pool with restored isolates
     ///
-    /// Each worker thread:
-    /// 1. Creates its NanoIsolate from the snapshot (or fresh if fails)
-    /// 2. Restores VFS entries from the sliver
-    /// 3. Runs an event loop receiving HandlerTask via MPSC
+    /// This now delegates to the unified `WorkerPool::with_source()` constructor
+    /// for consistent behavior across all pool types.
     ///
     /// # Arguments
     ///
@@ -1164,17 +1807,21 @@ impl SliverWorkerPool {
     /// # Returns
     ///
     /// A new SliverWorkerPool with N workers restored from snapshot
+    ///
+    /// # Deprecation
+    ///
+    /// This method now delegates to `WorkerPool::with_source()`. For new code,
+    /// use `WorkerPool::with_source(hostname, worker_count, memory_limit_mb, AppSource::sliver(data))`.
     pub fn new(
         hostname: String,
         worker_count: usize,
         memory_limit_mb: u32,
         unpacked_sliver: crate::sliver::UnpackedSliver,
     ) -> Self {
-        Self::with_backend(
+        Self::with_temp_entrypoint(
             hostname,
             worker_count,
             memory_limit_mb,
-            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
             unpacked_sliver,
             None,
         )
@@ -1184,24 +1831,55 @@ impl SliverWorkerPool {
     ///
     /// This variant is used when the sliver VFS has been extracted to a temp
     /// directory, and the JS entrypoint should be read from that location.
+    ///
+    /// # Deprecation
+    ///
+    /// This method now delegates to `WorkerPool::with_source()`. For new code,
+    /// use `WorkerPool::with_source()` with `AppSource::sliver_with_temp(data, temp)`.
     pub fn with_temp_entrypoint(
         hostname: String,
         worker_count: usize,
         memory_limit_mb: u32,
         unpacked_sliver: crate::sliver::UnpackedSliver,
-        temp_entrypoint: std::path::PathBuf,
+        temp_entrypoint: Option<std::path::PathBuf>,
     ) -> Self {
-        Self::with_backend(
-            hostname,
+        use crate::worker::AppSource;
+        use crate::vfs::MemoryBackend;
+
+        let source = if let Some(temp) = temp_entrypoint.clone() {
+            AppSource::sliver_with_temp(unpacked_sliver.clone(), temp)
+        } else {
+            AppSource::sliver(unpacked_sliver.clone())
+        };
+
+        let vfs_backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
+        let inner = WorkerPool::with_source_and_backend(
+            hostname.clone(),
             worker_count,
             memory_limit_mb,
-            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
+            vfs_backend,
+            source,
+        );
+
+        info!(
+            "SliverWorkerPool for {} created with {} workers (delegates to unified WorkerPool)",
+            hostname, worker_count
+        );
+
+        Self {
+            inner,
+            hostname: hostname.clone(),
+            worker_count,
             unpacked_sliver,
-            Some(temp_entrypoint),
-        )
+            temp_entrypoint,
+        }
     }
 
     /// Create a new sliver worker pool with a specific VFS backend
+    ///
+    /// # Deprecation
+    ///
+    /// This method now delegates to `WorkerPool::with_source_and_backend()`.
     pub fn with_backend(
         hostname: String,
         worker_count: usize,
@@ -1210,319 +1888,85 @@ impl SliverWorkerPool {
         unpacked_sliver: crate::sliver::UnpackedSliver,
         temp_entrypoint: Option<std::path::PathBuf>,
     ) -> Self {
-        // Ensure platform is initialized
-        if !crate::v8::is_initialized() {
-            initialize_platform().expect("Failed to initialize V8 platform");
-        }
+        use crate::worker::AppSource;
 
-        assert!(worker_count > 0, "Worker count must be at least 1");
+        let source = if let Some(temp) = temp_entrypoint.clone() {
+            AppSource::sliver_with_temp(unpacked_sliver.clone(), temp)
+        } else {
+            AppSource::sliver(unpacked_sliver.clone())
+        };
 
-        let hostname_for_workers = hostname.clone();
-        let vfs_backend_for_workers = vfs_backend.clone();
-        let sliver_for_workers = unpacked_sliver.clone();
-        let temp_entrypoint_for_workers = temp_entrypoint.clone();
-
-        let mut workers = Vec::with_capacity(worker_count);
-
-        for id in 0..worker_count {
-            let worker_hostname = hostname_for_workers.clone();
-            let worker_vfs_backend = vfs_backend_for_workers.clone();
-            let worker_sliver = sliver_for_workers.clone();
-            let worker_temp_entrypoint = temp_entrypoint_for_workers.clone();
-            let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
-
-            // Spawn worker thread with snapshot-restored isolate
-            let thread = thread::spawn(move || {
-                info!("SliverWorker {} starting for {}", id, worker_hostname);
-
-                // Create a Tokio runtime for this worker thread
-                // This runtime stays alive for the entire thread lifetime
-                let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-                
-                // Store runtime handle in thread-local for fetch() to use
-                let rt_handle = rt.handle().clone();
-                WORKER_RUNTIME.with(|runtime| {
-                    *runtime.borrow_mut() = Some(rt_handle);
-                });
-
-                // Create OOM monitor
-                let oom_monitor = if memory_limit_mb > 0 {
-                    Some(
-                        OomMonitorBuilder::new(format!("sliver_worker_{}_{}", worker_hostname, id))
-                            .with_limit_mb(memory_limit_mb)
-                            .for_hostname(&worker_hostname)
-                            .build(),
-                    )
-                } else {
-                    None
-                };
-
-                // Create VFS for this worker
-                let vfs = IsolateVfs::new(
-                    VfsNamespace::from_hostname(&worker_hostname),
-                    worker_vfs_backend,
-                );
-
-                // Restore VFS entries from sliver before creating isolate
-                if let Err(e) = rt.block_on(worker_sliver.restore_to_vfs(&vfs)) {
-                    error!("Worker {} failed to restore VFS: {}", id, e);
-                    // Continue anyway - the app might work without VFS data
-                } else {
-                    debug!("Worker {} restored {} VFS entries", id, worker_sliver.vfs_entries.len());
-                }
-
-                // Create isolate from snapshot or fresh as fallback
-                let vfs_clone = vfs.clone();
-                let isolate = match crate::v8::restore_from_snapshot(&worker_sliver.heap_data, vfs_clone) {
-                    Ok(isol) => {
-                        info!("Worker {} created isolate from snapshot", id);
-                        isol
-                    }
-                    Err(e) => {
-                        warn!("Worker {} failed to restore from snapshot: {}. Creating fresh isolate.", id, e);
-                        match NanoIsolate::new_with_vfs(vfs.clone()) {
-                            Ok(isol) => isol,
-                            Err(e) => {
-                                error!("Worker {} failed to create isolate: {}", id, e);
-                                return;
-                            }
-                        }
-                    }
-                };
-
-                // Create context manager
-                let mut context_manager = ContextManager::new(isolate);
-                if let Err(e) = context_manager.create_initial_context() {
-                    error!("Worker {} failed to create context: {}", id, e);
-                    return;
-                }
-                info!("SliverWorker {} initialized with restored context", id);
-
-                // Event loop: same as regular WorkerPool
-                loop {
-                    match task_rx.recv() {
-                        Ok(task) => {
-                            debug!("SliverWorker {} received task for {}", id, task.entrypoint);
-
-                            // OOM check before request
-                            if let Some(ref monitor) = oom_monitor {
-                                let isolate_ref = context_manager.isolate_mut().isolate();
-                                match monitor.check(isolate_ref) {
-                                    Ok(_) => {}
-                                    Err(oom_error) => {
-                                        let request_id = format!("req_{}", uuid::Uuid::new_v4());
-                                        monitor.log_oom_event(&oom_error, &request_id);
-
-                                        let oom_response = monitor.create_oom_response(&oom_error);
-                                        let _ = task.response_tx.send(Ok(oom_response));
-
-                                        // Dispose and recreate isolate
-                                        warn!("Worker {} disposing isolate due to OOM", id);
-                                        match NanoIsolate::new() {
-                                            Ok(new_isolate) => {
-                                                context_manager = ContextManager::new(new_isolate);
-                                                if let Err(e) = context_manager.create_initial_context() {
-                                                    error!("Worker {} failed to create new context after OOM: {}", id, e);
-                                                    break;
-                                                }
-                                                monitor.reset();
-                                                info!("Worker {} created fresh isolate after OOM", id);
-                                            }
-                                            Err(e) => {
-                                                error!("Worker {} failed to create replacement isolate: {}", id, e);
-                                                break;
-                                            }
-                                        }
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            // Reset context before each request
-                            match context_manager.reset_context() {
-                                Ok(elapsed) => {
-                                    let ms = elapsed.as_secs_f64() * 1000.0;
-                                    debug!("SliverWorker {} context reset took {:.2}ms", id, ms);
-                                }
-                                Err(e) => {
-                                    error!("SliverWorker {} context reset failed: {}", id, e);
-                                    let _ = task.response_tx.send(Err(anyhow!("Context reset failed")));
-                                    continue;
-                                }
-                            }
-
-                            // Create handler context with temp entrypoint override
-                            let entrypoint = worker_temp_entrypoint
-                                .as_ref()
-                                .map(|p| p.to_string_lossy().to_string())
-                                .unwrap_or_else(|| task.entrypoint.clone());
-                            let handler_ctx = HandlerContext {
-                                entrypoint,
-                                request: task.request,
-                            };
-
-                            // Execute handler with CPU timeout enforcement if configured
-                            let result = execute_with_context_manager(&mut context_manager, &handler_ctx, task.cpu_time_limit_ms);
-
-                            // Post-request OOM check
-                            if let Some(ref monitor) = oom_monitor {
-                                let isolate_ref = context_manager.isolate_mut().isolate();
-                                if let Err(oom_error) = monitor.check(isolate_ref) {
-                                    let request_id = format!("req_{}", uuid::Uuid::new_v4());
-                                    monitor.log_oom_event(&oom_error, &request_id);
-                                    warn!("SliverWorker {} OOM detected after request", id);
-
-                                    // Dispose and recreate
-                                    match NanoIsolate::new() {
-                                        Ok(new_isolate) => {
-                                            context_manager = ContextManager::new(new_isolate);
-                                            if let Err(e) = context_manager.create_initial_context() {
-                                                error!("Worker {} failed to create new context: {}", id, e);
-                                                break;
-                                            }
-                                            monitor.reset();
-                                        }
-                                        Err(e) => {
-                                            error!("Worker {} failed to create replacement: {}", id, e);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Send response
-                            let _ = task.response_tx.send(result);
-                        }
-                        Err(_) => {
-                            debug!("SliverWorker {} channel closed, exiting", id);
-                            break;
-                        }
-                    }
-                }
-
-                info!(
-                    "SliverWorker {} shutting down (avg context reset: {:.2}ms)",
-                    id,
-                    context_manager.average_reset_time_ms()
-                );
-            });
-
-            workers.push(WorkerHandle {
-                id,
-                thread: Some(thread),
-                task_tx,
-            });
-        }
+        let inner = WorkerPool::with_source_and_backend(
+            hostname.clone(),
+            worker_count,
+            memory_limit_mb,
+            vfs_backend,
+            source,
+        );
 
         info!(
-            "SliverWorkerPool created for {} with {} workers (snapshot restored)",
+            "SliverWorkerPool for {} created with {} workers (custom backend)",
             hostname, worker_count
         );
 
         Self {
-            workers,
+            inner,
+            hostname: hostname.clone(),
             worker_count,
-            hostname,
-            next_worker: AtomicUsize::new(0),
-            vfs_backend,
             unpacked_sliver,
             temp_entrypoint,
         }
     }
 
-    /// Get a reference to the shared VFS backend
-    pub fn vfs_backend(&self) -> &crate::vfs::VfsBackendEnum {
-        &self.vfs_backend
+    /// Dispatch a task to a worker using round-robin
+    ///
+    /// Delegates to the unified WorkerPool implementation.
+    pub fn dispatch(&self, task: HandlerTask) -> Result<()> {
+        self.inner.dispatch(task)
     }
 
-    /// Get reference to unpacked sliver data
+    /// Gracefully shut down the sliver worker pool
+    ///
+    /// Delegates to the unified WorkerPool implementation.
+    pub fn shutdown(self) -> Result<()> {
+        info!("Shutting down SliverWorkerPool for {}", self.hostname);
+        self.inner.shutdown()
+    }
+
+    /// Get the number of workers in this pool
+    ///
+    /// Provided for backward compatibility with code that accessed the field directly.
+    pub fn worker_count(&self) -> usize {
+        self.worker_count
+    }
+
+    /// Get the hostname this pool serves
+    ///
+    /// Provided for backward compatibility with code that accessed the field directly.
+    pub fn hostname(&self) -> &str {
+        &self.hostname
+    }
+
+    /// Access the unpacked sliver data (for debugging/testing)
+    #[cfg(test)]
     pub fn sliver_data(&self) -> &crate::sliver::UnpackedSliver {
         &self.unpacked_sliver
     }
 
-    /// Dispatch a task to a worker (round-robin)
-    pub fn dispatch(&self, task: HandlerTask) -> Result<()> {
-        let worker_idx = self.next_worker.fetch_add(1, Ordering::SeqCst) % self.worker_count;
-
-        self.workers[worker_idx]
-            .send(task)
-            .map_err(|e| anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
-    }
-
-    /// Dispatch to specific worker
-    pub fn dispatch_to(&self, worker_idx: usize, task: HandlerTask) -> Result<()> {
-        if worker_idx >= self.worker_count {
-            return Err(anyhow!(
-                "Worker index {} out of bounds (max {})",
-                worker_idx,
-                self.worker_count - 1
-            ));
-        }
-
-        self.workers[worker_idx]
-            .send(task)
-            .map_err(|e| anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
-    }
-
-    /// Gracefully shut down the worker pool
-    pub fn shutdown(mut self) -> Result<()> {
-        info!("Shutting down SliverWorkerPool for {}", self.hostname);
-
-        let mut handles: Vec<_> = self
-            .workers
-            .drain(..)
-            .map(|mut w| (w.id, w.take_thread()))
-            .collect();
-
-        for (id, handle) in handles.drain(..) {
-            if let Some(h) = handle {
-                debug!("Waiting for sliver worker {} to exit", id);
-                match h.join() {
-                    Ok(_) => debug!("SliverWorker {} exited cleanly", id),
-                    Err(_) => warn!("SliverWorker {} panicked during shutdown", id),
-                }
-            }
-        }
-
-        info!("SliverWorkerPool for {} shut down complete", self.hostname);
-        Ok(())
-    }
-
-    /// Get the number of workers in this pool
-    pub fn worker_count(&self) -> usize {
-        self.worker_count
+    /// Access the VFS backend (for testing VFS operations)
+    #[cfg(test)]
+    pub fn vfs_backend(&self) -> &crate::vfs::VfsBackendEnum {
+        &self.inner.vfs_backend
     }
 }
 
 impl crate::worker::r#trait::WorkerPool for SliverWorkerPool {
     fn dispatch(&self, task: HandlerTask) -> Result<()> {
-        let worker_idx = self.next_worker.fetch_add(1, Ordering::SeqCst) % self.worker_count;
-        self.workers[worker_idx]
-            .send(task)
-            .map_err(|e| anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
+        self.inner.dispatch(task)
     }
 
-    fn shutdown(mut self) -> Result<()> {
-        info!("Shutting down SliverWorkerPool for {}", self.hostname);
-
-        let mut handles: Vec<_> = self
-            .workers
-            .drain(..)
-            .map(|mut w| (w.id, w.take_thread()))
-            .collect();
-
-        for (id, handle) in handles.drain(..) {
-            if let Some(h) = handle {
-                debug!("Waiting for sliver worker {} to exit", id);
-                match h.join() {
-                    Ok(_) => debug!("SliverWorker {} exited cleanly", id),
-                    Err(_) => warn!("SliverWorker {} panicked during shutdown", id),
-                }
-            }
-        }
-
-        info!("SliverWorkerPool for {} shut down complete", self.hostname);
-        Ok(())
+    fn shutdown(self) -> Result<()> {
+        self.inner.shutdown()
     }
 
     fn worker_count(&self) -> usize {
@@ -1531,29 +1975,6 @@ impl crate::worker::r#trait::WorkerPool for SliverWorkerPool {
 
     fn hostname(&self) -> &str {
         &self.hostname
-    }
-}
-
-impl Drop for SliverWorkerPool {
-    fn drop(&mut self) {
-        if !self.workers.is_empty() {
-            warn!(
-                "SliverWorkerPool for {} dropped without explicit shutdown - forcing cleanup",
-                self.hostname
-            );
-
-            let handles: Vec<_> = self
-                .workers
-                .drain(..)
-                .map(|mut w| w.take_thread())
-                .collect();
-
-            for handle in handles {
-                if let Some(h) = handle {
-                    let _ = h.join();
-                }
-            }
-        }
     }
 }
 
@@ -2157,7 +2578,7 @@ function fetch(request) {
             1,
             0,
             unpacked,
-            temp_entrypoint.clone(),
+            Some(temp_entrypoint.clone()),
         );
 
         // Create and dispatch a task

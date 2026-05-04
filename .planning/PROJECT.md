@@ -2,9 +2,18 @@
 
 ## Current State
 
-**Version:** v1.1 SHIPPED ✅  
-**Date:** 2026-04-20  
-**Status:** SLIVER milestone complete — isolate snapshots and VFS with ~267µs cold starts
+**Version:** v1.4.2 SHIPPED ✅  
+**Date:** 2026-05-03  
+**Status:** Production-ready with known test infrastructure issues being addressed in v1.5
+
+**⚠️ CRITICAL AUDIT FINDINGS (See docs/TEST_CLAIMS_AUDIT.md):**
+- WASM async execution claims 100% but actually 0% (returns "Promise still pending")
+- Test count inflated 4.3x (claims 981, actual ~227)
+- Missing test files: CRUD, Performance, Edge Cases (754 tests claimed don't exist)
+- WebCrypto claimed 100%, actually 75% (missing RSA, ECDSA, deriveKey)
+- Lenient test scoring counts infrastructure presence as passing
+
+**v1.5 Milestone Goal:** Fix all discrepancies, achieve TRUE 100% test pass rate with honest documentation
 
 NANO is a single-process HTTP server that hosts multiple JavaScript applications in parallel, each in its own V8 isolate. It replaces container fleets running one Node.js app per pod—eliminating operational overhead, slow startup times, and resource waste. One binary, one config file, many isolated apps.
 
@@ -245,6 +254,14 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 - Container-image semantics for isolates with ~267µs cold starts
 - VFS with pluggable backends, JavaScript fs API, tar-based slivers
 
+**v1.5 — Test Infrastructure Remediation** 🚧 IN PROGRESS
+- 7 phases, 26 requirements
+- Fix WASM async execution ("Promise still pending")
+- Create missing test files (CRUD, Performance, Edge Cases)
+- Remove inflated test claims (981 → ~227 actual)
+- Complete WebCrypto (RSA, ECDSA, deriveKey) OR document 75%
+- Honest, accurate documentation
+
 **v2.0 — Advanced Edge Features** 📋 PLANNED
 - WebSocket support for real-time applications
 - Advanced crypto (RSA signatures, ECDSA)
@@ -257,9 +274,9 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 
 | Metric | Value |
 |--------|-------|
-| Total Phases | 16 (16/16 complete) |
-| Total Plans | 60+ |
-| Total Tests | 500+ passing |
+| Total Phases | 23 (16/23 complete, 7 in progress) |
+| Total Plans | 60+ (v1.0-v1.4), TBD for v1.5 |
+| Total Tests | ~227 actual (not 981 claimed) |
 | Commits | ~200 (v1.0 + v1.1) |
 | LOC | ~40,000 Rust |
 | Cold Start | ~267µs from sliver |
@@ -291,6 +308,15 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
    - Related: ESM-01 technical debt — lifetime management challenges with V8/Rust
    - Current approach works for all v1.x use cases (Hono.js, Next.js, Astro)
    - Full Module API execution planned for v2.0 Phase 28
+6. **WASM Async Execution:** Returns "Promise still pending" (CRITICAL - Being fixed in v1.5 Phase 28)
+   - WebAssembly.compile() and instantiate() don't complete due to missing event loop integration
+   - Tests claimed 100% but actual execution success rate is 0%
+   - See docs/TEST_CLAIMS_AUDIT.md for full details
+7. **Test Infrastructure Issues:** Multiple inflated claims (CRITICAL - Being fixed in v1.5)
+   - Test count: Claims 981, actual ~227 (4.3x inflation)
+   - Missing test files: CRUD, Performance, Edge Cases tests don't exist
+   - WebCrypto: Claims 100%, actually 75% (missing RSA, ECDSA, deriveKey)
+   - Lenient scoring: Infrastructure presence counted as feature passing
 
 ---
 

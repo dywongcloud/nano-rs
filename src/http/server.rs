@@ -193,7 +193,6 @@ impl Default for State {
 /// * `state` - Shared application state with shutdown tracking
 ///
 /// # Returns
-///
 /// A configured `Router` ready to be passed to `axum::serve()`.
 pub fn create_app_with_shutdown(state: Arc<AppStateWithShutdown>) -> Router {
     // Create a clone for the virtual host handler

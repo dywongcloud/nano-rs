@@ -144,18 +144,27 @@ impl NanoJsonLayer {
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_else(|| event.metadata().name().to_string());
 
-        // Build the JSON output
-        json!({
+        // Build the JSON output - only include worker_id/isolate_id at top level if set
+        let mut log_entry = json!({
             "ts": Utc::now().to_rfc3339(),
             "level": event.metadata().level().to_string(),
             "event": event.metadata().name(),
             "hostname": hostname,
             "request_id": request_id,
-            "worker_id": worker_id,
-            "isolate_id": isolate_id,
             "message": message,
             "fields": fields,
-        })
+        });
+
+        // Only add worker_id and isolate_id to top level if they have values
+        // These are set by the worker span, not the HTTP span
+        if let Some(wid) = worker_id {
+            log_entry["worker_id"] = json!(wid);
+        }
+        if let Some(iso) = isolate_id {
+            log_entry["isolate_id"] = json!(iso);
+        }
+
+        log_entry
     }
 
     /// Write a JSON log line to stdout

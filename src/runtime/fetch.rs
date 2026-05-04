@@ -544,6 +544,108 @@ fn reject_with_error(scope: &mut v8::HandleScope, retval: &mut v8::ReturnValue, 
     retval.set(error);
 }
 
+/// Static callback for Response.json() - creates a Response from a JSON object
+/// 
+/// Usage: Response.json(data, options)
+/// - data: any JavaScript value (will be JSON.stringified)
+/// - options: optional { status, headers }
+pub fn response_json_static_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    // Get data argument (first argument)
+    let data = if args.length() > 0 {
+        args.get(0)
+    } else {
+        retval.set_undefined();
+        return;
+    };
+    
+    // Serialize data to JSON string
+    let json_string = if let Some(json_str) = v8::json::stringify(scope, data) {
+        json_str.to_rust_string_lossy(scope)
+    } else {
+        "null".to_string()
+    };
+    
+    // Get options argument (second argument - optional)
+    let mut status = 200;
+    let mut headers_obj: Option<v8::Local<v8::Object>> = None;
+    
+    if args.length() > 1 {
+        let options = args.get(1);
+        if let Some(opts) = options.to_object(scope) {
+            // Extract status
+            let status_key = v8::String::new(scope, "status").unwrap();
+            if let Some(status_val) = opts.get(scope, status_key.into()) {
+                if !status_val.is_null() && !status_val.is_undefined() {
+                    if let Some(num) = status_val.to_number(scope) {
+                        let val = num.value();
+                        if !val.is_nan() && val > 0.0 {
+                            status = val as u16;
+                        }
+                    }
+                }
+            }
+            
+            // Extract headers
+            let headers_key = v8::String::new(scope, "headers").unwrap();
+            headers_obj = opts.get(scope, headers_key.into()).and_then(|h| h.to_object(scope));
+        }
+    }
+    
+    // Create a new Response object
+    let response_obj = v8::Object::new(scope);
+    
+    // Set status property
+    let status_key = v8::String::new(scope, "status").unwrap();
+    let status_val = v8::Number::new(scope, status as f64);
+    response_obj.set(scope, status_key.into(), status_val.into());
+    
+    // Create headers object with Content-Type: application/json
+    let headers = v8::Object::new(scope);
+    let content_type_key = v8::String::new(scope, "Content-Type").unwrap();
+    let content_type_val = v8::String::new(scope, "application/json").unwrap();
+    headers.set(scope, content_type_key.into(), content_type_val.into());
+    
+    // Add any custom headers from options
+    if let Some(hdrs) = headers_obj {
+        if let Some(names) = hdrs.get_own_property_names(scope, Default::default()) {
+            let len = names.length();
+            for i in 0..len {
+                if let Some(key) = names.get_index(scope, i) {
+                    if let Some(key_str) = key.to_string(scope) {
+                        let key_name = key_str.to_rust_string_lossy(scope);
+                        if key_name != "Content-Type" {  // Don't override Content-Type
+                            if let Some(value) = hdrs.get(scope, key.into()) {
+                                if let Some(value_str) = value.to_string(scope) {
+                                    let value_string = value_str.to_rust_string_lossy(scope);
+                                    let hkey = v8::String::new(scope, &key_name).unwrap();
+                                    let hval = v8::String::new(scope, &value_string).unwrap();
+                                    headers.set(scope, hkey.into(), hval.into());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Set headers property
+    let headers_key = v8::String::new(scope, "headers").unwrap();
+    response_obj.set(scope, headers_key.into(), headers.into());
+    
+    // Set body property
+    let body_key = v8::String::new(scope, "body").unwrap();
+    let body_val = v8::String::new(scope, &json_string).unwrap();
+    response_obj.set(scope, body_key.into(), body_val.into());
+    
+    // Return the Response object
+    retval.set(response_obj.into());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

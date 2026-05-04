@@ -752,12 +752,24 @@ pub async fn virtual_host_handler(
     // Record metrics
     METRICS.record_request(&host, &status_str, duration_ms);
 
-    // Log request completion with status
+    // Get request path for access log
+    let path = uri.path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+
+    // HTTP Access Log - single line per request with all key info
+    // Format: METHOD path host status duration_ms response_size
     tracing::info!(
-        event = "request_complete",
+        method = %method,
+        path = %path,
+        host = %host,
         status = status,
-        duration_ms = duration_ms,
-        "Request completed successfully"
+        duration_ms = format!("{:.2}", duration_ms),
+        "HTTP {} {} - {} in {}ms",
+        method,
+        path,
+        status,
+        format!("{:.2}", duration_ms)
     );
 
     // Convert NanoResponse to axum response
@@ -883,7 +895,7 @@ pub async fn dispatch_to_worker_pool(
     // Get CPU time limit from app registry (0 means no limit)
     let cpu_time_limit_ms = state.get_cpu_time_limit_ms(&host);
 
-    // Create handler task with hostname for metrics tracking
+    // Create handler task with hostname and request_id for distributed tracing
     let task = HandlerTask {
         entrypoint,
         request: nano_request,
@@ -891,66 +903,126 @@ pub async fn dispatch_to_worker_pool(
         hostname: host.clone(),
         start_time: std::time::Instant::now(),
         cpu_time_limit_ms,
+        request_id: request_id.clone(),
     };
+
+    // Get request path for access log
+    let path = uri.path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
 
     // Dispatch to WorkQueue (async Mutex lock)
     let mut queue = state.work_queue.lock().await;
-    let response = match queue.dispatch(&host, task).await {
+    let (response, status_code, worker_id, isolate_id) = match queue.dispatch(&host, task).await {
         Ok(()) => {
             // Wait for response from worker
             match rx.await {
                 Ok(Ok(nano_response)) => {
-                    // Calculate duration and record metrics
-                    let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
                     let status = nano_response.status();
-                    METRICS.record_request(&host, &status.to_string(), duration_ms);
-                    nano_response.to_axum_response()
+                    let worker_id = nano_response.worker_id();
+                    let isolate_id = nano_response.isolate_id().map(|s| s.to_string());
+                    (nano_response.to_axum_response(), status, worker_id, isolate_id)
                 }
                 Ok(Err(e)) => {
                     tracing::error!("Handler error: {}", e);
-                    let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-                    METRICS.record_request(&host, "500", duration_ms);
-                    Response::builder()
+                    let response = Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
                         .header("content-type", "text/plain")
                         .body(Body::from("Internal Server Error"))
-                        .unwrap()
+                        .unwrap();
+                    (response, 500, None, None)
                 }
                 Err(_) => {
                     tracing::error!("Response channel closed");
-                    let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-                    METRICS.record_request(&host, "500", duration_ms);
-                    Response::builder()
+                    let response = Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
                         .header("content-type", "text/plain")
                         .body(Body::from("Internal Server Error"))
-                        .unwrap()
+                        .unwrap();
+                    (response, 500, None, None)
                 }
             }
         }
         Err(QueueError::ChannelFull) => {
             tracing::warn!("WorkQueue full for hostname: {}", host);
-            let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-            METRICS.record_request(&host, "503", duration_ms);
-            Response::builder()
+            let response = Response::builder()
                 .status(StatusCode::SERVICE_UNAVAILABLE)
                 .header("Retry-After", "1")
                 .header("content-type", "text/plain")
                 .body(Body::from("Service Unavailable - Queue Full"))
-                .unwrap()
+                .unwrap();
+            (response, 503, None, None)
         }
         Err(e) => {
             tracing::error!("Dispatch error: {}", e);
-            let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-            METRICS.record_request(&host, "500", duration_ms);
-            Response::builder()
+            let response = Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .header("content-type", "text/plain")
                 .body(Body::from("Internal Server Error"))
-                .unwrap()
+                .unwrap();
+            (response, 500, None, None)
         }
     };
-    
+
+    // Calculate duration and record metrics
+    let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+    METRICS.record_request(&host, &status_code.to_string(), duration_ms);
+
+    // HTTP Access Log - single line per request with all key info
+    // Include worker_id and isolate_id when available to show which worker/isolate processed the request
+    match (worker_id, isolate_id) {
+        (Some(wid), Some(iso)) => {
+            let worker_id_u64 = wid as u64;
+            tracing::info!(
+                method = %method,
+                path = %path,
+                host = %host,
+                status = status_code,
+                worker_id = worker_id_u64,
+                isolate_id = %iso,
+                duration_ms = format!("{:.2}", duration_ms),
+                "HTTP {} {} - {} in {}ms (worker: {}, isolate: {})",
+                method,
+                path,
+                status_code,
+                format!("{:.2}", duration_ms),
+                wid,
+                iso
+            );
+        }
+        (Some(wid), None) => {
+            let worker_id_u64 = wid as u64;
+            tracing::info!(
+                method = %method,
+                path = %path,
+                host = %host,
+                status = status_code,
+                worker_id = worker_id_u64,
+                duration_ms = format!("{:.2}", duration_ms),
+                "HTTP {} {} - {} in {}ms (worker: {})",
+                method,
+                path,
+                status_code,
+                format!("{:.2}", duration_ms),
+                wid
+            );
+        }
+        _ => {
+            tracing::info!(
+                method = %method,
+                path = %path,
+                host = %host,
+                status = status_code,
+                duration_ms = format!("{:.2}", duration_ms),
+                "HTTP {} {} - {} in {}ms",
+                method,
+                path,
+                status_code,
+                format!("{:.2}", duration_ms)
+            );
+        }
+    }
+
     response
 }
 

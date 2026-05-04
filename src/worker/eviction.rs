@@ -27,28 +27,43 @@
 
 use crate::worker::memory_monitor::{MemoryPressureLevel, MemorySnapshot};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
+/// Static counter for generating unique isolate IDs across the process
+static ISOLATE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 /// Unique identifier for an isolate within the eviction manager
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct IsolateId(pub usize);
+/// Uses a hash-based string like "iso_a3f7b2d8" to uniquely identify isolate instances
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IsolateId(pub String);
 
 impl IsolateId {
-    /// Create a new isolate ID from a worker index
-    pub fn from_worker_index(index: usize) -> Self {
-        Self(index)
+    /// Generate a new unique isolate ID with hash format
+    /// Each call creates a unique ID even for the same worker (e.g., after OOM recovery)
+    pub fn generate() -> Self {
+        let counter = ISOLATE_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let uuid = uuid::Uuid::new_v4();
+        // Format: iso_{first_8_of_uuid}_{counter}
+        // This gives us unique, traceable IDs like "iso_a3f7b2d8_00000042"
+        let hash = format!("iso_{}_{:08x}", uuid.to_string()[..8].to_string(), counter);
+        Self(hash)
     }
 
-    /// Get the worker index this ID represents
-    pub fn worker_index(&self) -> usize {
-        self.0
+    /// Create from an existing string (for tests/deserialization)
+    pub fn from_string(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    /// Get the ID string
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
 impl std::fmt::Display for IsolateId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "worker_{}", self.0)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -164,6 +179,24 @@ impl IsolateMetadata {
     /// Get time since last use
     pub fn idle_duration(&self) -> std::time::Duration {
         self.last_used.elapsed()
+    }
+
+    /// Get the age of this isolate (time since creation)
+    pub fn age(&self) -> std::time::Duration {
+        self.created_at.elapsed()
+    }
+
+    /// Get formatted age string for debugging (e.g., "45s", "3m 12s", "2h 5m")
+    pub fn age_formatted(&self) -> String {
+        let age = self.age();
+        let secs = age.as_secs();
+        if secs < 60 {
+            format!("{}s", secs)
+        } else if secs < 3600 {
+            format!("{}m {}s", secs / 60, secs % 60)
+        } else {
+            format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
+        }
     }
 }
 
@@ -292,7 +325,7 @@ impl EvictionManager {
     /// * `id` - Unique isolate identifier
     /// * `metadata` - Initial isolate metadata
     pub fn register_isolate(&mut self, id: IsolateId, metadata: IsolateMetadata) {
-        self.isolates.insert(id, metadata);
+        self.isolates.insert(id.clone(), metadata);
         self.eviction_states.insert(id, IsolateEvictionState::Active);
     }
 
@@ -482,7 +515,7 @@ impl EvictionManager {
     /// * `id` - Isolate to reactivate
     /// * `new_metadata` - Fresh metadata for the replacement
     pub fn reactivate_isolate(&mut self, id: IsolateId, new_metadata: IsolateMetadata) {
-        self.isolates.insert(id, new_metadata);
+        self.isolates.insert(id.clone(), new_metadata);
         self.eviction_states.insert(id, IsolateEvictionState::Active);
     }
 
@@ -494,6 +527,16 @@ impl EvictionManager {
     /// Get mutable metadata for an isolate
     pub fn get_metadata_mut(&mut self, id: &IsolateId) -> Option<&mut IsolateMetadata> {
         self.isolates.get_mut(id)
+    }
+
+    /// Get the age of an isolate (time since creation)
+    pub fn get_isolate_age(&self, id: &IsolateId) -> Option<std::time::Duration> {
+        self.isolates.get(id).map(|m| m.age())
+    }
+
+    /// Get formatted age string for an isolate (e.g., "45s", "3m 12s")
+    pub fn get_isolate_age_formatted(&self, id: &IsolateId) -> Option<String> {
+        self.isolates.get(id).map(|m| m.age_formatted())
     }
 
     /// Get total memory across all tracked isolates
@@ -645,9 +688,20 @@ mod tests {
 
     #[test]
     fn test_isolate_id_creation() {
-        let id = IsolateId::from_worker_index(5);
-        assert_eq!(id.worker_index(), 5);
-        assert_eq!(id.to_string(), "worker_5");
+        let id = IsolateId::from_string("iso_a3f7b2d8_00000005");
+        assert_eq!(id.as_str(), "iso_a3f7b2d8_00000005");
+        assert_eq!(id.to_string(), "iso_a3f7b2d8_00000005");
+    }
+
+    #[test]
+    fn test_isolate_id_generate_unique() {
+        let id1 = IsolateId::generate();
+        let id2 = IsolateId::generate();
+        // Each generated ID should be unique
+        assert_ne!(id1.as_str(), id2.as_str());
+        // Format should be iso_{uuid}_{counter}
+        assert!(id1.as_str().starts_with("iso_"));
+        assert!(id2.as_str().starts_with("iso_"));
     }
 
     #[test]
@@ -712,12 +766,12 @@ mod tests {
         assert!(!allow.is_hard());
         assert_eq!(allow.eviction_count(), 0);
 
-        let soft = EvictionAction::SoftEvict(vec![IsolateId(1)]);
+        let soft = EvictionAction::SoftEvict(vec![IsolateId::from_string("iso_soft_1")]);
         assert!(soft.is_eviction());
         assert!(!soft.is_hard());
         assert_eq!(soft.eviction_count(), 1);
 
-        let hard = EvictionAction::HardEvict(vec![IsolateId(1), IsolateId(2)]);
+        let hard = EvictionAction::HardEvict(vec![IsolateId::from_string("iso_hard_1"), IsolateId::from_string("iso_hard_2")]);
         assert!(hard.is_eviction());
         assert!(hard.is_hard());
         assert_eq!(hard.eviction_count(), 2);
@@ -734,7 +788,7 @@ mod tests {
     #[test]
     fn test_eviction_manager_registration() {
         let mut manager = EvictionManager::new();
-        let id = IsolateId::from_worker_index(0);
+        let id = IsolateId::from_string("iso_test_0");
         let meta = IsolateMetadata::new("test.example.com", 0);
 
         manager.register_isolate(id.clone(), meta);
@@ -748,7 +802,7 @@ mod tests {
     #[test]
     fn test_eviction_manager_usage_tracking() {
         let mut manager = EvictionManager::new();
-        let id = IsolateId::from_worker_index(0);
+        let id = IsolateId::from_string("iso_test_0");
         let meta = IsolateMetadata::new("test.example.com", 0);
 
         manager.register_isolate(id.clone(), meta);
@@ -762,7 +816,7 @@ mod tests {
     #[test]
     fn test_soft_eviction_lifecycle() {
         let mut manager = EvictionManager::new();
-        let id = IsolateId::from_worker_index(0);
+        let id = IsolateId::from_string("iso_test_0");
         let meta = IsolateMetadata::new("test.example.com", 0);
 
         manager.register_isolate(id.clone(), meta);
@@ -781,7 +835,7 @@ mod tests {
     #[test]
     fn test_hard_eviction() {
         let mut manager = EvictionManager::new();
-        let id = IsolateId::from_worker_index(0);
+        let id = IsolateId::from_string("iso_test_0");
         let meta = IsolateMetadata::new("test.example.com", 0);
 
         manager.register_isolate(id.clone(), meta);
@@ -825,7 +879,7 @@ mod tests {
         let mut manager = EvictionManager::with_config(config);
 
         // Register and evict an isolate
-        let id = IsolateId::from_worker_index(0);
+        let id = IsolateId::from_string("iso_test_0");
         let meta = IsolateMetadata::new("test.example.com", 0);
         manager.register_isolate(id.clone(), meta);
         manager.initiate_soft_eviction(&id);
@@ -839,9 +893,9 @@ mod tests {
     fn test_state_counts() {
         let mut manager = EvictionManager::new();
 
-        let id1 = IsolateId::from_worker_index(0);
-        let id2 = IsolateId::from_worker_index(1);
-        let id3 = IsolateId::from_worker_index(2);
+        let id1 = IsolateId::from_string("iso_test_0");
+        let id2 = IsolateId::from_string("iso_test_1");
+        let id3 = IsolateId::from_string("iso_test_2");
 
         manager.register_isolate(id1.clone(), IsolateMetadata::new("app1", 0));
         manager.register_isolate(id2.clone(), IsolateMetadata::new("app2", 1));
@@ -871,7 +925,7 @@ mod tests {
     #[test]
     fn test_reactivate_isolate() {
         let mut manager = EvictionManager::new();
-        let id = IsolateId::from_worker_index(0);
+        let id = IsolateId::from_string("iso_test_0");
 
         manager.register_isolate(id.clone(), IsolateMetadata::new("test", 0));
         manager.initiate_soft_eviction(&id);
@@ -904,8 +958,8 @@ mod tests {
         let mut manager = EvictionManager::with_config(config);
 
         // Register isolates with different last_used times
-        let id1 = IsolateId::from_worker_index(0);
-        let id2 = IsolateId::from_worker_index(1);
+        let id1 = IsolateId::from_string("iso_test_0");
+        let id2 = IsolateId::from_string("iso_test_1");
 
         let mut meta1 = IsolateMetadata::new("app1", 0);
         let mut meta2 = IsolateMetadata::new("app2", 1);
@@ -931,7 +985,7 @@ mod tests {
     fn test_eviction_with_active_requests() {
         let mut manager = EvictionManager::new();
 
-        let id = IsolateId::from_worker_index(0);
+        let id = IsolateId::from_string("iso_test_0");
         let mut meta = IsolateMetadata::new("test", 0);
         meta.active_requests = 1; // Simulate active request
 

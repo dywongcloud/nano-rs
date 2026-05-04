@@ -24,7 +24,7 @@ pub fn init_platform() {
 pub fn create_test_vfs(hostname: &str) -> Arc<IsolateVfs> {
     Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname(hostname),
-        Arc::new(MemoryBackend::default()),
+        nano::vfs::VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ))
 }
 

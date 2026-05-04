@@ -298,7 +298,7 @@ impl RuntimeAPIs {
 
     /// Bind Response constructor for WinterCG compatibility
     fn bind_response(scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) {
-        use crate::runtime::fetch::{response_text_callback, response_json_callback, response_arraybuffer_callback};
+        use crate::runtime::fetch::{response_text_callback, response_json_callback, response_arraybuffer_callback, response_json_static_callback};
         
         let global = context.global(scope);
 
@@ -327,6 +327,12 @@ impl RuntimeAPIs {
                         proto_obj.set(scope, ab_key.into(), ab_fn.into());
                     }
                 }
+            }
+            
+            // Add static Response.json() method
+            if let Some(json_static_fn) = v8::Function::new(scope, response_json_static_callback) {
+                let json_key = v8::String::new(scope, "json").unwrap();
+                ctor_obj.set(scope, json_key.into(), json_static_fn.into());
             }
         }
 

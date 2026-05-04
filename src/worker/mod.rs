@@ -1,33 +1,101 @@
 //! Worker pool architecture for multi-tenant JavaScript execution
 //!
-//! This module provides worker pool implementations for NANO, managing V8 isolate
+//! This module provides a unified worker pool implementation for NANO, managing V8 isolate
 //! execution across multiple threads with per-tenant isolation.
 //!
-//! ## Architecture Overview
+//! ## Architecture Overview (Unified)
 //!
-//! This module provides multiple worker pool implementations for different use cases:
+//! All application types (Static, JS, WASM) flow through a single unified engine:
 //!
-//! ### Pool Types
+//! ### Unified WorkerPool with AppSource
 //!
-//! - **SliverWorkerPool** ([`pool::SliverWorkerPool`]): For snapshot-based execution
-//!   - Restores isolates from V8 snapshots (~1-2ms cold start)
-//!   - Full feature set: CPU limits, memory monitoring, eviction
-//!   - Use when: Running from sliver files (production deployment)
+//! The [`WorkerPool`] now accepts an [`AppSource`] enum that unifies all app types:
 //!
-//! - **EntrypointWorkerPool** ([`queue::EntrypointWorkerPool`]): For entrypoint dispatch
+//! - **Entrypoint** ([`AppSource::Entrypoint`]): JavaScript/WASM from filesystem
 //!   - Creates fresh isolates from source files
-//!   - Supports async creation with custom VFS backends
-//!   - Use when: Dynamic app loading, development, testing
+//!   - Full feature set: CPU limits, memory monitoring, eviction, tracing
+//!   - Use when: Config mode, development, dynamic loading
 //!
-//! - **WorkQueue** ([`queue::WorkQueue`]): Multi-hostname pool manager
-//!   - Manages multiple EntrypointWorkerPools per hostname
+//! - **Sliver** ([`AppSource::Sliver`]): Snapshot-based execution
+//!   - Restores isolates from V8 snapshots (~1-2ms cold start)
+//!   - Same full feature set as entrypoint mode
+//!   - Use when: Production deployment from .sliver files
+//!
+//! - **Static** ([`AppSource::Static`]): Static file serving
+//!   - No isolate creation (pure file serving)
+//!   - Same routing and tracing as dynamic apps
+//!   - Use when: Static sites without JavaScript execution
+//!
+//! ### Unified Features (All App Types)
+//!
+//! All applications now receive identical treatment:
+//! - ✅ V8 isolates for code execution
+//! - ✅ CPU time limits and enforcement
+//! - ✅ Memory monitoring and pressure-based eviction
+//! - ✅ Request tracing: `request_id` + `worker_id` + `isolate_id`
+//! - ✅ Sliver packaging support (all types can be slivered)
+//! - ✅ VFS for code and static artifacts
+//! - ✅ Async/await support (no "Promise still pending")
+//!
+//! ### Architecture Diagram
+//!
+//! ```mermaid
+//! flowchart TB
+//!     subgraph AppSource["AppSource Enum"]
+//!         EP[Entrypoint<br/>JS/WASM files]
+//!         SL[Sliver<br/>V8 snapshot]
+//!         ST[Static<br/>No isolate]
+//!     end
+//!
+//!     subgraph WorkerPool["WorkerPool::with_source()"]
+//!         RT[Tokio Runtime<br/>per thread]
+//!         OM[OOM Monitor<br/>memory_limit_mb]
+//!         MM[Memory Monitor<br/>pressure tracking]
+//!         EM[Eviction Manager<br/>soft/hard eviction]
+//!     end
+//!
+//!     subgraph Workers["Worker Threads"]
+//!         W0[Worker 0<br/>V8 Isolate]
+//!         W1[Worker 1<br/>V8 Isolate]
+//!         WN[Worker N<br/>V8 Isolate]
+//!     end
+//!
+//!     EP -->|fresh isolate| WorkerPool
+//!     SL -->|snapshot restore| WorkerPool
+//!     ST -->|file serving| StaticPool
+//!
+//!     WorkerPool --> W0
+//!     WorkerPool --> W1
+//!     WorkerPool --> WN
+//!
+//!     W0 -->|HandlerTask| MPSC[MPSC Channel<br/>request/response]
+//!     W1 -->|HandlerTask| MPSC
+//!     WN -->|HandlerTask| MPSC
+//!
+//!     MPSC -->|NanoResponse| HTTP[HTTP Layer]
+//!
+//!     style AppSource fill:#e1f5fe
+//!     style WorkerPool fill:#fff3e0
+//!     style Workers fill:#e8f5e9
+//!     style StaticPool fill:#f3e5f5
+//! ```
+//!
+//! ### Legacy Types (Unified)
+//!
+//! These types are maintained for backward compatibility but delegate to the unified
+//! [`WorkerPool`] implementation internally:
+//!
+//! - **SliverWorkerPool** ([`pool::SliverWorkerPool`]): Thin wrapper for sliver mode
+//!   - Wraps WorkerPool with AppSource::Sliver
+//!   - Supports temp entrypoint override for extracted VFS
+//!
+//! - **EntrypointWorkerPool** ([`queue::EntrypointWorkerPool`]): Thin wrapper for entrypoint mode
+//!   - Wraps WorkerPool with AppSource::Entrypoint
+//!   - ~240 lines of duplicate worker logic removed
+//!
+//! - **WorkQueue** ([`queue::WorkQueue`]): Multi-hostname manager
+//!   - Manages WorkerPools with per-hostname affinity
 //!   - Affine dispatch for cache locality
-//!   - Use when: Multi-tenant hosting with dynamic pool creation
-//!
-//! - **WorkerPool** ([`pool::WorkerPool`]): Legacy pool (backward compatibility)
-//!   - The original pool implementation from early phases
-//!   - Maintained for existing tests and backward compatibility
-//!   - New code should use SliverWorkerPool or EntrypointWorkerPool
 //!
 //! ### Trait-Based Design
 //!
@@ -47,13 +115,16 @@
 //!
 //! ### Pool Selection Guide
 //!
-//! | Use Case | Pool Type | Why |
-//! |----------|-----------|-----|
-//! | Production sliver execution | SliverWorkerPool | Fast snapshot restore, full features |
-//! | Dynamic app loading | EntrypointWorkerPool | Async creation, VFS flexibility |
-//! | Multi-tenant hosting | WorkQueue | Per-hostname pool management |
-//! | Testing/development | EntrypointWorkerPool | Simple, no snapshot needed |
-//! | Legacy compatibility | WorkerPool | Maintains backward compatibility |
+//! All use cases now flow through the unified [`WorkerPool`] via [`AppSource`]:
+//!
+//! | Use Case | Recommended API | Legacy API (still works) |
+//! |----------|-----------------|-------------------------|
+//! | Production sliver execution | `WorkerPool::with_source(AppSource::sliver(data))` | `SliverWorkerPool::new(...)` |
+//! | Dynamic app loading | `WorkerPool::with_source(AppSource::entrypoint(path))` | `EntrypointWorkerPool::new(...)` |
+//! | Multi-tenant hosting | `WorkQueue` with `WorkerPool` per hostname | Same |
+//! | Testing/development | `WorkerPool::with_source(AppSource::entrypoint(path))` | `EntrypointWorkerPool::new(...)` |
+//!
+//! **New code should use `WorkerPool::with_source()`** for direct access to all features.
 //!
 //! ### VFS Backend Configuration
 //!
@@ -80,6 +151,7 @@
 //! Calling [`WorkerPoolTrait::shutdown`] or dropping the pool signals workers to exit
 //! via MPSC channel closure. All worker threads are joined to ensure clean isolate cleanup.
 
+pub mod app_source;
 pub mod context;
 pub mod cpu_tracker;
 pub mod eviction;
@@ -92,6 +164,7 @@ pub mod timeout;
 pub mod r#trait;
 
 // Re-export types
+pub use app_source::AppSource;
 pub use context::ContextManager;
 pub use cpu_tracker::{CpuTimeError, CpuTimeSnapshot, CpuTracker};
 pub use eviction::{EvictionAction, EvictionManager, EvictionPolicy, IsolateMetadata};
@@ -124,6 +197,8 @@ pub struct HandlerTask {
     pub start_time: std::time::Instant,
     /// CPU time limit in milliseconds (0 = no limit)
     pub cpu_time_limit_ms: u32,
+    /// Request ID for distributed tracing (e.g., "req_abc123")
+    pub request_id: String,
 }
 
 // Safety: NanoRequest is Clone + contains String/Bytes which are Send
@@ -150,6 +225,34 @@ impl HandlerTask {
             hostname: String::new(),
             start_time: std::time::Instant::now(),
             cpu_time_limit_ms: 0,
+            request_id: format!("req_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
+        }
+    }
+
+    /// Create a new handler task with a specific request_id for testing/tracing
+    ///
+    /// # Arguments
+    ///
+    /// * `entrypoint` - Path to the JavaScript file
+    /// * `request` - The HTTP request to process
+    /// * `response_tx` - Oneshot channel sender for the response
+    /// * `hostname` - Tenant hostname for metrics tracking
+    /// * `request_id` - Specific request ID for tracing
+    pub fn new_with_request_id(
+        entrypoint: String,
+        request: NanoRequest,
+        response_tx: oneshot::Sender<anyhow::Result<NanoResponse>>,
+        hostname: String,
+        request_id: String,
+    ) -> Self {
+        Self {
+            entrypoint,
+            request,
+            response_tx,
+            hostname,
+            start_time: std::time::Instant::now(),
+            cpu_time_limit_ms: 0,
+            request_id,
         }
     }
 
@@ -174,10 +277,11 @@ impl HandlerTask {
             hostname,
             start_time: std::time::Instant::now(),
             cpu_time_limit_ms: 0,
+            request_id: format!("req_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
         }
     }
 
-    /// Create a new handler task with hostname and CPU limits
+    /// Create a new handler task with hostname, CPU limits, and request_id
     ///
     /// # Arguments
     ///
@@ -186,12 +290,14 @@ impl HandlerTask {
     /// * `response_tx` - Oneshot channel sender for the response
     /// * `hostname` - Tenant hostname for metrics tracking
     /// * `cpu_time_limit_ms` - CPU time limit in milliseconds (0 = no limit)
+    /// * `request_id` - Request ID for distributed tracing
     pub fn with_hostname_and_limits(
         entrypoint: String,
         request: NanoRequest,
         response_tx: oneshot::Sender<anyhow::Result<NanoResponse>>,
         hostname: String,
         cpu_time_limit_ms: u32,
+        request_id: String,
     ) -> Self {
         Self {
             entrypoint,
@@ -200,7 +306,14 @@ impl HandlerTask {
             hostname,
             start_time: std::time::Instant::now(),
             cpu_time_limit_ms,
+            request_id,
         }
+    }
+
+    /// Set the request ID for distributed tracing
+    pub fn with_request_id(mut self, request_id: String) -> Self {
+        self.request_id = request_id;
+        self
     }
 
     /// Set CPU time limit

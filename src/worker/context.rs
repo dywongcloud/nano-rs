@@ -25,6 +25,7 @@
 //! when both context management and script execution need isolate access.
 
 use crate::v8::NanoIsolate;
+use crate::worker::eviction::IsolateId;
 use anyhow::Result;
 use std::time::Duration;
 
@@ -39,18 +40,36 @@ pub struct ContextManager {
     creation_count: u64,
     reset_count: u64,
     total_reset_time_ms: f64,
+    /// Unique identifier for this isolate instance
+    /// Generated at creation and changes when isolate is replaced (e.g., OOM recovery)
+    isolate_id: IsolateId,
 }
 
 impl ContextManager {
     /// Create a new ContextManager with the given isolate
+    /// Generates a unique isolate_id for tracking and logging
     pub fn new(isolate: NanoIsolate) -> Self {
+        let isolate_id = IsolateId::generate();
+        tracing::debug!("ContextManager created with isolate_id: {}", isolate_id);
         Self {
             isolate,
             current_context: None,
             creation_count: 0,
             reset_count: 0,
             total_reset_time_ms: 0.0,
+            isolate_id,
         }
+    }
+
+    /// Get the unique identifier for this isolate instance
+    pub fn isolate_id(&self) -> &IsolateId {
+        &self.isolate_id
+    }
+
+    /// Generate a new isolate_id (call this when replacing the isolate, e.g., after OOM)
+    fn regenerate_isolate_id(&mut self) {
+        self.isolate_id = IsolateId::generate();
+        tracing::debug!("Isolate ID regenerated after replacement: {}", self.isolate_id);
     }
 
     /// Create the initial context for this isolate
