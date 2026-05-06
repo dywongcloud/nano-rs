@@ -13,7 +13,8 @@
 //! Run with: cargo test --test security_adversarial
 
 // Security test modules
-mod security_utils;
+#[path = "common.rs"]
+mod common;
 mod adversarial_cpu;
 mod adversarial_memory;
 mod adversarial_vfs;
@@ -24,4 +25,4 @@ mod adversarial_isolation;
 mod adversarial_crypto;
 
 // Re-export utilities
-pub use security_utils::*;
+pub use common::*;

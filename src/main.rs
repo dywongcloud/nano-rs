@@ -11,7 +11,7 @@ mod cli;
 #[derive(Debug, Parser)]
 #[command(name = "nano-rs")]
 #[command(about = "Multi-tenant JavaScript edge runtime (Rust + rusty_v8)")]
-#[command(version)]
+#[command(version = concat!(env!("CARGO_PKG_VERSION"), " (v8-crate: 147.4.0)"))]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -48,6 +48,9 @@ enum Commands {
     /// Sliver management commands (snapshot creation and management)
     #[command(subcommand)]
     Sliver(cli::SliverCommand),
+
+    /// Show detailed version information including V8 versions
+    Version,
 }
 
 #[tokio::main]
@@ -77,6 +80,23 @@ async fn main() -> Result<()> {
         Some(Commands::Sliver(sliver_cmd)) => {
             // Execute sliver command
             handle_sliver_command(sliver_cmd).await
+        }
+        Some(Commands::Version) => {
+            // Initialize V8 platform to get the actual engine version
+            let platform = v8::new_default_platform(0, false).make_shared();
+            v8::V8::initialize_platform(platform);
+            v8::V8::initialize();
+            
+            let v8_engine_version = v8::V8::get_version();
+            let v8_crate_version = "147.4.0"; // From Cargo.lock
+            let app_version = env!("CARGO_PKG_VERSION");
+            
+            println!("nano-rs {} (v8: {}, v8-crate: {})", 
+                app_version, 
+                v8_engine_version,
+                v8_crate_version
+            );
+            Ok(())
         }
     }
 }

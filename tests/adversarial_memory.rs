@@ -9,8 +9,10 @@
 //! - Typed array exhaustion
 
 
+#[path = "common.rs"]
+mod common;
 use std::time::{Duration, Instant};
-use crate::security_utils::{find_available_port, NanoProcess};
+use common::{find_available_port, NanoProcess};
 
 /// Test large array allocation
 /// Attack: new Array(1e9) or repeated large allocations

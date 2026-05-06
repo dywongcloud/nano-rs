@@ -49,55 +49,58 @@ where
 pub fn bind_nano_fs(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
     let global = context.global(scope);
 
+    // Enter context scope for V8 APIs that require HandleScope<Context>
+    let mut ctx_scope = v8::ContextScope::new(scope, context);
+
     // Create Nano object
-    let nano = v8::Object::new(scope);
+    let nano = v8::Object::new(&mut ctx_scope);
 
     // Create fs object
-    let fs = v8::Object::new(scope);
+    let fs = v8::Object::new(&mut ctx_scope);
 
     // Bind readFileSync method
-    if let Some(read_fn) = v8::Function::new(scope, nano_fs_read_file_sync) {
-        let key = v8::String::new(scope, "readFileSync").unwrap();
-        fs.set(scope, key.into(), read_fn.into());
+    if let Some(read_fn) = v8::Function::new(&mut ctx_scope, nano_fs_read_file_sync) {
+        let key = v8::String::new(&mut ctx_scope, "readFileSync").unwrap();
+        fs.set(&mut ctx_scope, key.into(), read_fn.into());
     }
 
     // Bind readFile (async) method
-    if let Some(read_fn) = v8::Function::new(scope, nano_fs_read_file) {
-        let key = v8::String::new(scope, "readFile").unwrap();
-        fs.set(scope, key.into(), read_fn.into());
+    if let Some(read_fn) = v8::Function::new(&mut ctx_scope, nano_fs_read_file) {
+        let key = v8::String::new(&mut ctx_scope, "readFile").unwrap();
+        fs.set(&mut ctx_scope, key.into(), read_fn.into());
     }
 
     // Bind writeFileSync method
-    if let Some(write_fn) = v8::Function::new(scope, nano_fs_write_file_sync) {
-        let key = v8::String::new(scope, "writeFileSync").unwrap();
-        fs.set(scope, key.into(), write_fn.into());
+    if let Some(write_fn) = v8::Function::new(&mut ctx_scope, nano_fs_write_file_sync) {
+        let key = v8::String::new(&mut ctx_scope, "writeFileSync").unwrap();
+        fs.set(&mut ctx_scope, key.into(), write_fn.into());
     }
 
     // Bind writeFile (async) method
-    if let Some(write_fn) = v8::Function::new(scope, nano_fs_write_file) {
-        let key = v8::String::new(scope, "writeFile").unwrap();
-        fs.set(scope, key.into(), write_fn.into());
+    if let Some(write_fn) = v8::Function::new(&mut ctx_scope, nano_fs_write_file) {
+        let key = v8::String::new(&mut ctx_scope, "writeFile").unwrap();
+        fs.set(&mut ctx_scope, key.into(), write_fn.into());
     }
 
     // Bind existsSync method
-    if let Some(exists_fn) = v8::Function::new(scope, nano_fs_exists_sync) {
-        let key = v8::String::new(scope, "existsSync").unwrap();
-        fs.set(scope, key.into(), exists_fn.into());
+    if let Some(exists_fn) = v8::Function::new(&mut ctx_scope, nano_fs_exists_sync) {
+        let key = v8::String::new(&mut ctx_scope, "existsSync").unwrap();
+        fs.set(&mut ctx_scope, key.into(), exists_fn.into());
     }
 
     // Bind deleteSync method
-    if let Some(delete_fn) = v8::Function::new(scope, nano_fs_delete_sync) {
-        let key = v8::String::new(scope, "deleteSync").unwrap();
-        fs.set(scope, key.into(), delete_fn.into());
+    if let Some(delete_fn) = v8::Function::new(&mut ctx_scope, nano_fs_delete_sync) {
+        let key = v8::String::new(&mut ctx_scope, "deleteSync").unwrap();
+        fs.set(&mut ctx_scope, key.into(), delete_fn.into());
     }
 
     // Attach fs to Nano
-    let fs_key = v8::String::new(scope, "fs").unwrap();
-    nano.set(scope, fs_key.into(), fs.into());
+    let fs_key = v8::String::new(&mut ctx_scope, "fs").unwrap();
+    nano.set(&mut ctx_scope, fs_key.into(), fs.into());
 
     // Attach Nano to global
-    let nano_key = v8::String::new(scope, "Nano").unwrap();
-    global.set(scope, nano_key.into(), nano.into());
+    let nano_key = v8::String::new(&mut ctx_scope, "Nano").unwrap();
+    global.set(&mut ctx_scope, nano_key.into(), nano.into());
 }
 
 /// Helper to extract string argument from V8 callback
@@ -158,17 +161,17 @@ fn extract_bytes_arg(
 }
 
 /// Convert VfsError to V8 Error object and throw it
-fn throw_vfs_error(scope: &mut v8::HandleScope, error: &VfsError) {
+fn throw_vfs_error(scope: &mut v8::PinnedRef<v8::HandleScope>, error: &VfsError) {
     let message = format!("{}", error);
     let message_str = v8::String::new(scope, &message).unwrap();
     let exception = v8::Exception::error(scope, message_str);
-    
+
     // Add code property to the error object
     if let Some(error_obj) = exception.to_object(scope) {
         let code_key = v8::String::new(scope, "code").unwrap();
         let code_str = v8::String::new(scope, error.code()).unwrap();
         error_obj.set(scope, code_key.into(), code_str.into());
-        
+
         // Add path property if available
         if let Some(path) = error.path() {
             let path_key = v8::String::new(scope, "path").unwrap();
@@ -176,7 +179,7 @@ fn throw_vfs_error(scope: &mut v8::HandleScope, error: &VfsError) {
             error_obj.set(scope, path_key.into(), path_str.into());
         }
     }
-    
+
     scope.throw_exception(exception);
 }
 
@@ -561,43 +564,43 @@ mod tests {
         set_current_vfs(Some(vfs));
 
         let mut isolate = v8::Isolate::new(Default::default());
-        let scope = &mut v8::HandleScope::new(&mut isolate);
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, &mut isolate);
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
-        bind_nano_fs(scope, context);
+        bind_nano_fs(ctx_scope, context);
 
         // Check Nano exists
-        let global = context.global(scope);
-        let nano_key = v8::String::new(scope, "Nano").unwrap();
-        let nano = global.get(scope, nano_key.into()).expect("Nano not found");
+        let global = context.global(ctx_scope);
+        let nano_key = v8::String::new(ctx_scope, "Nano").unwrap();
+        let nano = global.get(ctx_scope, nano_key.into()).expect("Nano not found");
         assert!(!nano.is_undefined());
 
         // Check Nano.fs exists
-        let nano_obj = nano.to_object(scope).expect("Nano is not an object");
-        let fs_key = v8::String::new(scope, "fs").unwrap();
-        let fs = nano_obj.get(scope, fs_key.into()).expect("fs not found");
+        let nano_obj = nano.to_object(ctx_scope).expect("Nano is not an object");
+        let fs_key = v8::String::new(ctx_scope, "fs").unwrap();
+        let fs = nano_obj.get(ctx_scope, fs_key.into()).expect("fs not found");
         assert!(!fs.is_undefined());
 
         // Check readFileSync exists
-        let fs_obj = fs.to_object(scope).expect("fs is not an object");
-        let read_key = v8::String::new(scope, "readFileSync").unwrap();
-        let read_fn = fs_obj.get(scope, read_key.into()).expect("readFileSync not found");
+        let fs_obj = fs.to_object(ctx_scope).expect("fs is not an object");
+        let read_key = v8::String::new(ctx_scope, "readFileSync").unwrap();
+        let read_fn = fs_obj.get(ctx_scope, read_key.into()).expect("readFileSync not found");
         assert!(read_fn.is_function());
 
         // Check writeFileSync exists
-        let write_key = v8::String::new(scope, "writeFileSync").unwrap();
-        let write_fn = fs_obj.get(scope, write_key.into()).expect("writeFileSync not found");
+        let write_key = v8::String::new(ctx_scope, "writeFileSync").unwrap();
+        let write_fn = fs_obj.get(ctx_scope, write_key.into()).expect("writeFileSync not found");
         assert!(write_fn.is_function());
 
         // Check existsSync exists
-        let exists_key = v8::String::new(scope, "existsSync").unwrap();
-        let exists_fn = fs_obj.get(scope, exists_key.into()).expect("existsSync not found");
+        let exists_key = v8::String::new(ctx_scope, "existsSync").unwrap();
+        let exists_fn = fs_obj.get(ctx_scope, exists_key.into()).expect("existsSync not found");
         assert!(exists_fn.is_function());
 
         // Check deleteSync exists
-        let delete_key = v8::String::new(scope, "deleteSync").unwrap();
-        let delete_fn = fs_obj.get(scope, delete_key.into()).expect("deleteSync not found");
+        let delete_key = v8::String::new(ctx_scope, "deleteSync").unwrap();
+        let delete_fn = fs_obj.get(ctx_scope, delete_key.into()).expect("deleteSync not found");
         assert!(delete_fn.is_function());
     }
 }

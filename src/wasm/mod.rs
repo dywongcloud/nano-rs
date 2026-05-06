@@ -2,15 +2,24 @@
 //!
 //! Provides WASM module loading and JavaScript API bindings.
 //! Integrates with VFS for loading WASM files and supports sliver snapshots.
+//!
+//! # Architecture
+//!
+//! - **Engine** (`engine.rs`): Core WASM compilation using V8's native APIs
+//! - **Loader** (`loader.rs`): WASM file loading and validation
+//! - **JavaScript API** (`js_api.rs`): WebAssembly.* bindings for JS code
+//! - **Sliver** (`sliver.rs`): WASM caching in sliver snapshots
 
+pub mod engine;
 pub mod error;
 pub mod loader;
 pub mod sliver;
 pub mod js_api;
 
+pub use engine::{compile_module, validate_wasm_bytes, WasmModuleCache, WasmCompileError, WasmValidationError};
 pub use error::WasmError;
 pub use loader::WasmLoader;
-pub use sliver::{SliverWasmCache, CompiledWasmModule};
+pub use sliver::SliverWasmCache;
 pub use js_api::WebAssemblyAPI;
 
 /// WASM module handle - stores the raw WASM bytes

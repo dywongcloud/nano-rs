@@ -122,11 +122,15 @@ pub fn bind_fetch(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::L
     tracing::info!("Fetch state initialized successfully");
 
     let global = context.global(scope);
-    let key = v8::String::new(scope, "fetch").unwrap();
+
+    // Enter context scope for V8 APIs that require HandleScope<Context>
+    let mut ctx_scope = v8::ContextScope::new(scope, context);
+
+    let key = v8::String::new(&mut ctx_scope, "fetch").unwrap();
 
     // Create fetch function
-    if let Some(fetch_fn) = v8::Function::new(scope, fetch_callback) {
-        global.set(scope, key.into(), fetch_fn.into());
+    if let Some(fetch_fn) = v8::Function::new(&mut ctx_scope, fetch_callback) {
+        global.set(&mut ctx_scope, key.into(), fetch_fn.into());
     }
 }
 

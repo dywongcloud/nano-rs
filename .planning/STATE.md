@@ -30,9 +30,28 @@
 ## Current Position
 
 **Milestone:** v1.5 — Test Infrastructure Remediation  
-**Phase:** None started yet  
-**Phase Status:** Requirements complete, roadmap complete, ready for Phase 28  
-**Next Action:** `/gsd-plan-phase 28` — WASM Async Event Loop
+**Phase:** 29 — V8 v147 Test Migration  
+**Phase Status:** Library migration complete ✅, test migration in progress  
+**Next Action:** Update remaining 46 test files to use V8 v147 API patterns
+
+### Phase 29: V8 v147 Test Migration 🚧 IN PROGRESS
+
+**Goal:** Update all test files to use V8 v147 API patterns  
+**Library Status:** ✅ Complete (0 errors)  
+**Test Status:** 3/49 files updated, ~127 errors remaining  
+
+**Context:** Successfully migrated library from V8 v139 to v147 to fix WASM "section was shorter than expected" error. Now updating all test files to use the new API patterns.
+
+**Key Pattern:**
+```rust
+// V8 v147 requires Box::pin + transmute for scope initialization
+let storage = Box::pin(v8::HandleScope::new(isolate));
+let mut handle_scope = unsafe { 
+    std::mem::transmute::<_, v8::PinnedRef<v8::HandleScope>>(storage.as_ref())
+};
+let context = v8::Context::new(&handle_scope, Default::default());
+let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
+```
 
 ### Milestone Progress
 
@@ -115,8 +134,17 @@
   - `WasmModuleObject::compile()` returns `None` (native V8 API failure)
   - v146+ has `WasmModuleCompilation` API that could fix issue
   - See: `docs/WASM_INVESTIGATION_SUMMARY.md` and `docs/V8_UPGRADE_ANALYSIS.md`
-- [ ] **WASM Decision:** Evaluate v146 upgrade path (requires dependency updates)
-- [ ] **WASM Documentation:** Update claims to reflect V8 v139 limitation
+- [x] **V8 v147 Upgrade:** Library migration complete (0 errors) ✅
+  - Migrated all library code from V8 v139 to v147
+  - Fixed scope initialization patterns across all modules
+  - Used Box::pin + transmute pattern for lifetime management
+  - WASM fix now ready for verification
+- [ ] **V8 v147 Test Migration:** Update all 49 test files to use new API patterns
+  - 3/49 test files updated ✅
+  - ~46 test files remaining with ~127 errors
+  - Established pattern in v8_test_utils.rs
+- [ ] **WASM Verification:** Run WASM tests to confirm "section was shorter than expected" fix
+- [ ] **WASM Documentation:** Update claims to reflect V8 v139 limitation (if v147 fix doesn't work)
 - [ ] Plan Phase 28: Remove WASM focus (issue is V8, not async loop)
 - [ ] Create test plan for CRUD operations
 - [ ] Create test plan for Performance benchmarks

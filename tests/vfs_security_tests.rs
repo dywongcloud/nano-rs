@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
+use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, VfsBackendEnum};
 use nano::runtime::fs_polyfill::set_current_vfs;
 use nano::runtime::vfs_bindings::set_current_vfs as set_nano_vfs;
 use nano::v8::platform;
@@ -27,14 +27,15 @@ fn test_traversal_parent_directory_blocked() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -61,14 +62,15 @@ fn test_traversal_nested_blocked() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -95,14 +97,15 @@ fn test_traversal_middle_component_blocked() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -129,7 +132,7 @@ fn test_multiple_slashes_normalized() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     
     // Create a file
@@ -141,9 +144,10 @@ fn test_multiple_slashes_normalized() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -165,14 +169,15 @@ fn test_null_byte_injection_blocked() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -199,13 +204,12 @@ fn test_null_byte_injection_blocked() {
 fn test_namespace_isolation_different_apps() {
     init_platform();
 
-    let shared_backend: Arc<dyn nano::vfs::VfsBackend> = 
-        Arc::new(MemoryBackend::default()) as Arc<dyn nano::vfs::VfsBackend>;
+    let shared_backend: Arc<MemoryBackend> = Arc::new(MemoryBackend::default());
     
     // App A writes a file
     let vfs_a = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("app-a.example.com"),
-        Arc::clone(&shared_backend),
+        VfsBackendEnum::Memory(Arc::clone(&shared_backend)),
     ));
     
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -216,14 +220,15 @@ fn test_namespace_isolation_different_apps() {
     // App B tries to read it via JS
     let vfs_b = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("app-b.example.com"),
-        Arc::clone(&shared_backend),
+        VfsBackendEnum::Memory(Arc::clone(&shared_backend)),
     ));
     set_current_vfs(Some(vfs_b));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -248,13 +253,12 @@ fn test_namespace_isolation_different_apps() {
 fn test_namespace_same_app_can_access() {
     init_platform();
 
-    let backend: Arc<dyn nano::vfs::VfsBackend> = 
-        Arc::new(MemoryBackend::default()) as Arc<dyn nano::vfs::VfsBackend>;
+    let backend: Arc<MemoryBackend> = Arc::new(MemoryBackend::default());
     
     // Create file
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("same-app.example.com"),
-        Arc::clone(&backend),
+        VfsBackendEnum::Memory(Arc::clone(&backend)),
     ));
     
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -265,9 +269,10 @@ fn test_namespace_same_app_can_access() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -291,14 +296,15 @@ fn test_empty_path_rejected() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -325,7 +331,7 @@ fn test_root_path_handled() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -336,9 +342,10 @@ fn test_root_path_handled() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -362,15 +369,16 @@ fn test_filename_with_dotdot_prefix_blocked() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -400,7 +408,7 @@ fn test_unicode_paths_allowed() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     
     // File with unicode name
@@ -412,9 +420,10 @@ fn test_unicode_paths_allowed() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -436,7 +445,7 @@ fn test_emoji_filename_allowed() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     
     // File with emoji name
@@ -448,9 +457,10 @@ fn test_emoji_filename_allowed() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -472,7 +482,7 @@ fn test_spaces_in_paths_allowed() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     
     // File with spaces
@@ -484,9 +494,10 @@ fn test_spaces_in_paths_allowed() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -508,14 +519,15 @@ fn test_error_messages_informative() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -545,14 +557,15 @@ fn test_nano_fs_respects_traversal_protection() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_nano_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::vfs_bindings::bind_nano_fs(scope, context);
 

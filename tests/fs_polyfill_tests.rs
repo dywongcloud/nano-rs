@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
+use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, VfsBackendEnum};
 use nano::runtime::fs_polyfill::set_current_vfs;
 use nano::v8::platform;
 
@@ -20,14 +20,15 @@ fn test_require_fs_returns_polyfill() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     // Bind the fs polyfill
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
@@ -48,7 +49,7 @@ fn test_read_file_sync_text() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     
     // Write a file first
@@ -60,9 +61,10 @@ fn test_read_file_sync_text() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -86,7 +88,7 @@ fn test_read_file_sync_binary() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     
     // Write binary content
@@ -99,9 +101,10 @@ fn test_read_file_sync_binary() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -125,14 +128,15 @@ fn test_write_file_sync() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs.clone()));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -163,7 +167,7 @@ fn test_exists_sync() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     
     // Write a file
@@ -175,9 +179,10 @@ fn test_exists_sync() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -206,7 +211,7 @@ fn test_unlink_sync() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     
     // Write a file first
@@ -218,9 +223,10 @@ fn test_unlink_sync() {
     set_current_vfs(Some(vfs.clone()));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -250,7 +256,7 @@ fn test_read_file_async() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     
     // Write a file
@@ -262,9 +268,10 @@ fn test_read_file_async() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -296,14 +303,15 @@ fn test_error_enoent() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -331,14 +339,15 @@ fn test_require_unsupported_module() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
@@ -366,14 +375,15 @@ fn test_write_read_binary() {
 
     let vfs = Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     ));
     set_current_vfs(Some(vfs.clone()));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(&mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 

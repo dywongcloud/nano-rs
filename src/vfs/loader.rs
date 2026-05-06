@@ -375,6 +375,9 @@ mod tests {
         let temp_dir = std::env::temp_dir().join("nano_vfs_test_perf");
         let temp_path = temp_dir.to_str().unwrap();
         
+        // Clean up any leftover directory from previous test runs
+        let _ = fs::remove_dir_all(temp_path).await;
+        
         // Create directory with many files
         fs::create_dir(temp_path).await.unwrap();
         for i in 0..100 {

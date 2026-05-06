@@ -9,11 +9,24 @@
 //! - Worker pool isolation
 
 
+#[path = "common.rs"]
+mod common;
 use std::sync::Arc;
-use crate::security_utils::init_platform;
-use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, VfsBackend};
+use common::{init_platform, find_available_port, NanoProcess};
+use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use nano::runtime::fs_polyfill::set_current_vfs;
 use nano::runtime::apis::RuntimeAPIs;
+
+/// Helper to execute code with V8 v147 scope pattern
+fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
+where
+    F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,
+{
+    v8::scope!(handle_scope, isolate);
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+    f(ctx_scope, context)
+}
 
 /// Test cross-tenant file access is blocked
 /// Attack: App A tries to read App B's files via path manipulation
@@ -60,14 +73,13 @@ fn test_cross_tenant_file_access_blocked() {
     // Even with path traversal attempt
     set_current_vfs(Some(vfs_b.clone()));
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(handle_scope, nano_isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(handle_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(handle_scope, "
         const fs = require('fs');
         try {
             // App B trying to access App A's namespace via traversal
@@ -78,9 +90,10 @@ fn test_cross_tenant_file_access_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     // Should be blocked (either EINVAL for traversal or ENOENT for namespace isolation)
     assert!(
@@ -98,8 +111,8 @@ fn test_cross_tenant_memory_isolation() {
     init_platform();
     
     // Create two isolates (simulating two tenants)
-    let mut nano_isolate_a = crate::security_utils::create_test_isolate();
-    let scope_a = &mut v8::HandleScope::new(nano_isolate_a.isolate());
+    let mut nano_isolate_a = common::create_test_isolate();
+    v8::scope!(scope_a, nano_isolate_a.isolate());
     let context_a = v8::Context::new(scope_a, Default::default());
     let scope_a = &mut v8::ContextScope::new(scope_a, context_a);
     
@@ -126,8 +139,6 @@ fn test_cross_tenant_memory_isolation() {
 /// Mitigation: Hostname determined by server, not client headers
 #[tokio::test]
 async fn test_hostname_spoofing_detected() {
-    use crate::security_utils::{find_available_port, NanoProcess};
-    
     let port = find_available_port();
     let js_content = br#"export default {
     async fetch(request) {
@@ -183,8 +194,8 @@ async fn test_hostname_spoofing_detected() {
 fn test_timing_sidechannel_mitigated() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
 

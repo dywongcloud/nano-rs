@@ -159,6 +159,7 @@ impl CliError {
             source,
         }
     }
+    */
 
     /// Returns true if this error has a suggestion for the user
     pub fn has_suggestion(&self) -> bool {
@@ -169,17 +170,11 @@ impl CliError {
             | CliError::HostnameNotFound { .. }
         )
     }
-    */
 }
 
 /// Result type alias for CLI operations
 pub type CliResult<T> = Result<T, CliError>;
 
-// TODO: Re-enable similarity search when CLI typo suggestions are implemented
-// These functions are disabled to avoid unused code warnings.
-// They provide Levenshtein distance for typo correction suggestions.
-
-/*
 /// Helper to find similar strings using Levenshtein distance
 pub fn find_similar(target: &str, candidates: &[String], threshold: usize) -> Option<String> {
     let mut best_match: Option<(String, usize)> = None;
@@ -197,7 +192,7 @@ pub fn find_similar(target: &str, candidates: &[String], threshold: usize) -> Op
 }
 
 /// Calculate Levenshtein distance between two strings
-fn levenshtein_distance(a: &str, b: &str) -> usize {
+pub fn levenshtein_distance(a: &str, b: &str) -> usize {
     let a_len = a.chars().count();
     let b_len = b.chars().count();
 
@@ -213,6 +208,7 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     for i in 0..=a_len {
         matrix[i][0] = i;
     }
+
     for j in 0..=b_len {
         matrix[0][j] = j;
     }
@@ -228,7 +224,6 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
 
     matrix[a_len][b_len]
 }
-*/
 
 #[cfg(test)]
 mod tests {
@@ -236,10 +231,13 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        let err = CliError::sliver_not_found("my-app", vec![
-            PathBuf::from("./my-app.sliver"),
-            PathBuf::from("/home/user/.nano/slivers/my-app.sliver"),
-        ]);
+        let err = CliError::SliverNotFound {
+            name: "my-app".to_string(),
+            searched_paths: vec![
+                PathBuf::from("./my-app.sliver"),
+                PathBuf::from("/home/user/.nano/slivers/my-app.sliver"),
+            ],
+        };
         let display = format!("{}", err);
         assert!(display.contains("Sliver 'my-app' not found"));
         assert!(display.contains("Searched in:"));
@@ -248,7 +246,10 @@ mod tests {
 
     #[test]
     fn test_corrupted_sliver_error() {
-        let err = CliError::corrupted_sliver("./bad.sliver", "Invalid tar header");
+        let err = CliError::CorruptedSliver {
+            path: PathBuf::from("./bad.sliver"),
+            reason: "Invalid tar header".to_string(),
+        };
         let display = format!("{}", err);
         assert!(display.contains("Corrupted sliver file"));
         assert!(display.contains("Invalid tar header"));
@@ -307,7 +308,10 @@ mod tests {
         };
         assert!(with_suggestion.has_suggestion());
 
-        let without_suggestion = CliError::sliver_not_found("test", vec![]);
+        let without_suggestion = CliError::SliverNotFound {
+            name: "test".to_string(),
+            searched_paths: vec![],
+        };
         assert!(!without_suggestion.has_suggestion());
     }
 }

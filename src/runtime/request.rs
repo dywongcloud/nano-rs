@@ -13,47 +13,50 @@ pub fn bind_request_api(
     context: v8::Local<v8::Context>,
 ) {
     let global = context.global(scope);
-    
+
+    // Enter context scope for V8 APIs that require HandleScope<Context>
+    let mut ctx_scope = v8::ContextScope::new(scope, context);
+
     // Create Request constructor if it doesn't exist
-    let request_key = v8::String::new(scope, "Request").unwrap();
-    let request_ctor = if let Some(existing) = global.get(scope, request_key.into()) {
+    let request_key = v8::String::new(&mut ctx_scope, "Request").unwrap();
+    let request_ctor = if let Some(existing) = global.get(&mut ctx_scope, request_key.into()) {
         if existing.is_function() {
             existing
         } else {
             // Create new Request constructor
-            let ctor = v8::Function::new(scope, request_constructor_callback).unwrap();
-            global.set(scope, request_key.into(), ctor.into());
+            let ctor = v8::Function::new(&mut ctx_scope, request_constructor_callback).unwrap();
+            global.set(&mut ctx_scope, request_key.into(), ctor.into());
             ctor.into()
         }
     } else {
         // Create Request constructor
-        let ctor = v8::Function::new(scope, request_constructor_callback).unwrap();
-        global.set(scope, request_key.into(), ctor.into());
+        let ctor = v8::Function::new(&mut ctx_scope, request_constructor_callback).unwrap();
+        global.set(&mut ctx_scope, request_key.into(), ctor.into());
         ctor.into()
     };
 
     // Add methods to Request.prototype
-    if let Some(request_obj) = request_ctor.to_object(scope) {
-        let prototype_key = v8::String::new(scope, "prototype").unwrap();
+    if let Some(request_obj) = request_ctor.to_object(&mut ctx_scope) {
+        let prototype_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
         // Get or create prototype
-        let prototype = if let Some(existing_proto) = request_obj.get(scope, prototype_key.into()) {
+        let prototype = if let Some(existing_proto) = request_obj.get(&mut ctx_scope, prototype_key.into()) {
             if existing_proto.is_object() || existing_proto.is_function() {
                 existing_proto
             } else {
-                let new_proto = v8::Object::new(scope);
-                request_obj.set(scope, prototype_key.into(), new_proto.into());
+                let new_proto = v8::Object::new(&mut ctx_scope);
+                request_obj.set(&mut ctx_scope, prototype_key.into(), new_proto.into());
                 new_proto.into()
             }
         } else {
-            let new_proto = v8::Object::new(scope);
-            request_obj.set(scope, prototype_key.into(), new_proto.into());
+            let new_proto = v8::Object::new(&mut ctx_scope);
+            request_obj.set(&mut ctx_scope, prototype_key.into(), new_proto.into());
             new_proto.into()
         };
-        
-        if let Some(proto_obj) = prototype.to_object(scope) {
-            bind_request_method(scope, proto_obj, "text", request_text_callback);
-            bind_request_method(scope, proto_obj, "json", request_json_callback);
-            bind_request_method(scope, proto_obj, "arrayBuffer", request_arraybuffer_callback);
+
+        if let Some(proto_obj) = prototype.to_object(&mut ctx_scope) {
+            bind_request_method(&mut ctx_scope, proto_obj, "text", request_text_callback);
+            bind_request_method(&mut ctx_scope, proto_obj, "json", request_json_callback);
+            bind_request_method(&mut ctx_scope, proto_obj, "arrayBuffer", request_arraybuffer_callback);
         }
     }
 }
@@ -176,7 +179,7 @@ fn request_constructor_callback(
 }
 
 fn bind_request_method(
-    scope: &mut v8::ContextScope<v8::HandleScope>,
+    scope: &mut v8::ContextScope<'_, '_, v8::HandleScope>,
     prototype: v8::Local<v8::Object>,
     name: &str,
     callback: impl v8::MapFnTo<v8::FunctionCallback>,

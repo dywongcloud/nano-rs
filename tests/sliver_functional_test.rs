@@ -26,6 +26,17 @@
 use std::sync::Arc;
 use tempfile::TempDir;
 
+/// Helper to execute code with V8 v147 scope pattern
+fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
+where
+    F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,
+{
+    v8::scope!(handle_scope, isolate);
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+    f(ctx_scope, context)
+}
+
 /// Test the complete sliver workflow: create, run, snapshot, restore, verify
 ///
 /// This test demonstrates how slivers enable fast app startup by preserving
@@ -45,7 +56,7 @@ fn test_sliver_full_workflow_create_run_snapshot_restore() {
     use nano::v8::{initialize_platform, NanoIsolate};
     use nano::v8::snapshot::create_snapshot_from_nano;
     use nano::sliver::{pack_sliver, unpack_sliver, SliverMetadata};
-    use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
+    use nano::vfs::{IsolateVfs, MemoryBackend, VfsBackendEnum, VfsNamespace};
     
     // Helper to block on async VFS operations
     fn block_on<F: std::future::Future>(f: F) -> F::Output {
@@ -63,7 +74,7 @@ fn test_sliver_full_workflow_create_run_snapshot_restore() {
     // Create a VFS with app files
     let vfs = IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     );
     
     // Create isolate using snapshot creator workflow (required for sliver creation)
@@ -95,14 +106,14 @@ fn test_sliver_full_workflow_create_run_snapshot_restore() {
     
     // Execute the initialization script using V8 directly
     {
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
         
-        let code = v8::String::new(scope, index_js).unwrap();
-        let script = v8::Script::compile(scope, code, None)
+        let code = v8::String::new(ctx_scope, index_js).unwrap();
+        let script = v8::Script::compile(ctx_scope, code, None)
             .expect("Failed to compile script");
-        script.run(scope).expect("Failed to execute initialization");
+        script.run(ctx_scope).expect("Failed to execute initialization");
     }
     
     println!("  ✓ JavaScript executed - global state set");
@@ -238,7 +249,7 @@ fn test_sliver_full_workflow_create_run_snapshot_restore() {
     // Create new isolate from snapshot
     let vfs = IsolateVfs::new(
         VfsNamespace::from_hostname("test.example.com"),
-        Arc::new(MemoryBackend::default()),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     );
     
     let restored_isolate = NanoIsolate::from_snapshot(&unpacked.heap_data, vfs)

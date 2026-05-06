@@ -93,7 +93,7 @@ impl RuntimeAPIs {
         // Enter context scope for operations that need HandleScope<Context>
         let mut ctx_scope = v8::ContextScope::new(scope, context);
 
-        let console = v8::Object::new(&mut ctx_scope);
+        let console = v8::Object::new(&mut &mut ctx_scope);
 
         // Bind log method
         if let Some(log_fn) = v8::Function::new(&mut ctx_scope, console_log_callback) {
@@ -122,113 +122,122 @@ impl RuntimeAPIs {
     fn bind_text_encoder(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Create TextEncoder constructor function
-        let encoder_template = v8::FunctionTemplate::new(scope, text_encoder_constructor);
+        let encoder_template = v8::FunctionTemplate::new(&mut ctx_scope, text_encoder_constructor);
 
         // Add encode method to prototype via instance template
-        let instance_template = encoder_template.prototype_template(scope);
-        let encode_fn = v8::FunctionTemplate::new(scope, text_encoder_encode);
-        let encode_key = v8::String::new(scope, "encode").unwrap();
+        let instance_template = encoder_template.prototype_template(&mut &mut ctx_scope);
+        let encode_fn = v8::FunctionTemplate::new(&mut ctx_scope, text_encoder_encode);
+        let encode_key = v8::String::new(&mut ctx_scope, "encode").unwrap();
         instance_template.set(encode_key.into(), encode_fn.into());
 
-        let encoder_ctor = encoder_template.get_function(scope).unwrap();
+        let encoder_ctor = encoder_template.get_function(&mut &mut ctx_scope).unwrap();
 
         // Attach TextEncoder to global
-        let key = v8::String::new(scope, "TextEncoder").unwrap();
-        global.set(scope, key.into(), encoder_ctor.into());
+        let key = v8::String::new(&mut ctx_scope, "TextEncoder").unwrap();
+        global.set(&mut ctx_scope, key.into(), encoder_ctor.into());
     }
 
     /// Bind TextDecoder API to global scope
     fn bind_text_decoder(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Create TextDecoder constructor function
-        let decoder_template = v8::FunctionTemplate::new(scope, text_decoder_constructor);
+        let decoder_template = v8::FunctionTemplate::new(&mut ctx_scope, text_decoder_constructor);
 
         // Add decode method to prototype via instance template
-        let instance_template = decoder_template.prototype_template(scope);
-        let decode_fn = v8::FunctionTemplate::new(scope, text_decoder_decode);
-        let decode_key = v8::String::new(scope, "decode").unwrap();
+        let instance_template = decoder_template.prototype_template(&mut &mut ctx_scope);
+        let decode_fn = v8::FunctionTemplate::new(&mut ctx_scope, text_decoder_decode);
+        let decode_key = v8::String::new(&mut ctx_scope, "decode").unwrap();
         instance_template.set(decode_key.into(), decode_fn.into());
 
-        let decoder_ctor = decoder_template.get_function(scope).unwrap();
+        let decoder_ctor = decoder_template.get_function(&mut &mut ctx_scope).unwrap();
 
         // Attach TextDecoder to global
-        let key = v8::String::new(scope, "TextDecoder").unwrap();
-        global.set(scope, key.into(), decoder_ctor.into());
+        let key = v8::String::new(&mut ctx_scope, "TextDecoder").unwrap();
+        global.set(&mut ctx_scope, key.into(), decoder_ctor.into());
     }
 
     /// Bind crypto API with getRandomValues and subtle
     fn bind_crypto(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Create crypto object
-        let crypto = v8::Object::new(scope);
+        let crypto = v8::Object::new(&mut &mut ctx_scope);
 
         // Bind getRandomValues
-        if let Some(grv_fn) = v8::Function::new(scope, crypto_get_random_values) {
-            let key = v8::String::new(scope, "getRandomValues").unwrap();
-            crypto.set(scope, key.into(), grv_fn.into());
+        if let Some(grv_fn) = v8::Function::new(&mut ctx_scope, crypto_get_random_values) {
+            let key = v8::String::new(&mut ctx_scope, "getRandomValues").unwrap();
+            crypto.set(&mut ctx_scope, key.into(), grv_fn.into());
         }
 
         // Bind subtle object with crypto.subtle methods
-        let subtle = v8::Object::new(scope);
+        let subtle = v8::Object::new(&mut &mut ctx_scope);
         
         // generateKey method
-        if let Some(fn_gen) = v8::Function::new(scope, subtle_generate_key) {
-            let key = v8::String::new(scope, "generateKey").unwrap();
-            subtle.set(scope, key.into(), fn_gen.into());
+        if let Some(fn_gen) = v8::Function::new(&mut ctx_scope, subtle_generate_key) {
+            let key = v8::String::new(&mut ctx_scope, "generateKey").unwrap();
+            subtle.set(&mut ctx_scope, key.into(), fn_gen.into());
         }
         
         // importKey method
-        if let Some(fn_imp) = v8::Function::new(scope, subtle_import_key) {
-            let key = v8::String::new(scope, "importKey").unwrap();
-            subtle.set(scope, key.into(), fn_imp.into());
+        if let Some(fn_imp) = v8::Function::new(&mut ctx_scope, subtle_import_key) {
+            let key = v8::String::new(&mut ctx_scope, "importKey").unwrap();
+            subtle.set(&mut ctx_scope, key.into(), fn_imp.into());
         }
         
         // exportKey method
-        if let Some(fn_exp) = v8::Function::new(scope, subtle_export_key) {
-            let key = v8::String::new(scope, "exportKey").unwrap();
-            subtle.set(scope, key.into(), fn_exp.into());
+        if let Some(fn_exp) = v8::Function::new(&mut ctx_scope, subtle_export_key) {
+            let key = v8::String::new(&mut ctx_scope, "exportKey").unwrap();
+            subtle.set(&mut ctx_scope, key.into(), fn_exp.into());
         }
         
         // encrypt method
-        if let Some(fn_enc) = v8::Function::new(scope, subtle_encrypt) {
-            let key = v8::String::new(scope, "encrypt").unwrap();
-            subtle.set(scope, key.into(), fn_enc.into());
+        if let Some(fn_enc) = v8::Function::new(&mut ctx_scope, subtle_encrypt) {
+            let key = v8::String::new(&mut ctx_scope, "encrypt").unwrap();
+            subtle.set(&mut ctx_scope, key.into(), fn_enc.into());
         }
         
         // decrypt method
-        if let Some(fn_dec) = v8::Function::new(scope, subtle_decrypt) {
-            let key = v8::String::new(scope, "decrypt").unwrap();
-            subtle.set(scope, key.into(), fn_dec.into());
+        if let Some(fn_dec) = v8::Function::new(&mut ctx_scope, subtle_decrypt) {
+            let key = v8::String::new(&mut ctx_scope, "decrypt").unwrap();
+            subtle.set(&mut ctx_scope, key.into(), fn_dec.into());
         }
         
         // sign method
-        if let Some(fn_sign) = v8::Function::new(scope, subtle_sign) {
-            let key = v8::String::new(scope, "sign").unwrap();
-            subtle.set(scope, key.into(), fn_sign.into());
+        if let Some(fn_sign) = v8::Function::new(&mut ctx_scope, subtle_sign) {
+            let key = v8::String::new(&mut ctx_scope, "sign").unwrap();
+            subtle.set(&mut ctx_scope, key.into(), fn_sign.into());
         }
         
         // verify method
-        if let Some(fn_verify) = v8::Function::new(scope, subtle_verify) {
-            let key = v8::String::new(scope, "verify").unwrap();
-            subtle.set(scope, key.into(), fn_verify.into());
+        if let Some(fn_verify) = v8::Function::new(&mut ctx_scope, subtle_verify) {
+            let key = v8::String::new(&mut ctx_scope, "verify").unwrap();
+            subtle.set(&mut ctx_scope, key.into(), fn_verify.into());
         }
         
         // digest method
-        if let Some(fn_digest) = v8::Function::new(scope, subtle_digest) {
-            let key = v8::String::new(scope, "digest").unwrap();
-            subtle.set(scope, key.into(), fn_digest.into());
+        if let Some(fn_digest) = v8::Function::new(&mut ctx_scope, subtle_digest) {
+            let key = v8::String::new(&mut ctx_scope, "digest").unwrap();
+            subtle.set(&mut ctx_scope, key.into(), fn_digest.into());
         }
         
         // Attach subtle to crypto
-        let subtle_key = v8::String::new(scope, "subtle").unwrap();
-        crypto.set(scope, subtle_key.into(), subtle.into());
+        let subtle_key = v8::String::new(&mut ctx_scope, "subtle").unwrap();
+        crypto.set(&mut ctx_scope, subtle_key.into(), subtle.into());
 
         // Attach crypto to global
-        let key = v8::String::new(scope, "crypto").unwrap();
-        global.set(scope, key.into(), crypto.into());
+        let key = v8::String::new(&mut ctx_scope, "crypto").unwrap();
+        global.set(&mut ctx_scope, key.into(), crypto.into());
     }
 
     /// Bind performance API with now()
@@ -242,27 +251,33 @@ impl RuntimeAPIs {
             }
         });
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Create performance object
-        let performance = v8::Object::new(scope);
+        let performance = v8::Object::new(&mut &mut ctx_scope);
 
         // Bind now() method
-        if let Some(now_fn) = v8::Function::new(scope, performance_now) {
-            let key = v8::String::new(scope, "now").unwrap();
-            performance.set(scope, key.into(), now_fn.into());
+        if let Some(now_fn) = v8::Function::new(&mut ctx_scope, performance_now) {
+            let key = v8::String::new(&mut ctx_scope, "now").unwrap();
+            performance.set(&mut ctx_scope, key.into(), now_fn.into());
         }
 
         // Attach performance to global
-        let key = v8::String::new(scope, "performance").unwrap();
-        global.set(scope, key.into(), performance.into());
+        let key = v8::String::new(&mut ctx_scope, "performance").unwrap();
+        global.set(&mut ctx_scope, key.into(), performance.into());
     }
 
     /// Bind structuredClone as global function
     fn bind_structured_clone(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
-        if let Some(clone_fn) = v8::Function::new(scope, structured_clone) {
-            let key = v8::String::new(scope, "structuredClone").unwrap();
-            global.set(scope, key.into(), clone_fn.into());
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
+        if let Some(clone_fn) = v8::Function::new(&mut ctx_scope, structured_clone) {
+            let key = v8::String::new(&mut ctx_scope, "structuredClone").unwrap();
+            global.set(&mut ctx_scope, key.into(), clone_fn.into());
         }
     }
 
@@ -270,39 +285,48 @@ impl RuntimeAPIs {
     fn bind_dom_exception(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Create DOMException constructor
-        let template = v8::FunctionTemplate::new(scope, dom_exception_constructor);
-        let ctor = template.get_function(scope).unwrap();
+        let template = v8::FunctionTemplate::new(&mut ctx_scope, dom_exception_constructor);
+        let ctor = template.get_function(&mut &mut ctx_scope).unwrap();
 
         // Attach to global
-        let key = v8::String::new(scope, "DOMException").unwrap();
-        global.set(scope, key.into(), ctor.into());
+        let key = v8::String::new(&mut ctx_scope, "DOMException").unwrap();
+        global.set(&mut ctx_scope, key.into(), ctor.into());
     }
 
     /// Bind Blob constructor
     fn bind_blob(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Create Blob constructor
-        let template = v8::FunctionTemplate::new(scope, blob_constructor);
-        let ctor = template.get_function(scope).unwrap();
+        let template = v8::FunctionTemplate::new(&mut ctx_scope, blob_constructor);
+        let ctor = template.get_function(&mut &mut ctx_scope).unwrap();
 
         // Attach to global
-        let key = v8::String::new(scope, "Blob").unwrap();
-        global.set(scope, key.into(), ctor.into());
+        let key = v8::String::new(&mut ctx_scope, "Blob").unwrap();
+        global.set(&mut ctx_scope, key.into(), ctor.into());
     }
 
     /// Bind FormData constructor
     fn bind_form_data(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Create FormData constructor
-        let template = v8::FunctionTemplate::new(scope, form_data_constructor);
-        let ctor = template.get_function(scope).unwrap();
+        let template = v8::FunctionTemplate::new(&mut ctx_scope, form_data_constructor);
+        let ctor = template.get_function(&mut &mut ctx_scope).unwrap();
 
         // Attach to global
-        let key = v8::String::new(scope, "FormData").unwrap();
-        global.set(scope, key.into(), ctor.into());
+        let key = v8::String::new(&mut ctx_scope, "FormData").unwrap();
+        global.set(&mut ctx_scope, key.into(), ctor.into());
     }
 
     /// Bind Response constructor for WinterCG compatibility
@@ -311,157 +335,169 @@ impl RuntimeAPIs {
         
         let global = context.global(scope);
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Create Response constructor
-        let template = v8::FunctionTemplate::new(scope, response_constructor);
-        let ctor = template.get_function(scope).unwrap();
+        let template = v8::FunctionTemplate::new(&mut ctx_scope, response_constructor);
+        let ctor = template.get_function(&mut ctx_scope).unwrap();
         
         // Add prototype methods to Response (text, json, arrayBuffer)
-        if let Some(ctor_obj) = ctor.to_object(scope) {
-            let proto_key = v8::String::new(scope, "prototype").unwrap();
-            if let Some(proto) = ctor_obj.get(scope, proto_key.into()) {
-                if let Some(proto_obj) = proto.to_object(scope) {
+        if let Some(ctor_obj) = ctor.to_object(&mut ctx_scope) {
+            let proto_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
+            if let Some(proto) = ctor_obj.get(&mut ctx_scope, proto_key.into()) {
+                if let Some(proto_obj) = proto.to_object(&mut ctx_scope) {
                     // Bind text() method
-                    if let Some(text_fn) = v8::Function::new(scope, response_text_callback) {
-                        let text_key = v8::String::new(scope, "text").unwrap();
-                        proto_obj.set(scope, text_key.into(), text_fn.into());
+                    if let Some(text_fn) = v8::Function::new(&mut ctx_scope, response_text_callback) {
+                        let text_key = v8::String::new(&mut ctx_scope, "text").unwrap();
+                        proto_obj.set(&mut ctx_scope, text_key.into(), text_fn.into());
                     }
                     // Bind json() method
-                    if let Some(json_fn) = v8::Function::new(scope, response_json_callback) {
-                        let json_key = v8::String::new(scope, "json").unwrap();
-                        proto_obj.set(scope, json_key.into(), json_fn.into());
+                    if let Some(json_fn) = v8::Function::new(&mut ctx_scope, response_json_callback) {
+                        let json_key = v8::String::new(&mut ctx_scope, "json").unwrap();
+                        proto_obj.set(&mut ctx_scope, json_key.into(), json_fn.into());
                     }
                     // Bind arrayBuffer() method
-                    if let Some(ab_fn) = v8::Function::new(scope, response_arraybuffer_callback) {
-                        let ab_key = v8::String::new(scope, "arrayBuffer").unwrap();
-                        proto_obj.set(scope, ab_key.into(), ab_fn.into());
+                    if let Some(ab_fn) = v8::Function::new(&mut ctx_scope, response_arraybuffer_callback) {
+                        let ab_key = v8::String::new(&mut ctx_scope, "arrayBuffer").unwrap();
+                        proto_obj.set(&mut ctx_scope, ab_key.into(), ab_fn.into());
                     }
                 }
             }
             
             // Add static Response.json() method
-            if let Some(json_static_fn) = v8::Function::new(scope, response_json_static_callback) {
-                let json_key = v8::String::new(scope, "json").unwrap();
-                ctor_obj.set(scope, json_key.into(), json_static_fn.into());
+            if let Some(json_static_fn) = v8::Function::new(&mut ctx_scope, response_json_static_callback) {
+                let json_key = v8::String::new(&mut ctx_scope, "json").unwrap();
+                ctor_obj.set(&mut ctx_scope, json_key.into(), json_static_fn.into());
             }
         }
 
         // Attach to global
-        let key = v8::String::new(scope, "Response").unwrap();
-        global.set(scope, key.into(), ctor.into());
+        let key = v8::String::new(&mut ctx_scope, "Response").unwrap();
+        global.set(&mut ctx_scope, key.into(), ctor.into());
     }
 
     /// Bind URL constructor for WinterCG compatibility
     fn bind_url(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Create URLSearchParams constructor first (needed by URL)
-        let usp_template = v8::FunctionTemplate::new(scope, url_search_params_constructor);
-        let usp_ctor = usp_template.get_function(scope).unwrap();
+        let usp_template = v8::FunctionTemplate::new(&mut ctx_scope, url_search_params_constructor);
+        let usp_ctor = usp_template.get_function(&mut ctx_scope).unwrap();
         
         // Add prototype methods to URLSearchParams
-        if let Some(usp_obj) = usp_ctor.to_object(scope) {
-            let proto_key = v8::String::new(scope, "prototype").unwrap();
-            if let Some(proto) = usp_obj.get(scope, proto_key.into()) {
-                if let Some(proto_obj) = proto.to_object(scope) {
+        if let Some(usp_obj) = usp_ctor.to_object(&mut ctx_scope) {
+            let proto_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
+            if let Some(proto) = usp_obj.get(&mut ctx_scope, proto_key.into()) {
+                if let Some(proto_obj) = proto.to_object(&mut ctx_scope) {
                     // Bind get method
-                    if let Some(get_fn) = v8::Function::new(scope, usp_get_callback) {
-                        let get_key = v8::String::new(scope, "get").unwrap();
-                        proto_obj.set(scope, get_key.into(), get_fn.into());
+                    if let Some(get_fn) = v8::Function::new(&mut ctx_scope, usp_get_callback) {
+                        let get_key = v8::String::new(&mut ctx_scope, "get").unwrap();
+                        proto_obj.set(&mut ctx_scope, get_key.into(), get_fn.into());
                     }
                     // Bind set method
-                    if let Some(set_fn) = v8::Function::new(scope, usp_set_callback) {
-                        let set_key = v8::String::new(scope, "set").unwrap();
-                        proto_obj.set(scope, set_key.into(), set_fn.into());
+                    if let Some(set_fn) = v8::Function::new(&mut ctx_scope, usp_set_callback) {
+                        let set_key = v8::String::new(&mut ctx_scope, "set").unwrap();
+                        proto_obj.set(&mut ctx_scope, set_key.into(), set_fn.into());
                     }
                     // Bind has method
-                    if let Some(has_fn) = v8::Function::new(scope, usp_has_callback) {
-                        let has_key = v8::String::new(scope, "has").unwrap();
-                        proto_obj.set(scope, has_key.into(), has_fn.into());
+                    if let Some(has_fn) = v8::Function::new(&mut ctx_scope, usp_has_callback) {
+                        let has_key = v8::String::new(&mut ctx_scope, "has").unwrap();
+                        proto_obj.set(&mut ctx_scope, has_key.into(), has_fn.into());
                     }
                     // Bind delete method
-                    if let Some(delete_fn) = v8::Function::new(scope, usp_delete_callback) {
-                        let delete_key = v8::String::new(scope, "delete").unwrap();
-                        proto_obj.set(scope, delete_key.into(), delete_fn.into());
+                    if let Some(delete_fn) = v8::Function::new(&mut ctx_scope, usp_delete_callback) {
+                        let delete_key = v8::String::new(&mut ctx_scope, "delete").unwrap();
+                        proto_obj.set(&mut ctx_scope, delete_key.into(), delete_fn.into());
                     }
                     // Bind toString method
-                    if let Some(tostring_fn) = v8::Function::new(scope, usp_tostring_callback) {
-                        let tostring_key = v8::String::new(scope, "toString").unwrap();
-                        proto_obj.set(scope, tostring_key.into(), tostring_fn.into());
+                    if let Some(tostring_fn) = v8::Function::new(&mut ctx_scope, usp_tostring_callback) {
+                        let tostring_key = v8::String::new(&mut ctx_scope, "toString").unwrap();
+                        proto_obj.set(&mut ctx_scope, tostring_key.into(), tostring_fn.into());
                     }
                 }
             }
         }
         
         // Attach URLSearchParams to global
-        let usp_key = v8::String::new(scope, "URLSearchParams").unwrap();
-        global.set(scope, usp_key.into(), usp_ctor.into());
+        let usp_key = v8::String::new(&mut ctx_scope, "URLSearchParams").unwrap();
+        global.set(&mut ctx_scope, usp_key.into(), usp_ctor.into());
 
         // Create URL constructor
-        let template = v8::FunctionTemplate::new(scope, url_constructor);
-        let ctor = template.get_function(scope).unwrap();
+        let template = v8::FunctionTemplate::new(&mut ctx_scope, url_constructor);
+        let ctor = template.get_function(&mut ctx_scope).unwrap();
 
         // Add toString method to URL prototype
-        if let Some(ctor_obj) = ctor.to_object(scope) {
-            let proto_key = v8::String::new(scope, "prototype").unwrap();
-            if let Some(proto) = ctor_obj.get(scope, proto_key.into()) {
-                if let Some(proto_obj) = proto.to_object(scope) {
-                    if let Some(tostring_fn) = v8::Function::new(scope, url_tostring_callback) {
-                        let tostring_key = v8::String::new(scope, "toString").unwrap();
-                        proto_obj.set(scope, tostring_key.into(), tostring_fn.into());
+        if let Some(ctor_obj) = ctor.to_object(&mut ctx_scope) {
+            let proto_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
+            if let Some(proto) = ctor_obj.get(&mut ctx_scope, proto_key.into()) {
+                if let Some(proto_obj) = proto.to_object(&mut ctx_scope) {
+                    if let Some(tostring_fn) = v8::Function::new(&mut ctx_scope, url_tostring_callback) {
+                        let tostring_key = v8::String::new(&mut ctx_scope, "toString").unwrap();
+                        proto_obj.set(&mut ctx_scope, tostring_key.into(), tostring_fn.into());
                     }
                     // Also add href getter property if not already set
-                    if let Some(href_fn) = v8::Function::new(scope, url_href_callback) {
-                        let href_key = v8::String::new(scope, "href").unwrap();
-                        proto_obj.set(scope, href_key.into(), href_fn.into());
+                    if let Some(href_fn) = v8::Function::new(&mut ctx_scope, url_href_callback) {
+                        let href_key = v8::String::new(&mut ctx_scope, "href").unwrap();
+                        proto_obj.set(&mut ctx_scope, href_key.into(), href_fn.into());
                     }
                 }
             }
         }
 
         // Attach to global
-        let key = v8::String::new(scope, "URL").unwrap();
-        global.set(scope, key.into(), ctor.into());
+        let key = v8::String::new(&mut ctx_scope, "URL").unwrap();
+        global.set(&mut ctx_scope, key.into(), ctor.into());
     }
 
     /// Bind Headers constructor for WinterCG compatibility
     fn bind_headers(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Create Headers constructor
-        let template = v8::FunctionTemplate::new(scope, headers_constructor);
-        let ctor = template.get_function(scope).unwrap();
+        let template = v8::FunctionTemplate::new(&mut ctx_scope, headers_constructor);
+        let ctor = template.get_function(&mut ctx_scope).unwrap();
 
         // Attach to global
-        let key = v8::String::new(scope, "Headers").unwrap();
-        global.set(scope, key.into(), ctor.into());
+        let key = v8::String::new(&mut ctx_scope, "Headers").unwrap();
+        global.set(&mut ctx_scope, key.into(), ctor.into());
     }
 
     /// Bind timer APIs (setTimeout, setInterval, clearTimeout, clearInterval)
     fn bind_timers(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Bind setTimeout
-        if let Some(set_timeout) = v8::Function::new(scope, set_timeout_callback) {
-            let key = v8::String::new(scope, "setTimeout").unwrap();
-            global.set(scope, key.into(), set_timeout.into());
+        if let Some(set_timeout) = v8::Function::new(&mut ctx_scope, set_timeout_callback) {
+            let key = v8::String::new(&mut ctx_scope, "setTimeout").unwrap();
+            global.set(&mut ctx_scope, key.into(), set_timeout.into());
         }
 
         // Bind setInterval
-        if let Some(set_interval) = v8::Function::new(scope, set_interval_callback) {
-            let key = v8::String::new(scope, "setInterval").unwrap();
-            global.set(scope, key.into(), set_interval.into());
+        if let Some(set_interval) = v8::Function::new(&mut ctx_scope, set_interval_callback) {
+            let key = v8::String::new(&mut ctx_scope, "setInterval").unwrap();
+            global.set(&mut ctx_scope, key.into(), set_interval.into());
         }
 
         // Bind clearTimeout
-        if let Some(clear_timeout) = v8::Function::new(scope, clear_timeout_callback) {
-            let key = v8::String::new(scope, "clearTimeout").unwrap();
-            global.set(scope, key.into(), clear_timeout.into());
+        if let Some(clear_timeout) = v8::Function::new(&mut ctx_scope, clear_timeout_callback) {
+            let key = v8::String::new(&mut ctx_scope, "clearTimeout").unwrap();
+            global.set(&mut ctx_scope, key.into(), clear_timeout.into());
         }
 
         // Bind clearInterval
-        if let Some(clear_interval) = v8::Function::new(scope, clear_interval_callback) {
-            let key = v8::String::new(scope, "clearInterval").unwrap();
-            global.set(scope, key.into(), clear_interval.into());
+        if let Some(clear_interval) = v8::Function::new(&mut ctx_scope, clear_interval_callback) {
+            let key = v8::String::new(&mut ctx_scope, "clearInterval").unwrap();
+            global.set(&mut ctx_scope, key.into(), clear_interval.into());
         }
     }
 
@@ -475,37 +511,40 @@ impl RuntimeAPIs {
     fn bind_buffer(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Create Buffer constructor function
-        let buffer_template = v8::FunctionTemplate::new(scope, buffer_constructor);
-        let buffer_ctor = buffer_template.get_function(scope).unwrap();
+        let buffer_template = v8::FunctionTemplate::new(&mut ctx_scope, buffer_constructor);
+        let buffer_ctor = buffer_template.get_function(&mut ctx_scope).unwrap();
 
         // Attach static methods
-        let from_key = v8::String::new(scope, "from").unwrap();
-        if let Some(from_fn) = v8::Function::new(scope, buffer_from_callback) {
-            buffer_ctor.set(scope, from_key.into(), from_fn.into());
+        let from_key = v8::String::new(&mut ctx_scope, "from").unwrap();
+        if let Some(from_fn) = v8::Function::new(&mut ctx_scope, buffer_from_callback) {
+            buffer_ctor.set(&mut ctx_scope, from_key.into(), from_fn.into());
         }
 
-        let alloc_key = v8::String::new(scope, "alloc").unwrap();
-        if let Some(alloc_fn) = v8::Function::new(scope, buffer_alloc_callback) {
-            buffer_ctor.set(scope, alloc_key.into(), alloc_fn.into());
+        let alloc_key = v8::String::new(&mut ctx_scope, "alloc").unwrap();
+        if let Some(alloc_fn) = v8::Function::new(&mut ctx_scope, buffer_alloc_callback) {
+            buffer_ctor.set(&mut ctx_scope, alloc_key.into(), alloc_fn.into());
         }
 
         // Add toString method to Buffer prototype for Node.js compatibility
-        if let Some(ctor_obj) = buffer_ctor.to_object(scope) {
-            let proto_key = v8::String::new(scope, "prototype").unwrap();
-            if let Some(proto) = ctor_obj.get(scope, proto_key.into()) {
-                if let Some(proto_obj) = proto.to_object(scope) {
-                    if let Some(tostring_fn) = v8::Function::new(scope, buffer_tostring_callback) {
-                        let tostring_key = v8::String::new(scope, "toString").unwrap();
-                        proto_obj.set(scope, tostring_key.into(), tostring_fn.into());
+        if let Some(ctor_obj) = buffer_ctor.to_object(&mut ctx_scope) {
+            let proto_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
+            if let Some(proto) = ctor_obj.get(&mut ctx_scope, proto_key.into()) {
+                if let Some(proto_obj) = proto.to_object(&mut ctx_scope) {
+                    if let Some(tostring_fn) = v8::Function::new(&mut ctx_scope, buffer_tostring_callback) {
+                        let tostring_key = v8::String::new(&mut ctx_scope, "toString").unwrap();
+                        proto_obj.set(&mut ctx_scope, tostring_key.into(), tostring_fn.into());
                     }
                 }
             }
         }
 
         // Attach to global
-        let key = v8::String::new(scope, "Buffer").unwrap();
-        global.set(scope, key.into(), buffer_ctor.into());
+        let key = v8::String::new(&mut ctx_scope, "Buffer").unwrap();
+        global.set(&mut ctx_scope, key.into(), buffer_ctor.into());
     }
 }
 
@@ -1733,14 +1772,64 @@ fn subtle_generate_key(
     
     match crypto_key {
         Ok(key) => {
-            // Create CryptoKey JavaScript object
-            if let Some(js_key) = create_crypto_key_js(scope, key) {
-                retval.set(js_key.into());
-            } else {
-                let msg = v8::String::new(scope, "Failed to create CryptoKey").unwrap();
-                let error = v8::Exception::error(scope, msg);
-                retval.set(error);
+            // Create CryptoKey JavaScript object inline to avoid lifetime issues
+            let obj = v8::Object::new(scope);
+            let extractable = key.extractable;
+            let algorithm = key.algorithm.clone();
+            let usages: Vec<_> = key.usages.clone();
+            let type_str = key.key_type();
+            let key_ptr = Box::into_raw(Box::new(key));
+            let external = v8::External::new(scope, key_ptr as *mut std::ffi::c_void);
+            let external_key = v8::String::new(scope, "__crypto_key_ptr__").unwrap();
+            obj.set(scope, external_key.into(), external.into());
+            let type_key = v8::String::new(scope, "type").unwrap();
+            let type_val = v8::String::new(scope, type_str).unwrap();
+            obj.set(scope, type_key.into(), type_val.into());
+            let extractable_key = v8::String::new(scope, "extractable").unwrap();
+            let extractable_val = v8::Boolean::new(scope, extractable);
+            obj.set(scope, extractable_key.into(), extractable_val.into());
+            let algorithm_key = v8::String::new(scope, "algorithm").unwrap();
+            let algorithm_obj = v8::Object::new(scope);
+            let alg_name_key = v8::String::new(scope, "name").unwrap();
+            let alg_name_val = v8::String::new(scope, algorithm.name()).unwrap();
+            algorithm_obj.set(scope, alg_name_key.into(), alg_name_val.into());
+            
+            // Add algorithm-specific properties
+            match &algorithm {
+                crate::runtime::crypto::AlgorithmIdentifier::AesGcm { length } => {
+                    let length_key = v8::String::new(scope, "length").unwrap();
+                    let length_val = v8::Number::new(scope, *length as f64);
+                    algorithm_obj.set(scope, length_key.into(), length_val.into());
+                }
+                crate::runtime::crypto::AlgorithmIdentifier::Hmac { hash, length } => {
+                    // Add hash object with name property
+                    let hash_key = v8::String::new(scope, "hash").unwrap();
+                    let hash_obj = v8::Object::new(scope);
+                    let hash_name_key = v8::String::new(scope, "name").unwrap();
+                    let hash_name_val = v8::String::new(scope, hash.name()).unwrap();
+                    hash_obj.set(scope, hash_name_key.into(), hash_name_val.into());
+                    algorithm_obj.set(scope, hash_key.into(), hash_obj.into());
+                    
+                    // Add length property if present
+                    if let Some(len) = length {
+                        let length_key = v8::String::new(scope, "length").unwrap();
+                        let length_val = v8::Number::new(scope, *len as f64);
+                        algorithm_obj.set(scope, length_key.into(), length_val.into());
+                    }
+                }
+                _ => {}
             }
+            
+            obj.set(scope, algorithm_key.into(), algorithm_obj.into());
+            let usages_key = v8::String::new(scope, "usages").unwrap();
+            let usages_arr = v8::Array::new(scope, usages.len() as i32);
+            for (i, usage) in usages.iter().enumerate() {
+                let usage_str = v8::String::new(scope, usage.as_str()).unwrap();
+                let idx = v8::Number::new(scope, i as f64);
+                usages_arr.set(scope, idx.into(), usage_str.into());
+            }
+            obj.set(scope, usages_key.into(), usages_arr.into());
+            retval.set(obj.into());
         }
         Err(e) => {
             let msg = v8::String::new(scope, &e.to_string()).unwrap();
@@ -1748,139 +1837,6 @@ fn subtle_generate_key(
             retval.set(error);
         }
     }
-}
-
-/// Create a JavaScript CryptoKey object from a Rust CryptoKey
-fn create_crypto_key_js<'s>(
-    scope: &mut v8::PinnedRef<v8::HandleScope<'s>>,
-    key: crate::runtime::crypto::CryptoKey,
-) -> Option<v8::Local<'s, v8::Object>> {
-    let obj = v8::Object::new(scope);
-    
-    // Read properties from key BEFORE boxing it
-    let extractable = key.extractable;
-    let algorithm = key.algorithm.clone();
-    let usages: Vec<_> = key.usages.clone();
-    let type_str = key.key_type();
-    
-    // Store the actual CryptoKey in an internal field using external
-    let key_ptr = Box::into_raw(Box::new(key));
-    let external = v8::External::new(scope, key_ptr as *mut std::ffi::c_void);
-    let external_key = v8::String::new(scope, "__crypto_key_ptr__").unwrap();
-    obj.set(scope, external_key.into(), external.into());
-    
-    // Set type property
-    let type_key = v8::String::new(scope, "type").unwrap();
-    let type_val = v8::String::new(scope, type_str).unwrap();
-    obj.set(scope, type_key.into(), type_val.into());
-    
-    // Set extractable property
-    let extractable_key = v8::String::new(scope, "extractable").unwrap();
-    let extractable_val = v8::Boolean::new(scope, extractable);
-    obj.set(scope, extractable_key.into(), extractable_val.into());
-    
-    // Set algorithm property
-    let algorithm_key = v8::String::new(scope, "algorithm").unwrap();
-    let algorithm_obj = create_algorithm_js(scope, &algorithm)?;
-    obj.set(scope, algorithm_key.into(), algorithm_obj.into());
-    
-    // Set usages property
-    let usages_key = v8::String::new(scope, "usages").unwrap();
-    let usages_arr = v8::Array::new(scope, usages.len() as i32);
-    for (i, usage) in usages.iter().enumerate() {
-        let usage_str = v8::String::new(scope, usage.as_str()).unwrap();
-        let idx = v8::Number::new(scope, i as f64);
-        usages_arr.set(scope, idx.into(), usage_str.into());
-    }
-    obj.set(scope, usages_key.into(), usages_arr.into());
-    
-    Some(obj)
-}
-
-/// Create a JavaScript algorithm object from an AlgorithmIdentifier
-fn create_algorithm_js<'s>(
-    scope: &mut v8::PinnedRef<v8::HandleScope<'s>>,
-    algorithm: &crate::runtime::crypto::AlgorithmIdentifier,
-) -> Option<v8::Local<'s, v8::Object>> {
-    let obj = v8::Object::new(scope);
-    
-    // Set name property
-    let name_key = v8::String::new(scope, "name").unwrap();
-    let name_val = v8::String::new(scope, algorithm.name()).unwrap();
-    obj.set(scope, name_key.into(), name_val.into());
-    
-    // Add algorithm-specific properties
-    match algorithm {
-        crate::runtime::crypto::AlgorithmIdentifier::AesGcm { length } => {
-            let length_key = v8::String::new(scope, "length").unwrap();
-            let length_val = v8::Number::new(scope, *length as f64);
-            obj.set(scope, length_key.into(), length_val.into());
-        }
-        crate::runtime::crypto::AlgorithmIdentifier::Hmac { hash, length } => {
-            // Set hash object
-            let hash_key = v8::String::new(scope, "hash").unwrap();
-            let hash_obj = v8::Object::new(scope);
-            let hash_name_key = v8::String::new(scope, "name").unwrap();
-            let hash_name_val = v8::String::new(scope, hash.name()).unwrap();
-            hash_obj.set(scope, hash_name_key.into(), hash_name_val.into());
-            obj.set(scope, hash_key.into(), hash_obj.into());
-
-            // Set length if present
-            if let Some(len) = length {
-                let length_key = v8::String::new(scope, "length").unwrap();
-                let length_val = v8::Number::new(scope, *len as f64);
-                obj.set(scope, length_key.into(), length_val.into());
-            }
-        }
-        crate::runtime::crypto::AlgorithmIdentifier::RsaOaep { hash } => {
-            // RSA-OAEP requires hash property per Web Crypto spec
-            let hash_key = v8::String::new(scope, "hash").unwrap();
-            let hash_obj = v8::Object::new(scope);
-            let hash_name_key = v8::String::new(scope, "name").unwrap();
-            let hash_name_val = v8::String::new(scope, hash.name()).unwrap();
-            hash_obj.set(scope, hash_name_key.into(), hash_name_val.into());
-            obj.set(scope, hash_key.into(), hash_obj.into());
-        }
-        crate::runtime::crypto::AlgorithmIdentifier::RsaPss { hash, salt_length } => {
-            // RSA-PSS requires hash property and optional saltLength per Web Crypto spec
-            let hash_key = v8::String::new(scope, "hash").unwrap();
-            let hash_obj = v8::Object::new(scope);
-            let hash_name_key = v8::String::new(scope, "name").unwrap();
-            let hash_name_val = v8::String::new(scope, hash.name()).unwrap();
-            hash_obj.set(scope, hash_name_key.into(), hash_name_val.into());
-            obj.set(scope, hash_key.into(), hash_obj.into());
-
-            // Set saltLength if present
-            if let Some(salt_len) = salt_length {
-                let salt_length_key = v8::String::new(scope, "saltLength").unwrap();
-                let salt_length_val = v8::Number::new(scope, *salt_len as f64);
-                obj.set(scope, salt_length_key.into(), salt_length_val.into());
-            }
-        }
-        crate::runtime::crypto::AlgorithmIdentifier::RsaSsaPkcs1V1_5 { hash } => {
-            // RSASSA-PKCS1-v1_5 requires hash property per Web Crypto spec
-            let hash_key = v8::String::new(scope, "hash").unwrap();
-            let hash_obj = v8::Object::new(scope);
-            let hash_name_key = v8::String::new(scope, "name").unwrap();
-            let hash_name_val = v8::String::new(scope, hash.name()).unwrap();
-            hash_obj.set(scope, hash_name_key.into(), hash_name_val.into());
-            obj.set(scope, hash_key.into(), hash_obj.into());
-        }
-        crate::runtime::crypto::AlgorithmIdentifier::Ecdsa { named_curve, .. } => {
-            // ECDSA requires namedCurve property per Web Crypto spec
-            let named_curve_key = v8::String::new(scope, "namedCurve").unwrap();
-            let named_curve_val = v8::String::new(scope, named_curve.as_str()).unwrap();
-            obj.set(scope, named_curve_key.into(), named_curve_val.into());
-        }
-        crate::runtime::crypto::AlgorithmIdentifier::Ecdh { named_curve } => {
-            // ECDH requires namedCurve property per Web Crypto spec
-            let named_curve_key = v8::String::new(scope, "namedCurve").unwrap();
-            let named_curve_val = v8::String::new(scope, named_curve.as_str()).unwrap();
-            obj.set(scope, named_curve_key.into(), named_curve_val.into());
-        }
-    }
-    
-    Some(obj)
 }
 
 /// crypto.subtle.importKey()
@@ -1994,13 +1950,64 @@ fn subtle_import_key(
     
     match crypto_key {
         Ok(key) => {
-            if let Some(js_key) = create_crypto_key_js(scope, key) {
-                retval.set(js_key.into());
-            } else {
-                let msg = v8::String::new(scope, "Failed to create CryptoKey").unwrap();
-                let error = v8::Exception::error(scope, msg);
-                retval.set(error);
+            // Create CryptoKey JavaScript object inline to avoid lifetime issues
+            let obj = v8::Object::new(scope);
+            let extractable = key.extractable;
+            let algorithm = key.algorithm.clone();
+            let usages: Vec<_> = key.usages.clone();
+            let type_str = key.key_type();
+            let key_ptr = Box::into_raw(Box::new(key));
+            let external = v8::External::new(scope, key_ptr as *mut std::ffi::c_void);
+            let external_key = v8::String::new(scope, "__crypto_key_ptr__").unwrap();
+            obj.set(scope, external_key.into(), external.into());
+            let type_key = v8::String::new(scope, "type").unwrap();
+            let type_val = v8::String::new(scope, type_str).unwrap();
+            obj.set(scope, type_key.into(), type_val.into());
+            let extractable_key = v8::String::new(scope, "extractable").unwrap();
+            let extractable_val = v8::Boolean::new(scope, extractable);
+            obj.set(scope, extractable_key.into(), extractable_val.into());
+            let algorithm_key = v8::String::new(scope, "algorithm").unwrap();
+            let algorithm_obj = v8::Object::new(scope);
+            let alg_name_key = v8::String::new(scope, "name").unwrap();
+            let alg_name_val = v8::String::new(scope, algorithm.name()).unwrap();
+            algorithm_obj.set(scope, alg_name_key.into(), alg_name_val.into());
+            
+            // Add algorithm-specific properties
+            match &algorithm {
+                crate::runtime::crypto::AlgorithmIdentifier::AesGcm { length } => {
+                    let length_key = v8::String::new(scope, "length").unwrap();
+                    let length_val = v8::Number::new(scope, *length as f64);
+                    algorithm_obj.set(scope, length_key.into(), length_val.into());
+                }
+                crate::runtime::crypto::AlgorithmIdentifier::Hmac { hash, length } => {
+                    // Add hash object with name property
+                    let hash_key = v8::String::new(scope, "hash").unwrap();
+                    let hash_obj = v8::Object::new(scope);
+                    let hash_name_key = v8::String::new(scope, "name").unwrap();
+                    let hash_name_val = v8::String::new(scope, hash.name()).unwrap();
+                    hash_obj.set(scope, hash_name_key.into(), hash_name_val.into());
+                    algorithm_obj.set(scope, hash_key.into(), hash_obj.into());
+                    
+                    // Add length property if present
+                    if let Some(len) = length {
+                        let length_key = v8::String::new(scope, "length").unwrap();
+                        let length_val = v8::Number::new(scope, *len as f64);
+                        algorithm_obj.set(scope, length_key.into(), length_val.into());
+                    }
+                }
+                _ => {}
             }
+            
+            obj.set(scope, algorithm_key.into(), algorithm_obj.into());
+            let usages_key = v8::String::new(scope, "usages").unwrap();
+            let usages_arr = v8::Array::new(scope, usages.len() as i32);
+            for (i, usage) in usages.iter().enumerate() {
+                let usage_str = v8::String::new(scope, usage.as_str()).unwrap();
+                let idx = v8::Number::new(scope, i as f64);
+                usages_arr.set(scope, idx.into(), usage_str.into());
+            }
+            obj.set(scope, usages_key.into(), usages_arr.into());
+            retval.set(obj.into());
         }
         Err(e) => {
             let msg = v8::String::new(scope, &e.to_string()).unwrap();
@@ -2068,7 +2075,8 @@ fn subtle_export_key(
             
             match result {
                 Ok(jwk) => {
-                    if let Some(js_jwk) = jwk.to_v8_object(scope) {
+                    if let Some(js_jwk_global) = jwk.to_v8_object(scope) {
+                        let js_jwk = v8::Local::new(scope, js_jwk_global);
                         retval.set(js_jwk.into());
                     } else {
                         let msg = v8::String::new(scope, "Failed to create JWK object").unwrap();
@@ -2888,12 +2896,12 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
         // Bind APIs
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test basic encoding
         let code = r#"
@@ -2903,12 +2911,12 @@ mod tests {
             encoded.length === 13 && encoded[0] === 72;
         "#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         assert_eq!(
             result_str, "true",
@@ -2922,11 +2930,11 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test emoji encoding: "🎉" should produce [240, 159, 142, 137]
         let code = r#"
@@ -2935,12 +2943,12 @@ mod tests {
             bytes.length;
         "#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         // Emoji should be 4 bytes in UTF-8
         assert_eq!(result_str, "4");
@@ -2952,11 +2960,11 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test basic decoding
         let code = r#"
@@ -2968,12 +2976,12 @@ mod tests {
             decoded === original ? "PASS" : "FAIL: " + decoded;
         "#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         assert!(
             result_str.starts_with("PASS"),
@@ -2988,11 +2996,11 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test that console object exists and has log/warn/error methods
         let code = r#"
@@ -3002,12 +3010,12 @@ mod tests {
             typeof console.error === "function"
         "#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         assert_eq!(result_str, "true");
     }
@@ -3018,21 +3026,21 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test that console.log doesn't crash
         let code = r#"console.log("test message"); "OK";"#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         assert_eq!(result_str, "OK");
     }
@@ -3043,11 +3051,11 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test that invalid UTF-8 produces replacement character
         let code = r#"
@@ -3057,12 +3065,12 @@ mod tests {
             decoder.decode(bytes);
         "#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         // Should contain replacement character () for invalid sequences
         assert!(
@@ -3077,12 +3085,12 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
         // Bind APIs
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test that we can call getRandomValues
         let code = r#"
@@ -3091,12 +3099,12 @@ mod tests {
             result.length === 8 && result === arr
         "#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         assert_eq!(
             result_str, "true",
@@ -3110,12 +3118,12 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
         // Bind APIs
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test that performance.now() returns a number >= 0
         let code = r#"
@@ -3124,12 +3132,12 @@ mod tests {
             typeof t1 === 'number' && t1 >= 0 && t2 >= t1
         "#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         assert_eq!(
             result_str, "true",
@@ -3143,12 +3151,12 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
         // Bind APIs
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test that structuredClone creates independent copies
         let code = r#"
@@ -3158,12 +3166,12 @@ mod tests {
             original.a === 1 && cloned.a === 999
         "#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         assert_eq!(
             result_str, "true",
@@ -3177,12 +3185,12 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
         // Bind APIs
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test DOMException constructor
         let code = r#"
@@ -3190,12 +3198,12 @@ mod tests {
             err.name === "AbortError" && err.message === "Something went wrong"
         "#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         assert_eq!(
             result_str, "true",
@@ -3209,12 +3217,12 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
         // Bind APIs
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test Blob constructor
         let code = r#"
@@ -3222,12 +3230,12 @@ mod tests {
             blob.size === 12 && blob.type === ""
         "#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         assert_eq!(result_str, "true", "Blob should have correct size");
     }
@@ -3238,24 +3246,24 @@ mod tests {
 
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
         // Bind APIs
-        RuntimeAPIs::bind_all(scope, context);
+        RuntimeAPIs::bind_all(ctx_scope, context);
 
         // Test FormData constructor exists
         let code = r#"
             typeof FormData === 'function'
         "#;
 
-        let code_string = v8::String::new(scope, code).unwrap();
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script =
-            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+            v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-        let result = script.run(scope).expect("Script execution failed");
-        let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+        let result = script.run(ctx_scope).expect("Script execution failed");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         assert_eq!(result_str, "true", "FormData should be a function");
     }

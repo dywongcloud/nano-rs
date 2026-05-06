@@ -126,10 +126,10 @@ fn bind_console_log(
 ///
 /// # V147 API Note
 /// Callback signature uses PinnedRef<HandleScope<Context>> for v147 compatibility.
-fn console_log_callback<'s>(
-    scope: &mut v8::PinnedRef<'s, v8::HandleScope<'s, v8::Context>>,
-    args: v8::FunctionCallbackArguments<'s>,
-    _retval: v8::ReturnValue<'s>,
+fn console_log_callback(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
 ) {
     // Collect all arguments as strings
     let mut output = Vec::new();

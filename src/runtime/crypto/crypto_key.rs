@@ -367,10 +367,10 @@ impl JwkObject {
     }
     
     /// Convert this JWK to a V8 JavaScript object
-    pub fn to_v8_object<'s>(
+    pub fn to_v8_object(
         &self,
-        scope: &mut v8::PinnedRef<'s, v8::HandleScope<'s>>,
-    ) -> Option<v8::Local<'s, v8::Object>> {
+        scope: &mut v8::PinnedRef<v8::HandleScope>,
+    ) -> Option<v8::Global<v8::Object>> {
         let obj = v8::Object::new(scope);
         
         // Set kty
@@ -420,9 +420,9 @@ impl JwkObject {
             }
         }
         
-        Some(obj)
+        Some(v8::Global::new(scope, obj))
     }
-    
+
     // Helper methods for property extraction
     fn get_string_property(
         scope: &mut v8::PinnedRef<v8::HandleScope>,

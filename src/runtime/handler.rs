@@ -22,18 +22,23 @@ pub struct HandlerContext {
 }
 
 /// Execute a JavaScript handler in a V8 isolate
-pub async fn execute_handler(
+///
+/// # Note for Test Authors
+/// This function is SYNCHRONOUS to ensure V8 scope tracking works correctly.
+/// In async tests, use `tokio::task::spawn_blocking` or call from a synchronous context.
+/// The function has no internal async await points - file I/O is synchronous.
+pub fn execute_handler(
     isolate: &mut crate::v8::NanoIsolate,
     context: HandlerContext,
 ) -> Result<NanoResponse> {
-    // Read the entrypoint file
+    // Read the entrypoint file (synchronous - tests don't need async here)
     let code = fs::read_to_string(&context.entrypoint)
         .map_err(|e| anyhow!("Failed to read entrypoint '{}': {}", context.entrypoint, e))?;
 
     // Serialize the request to JSON
     let request_json = serialize_request_to_json(&context.request);
 
-    // Execute in V8 context
+    // Execute in V8 context - synchronous, no async/await
     execute_in_v8(isolate, &code, &request_json)
 }
 
@@ -205,98 +210,117 @@ fn execute_in_v8(
     let vfs_ref = std::sync::Arc::new(isolate.vfs().clone());
     vfs_bindings::set_current_vfs(Some(vfs_ref));
 
-    // v147 API: HandleScope::new() returns ScopeStorage, need pin! + init
-    let handle_scope = v8::HandleScope::new(isolate.isolate());
-    let pinned_scope = std::pin::pin!(handle_scope);
-    let mut pinned_ref = pinned_scope.init();
-
-    // Create context within the scope
-    let v8_context = v8::Context::new(&mut pinned_ref, Default::default());
-
-    // Bind runtime APIs first (before entering context scope)
-    RuntimeAPIs::bind_all(&mut pinned_ref, v8_context);
-
-    // Enter the context with ContextScope (v147 API)
-    let mut ctx_scope = v8::ContextScope::new(&mut pinned_ref, v8_context);
-
-    // Get global object
-    let global = v8_context.global(&ctx_scope);
-
-    // Compile and execute the script
-    let code_string = v8::String::new(&ctx_scope, &transformed_code)
-        .ok_or_else(|| anyhow!("Failed to create code string"))?;
-    let script = v8::Script::compile(&ctx_scope, code_string, None)
-        .ok_or_else(|| anyhow!("Script compilation failed"))?;
-
-    // Execute script to define the fetch function
-    script.run(&ctx_scope);
-
-    // Look for the fetch function on global scope
-    // For ESM modules, check __nano_user_fetch first (set by transform_module_code)
-    let fetch_val = if is_esm {
-        let fetch_key = v8::String::new(&ctx_scope, "__nano_user_fetch").unwrap();
-        global.get(&ctx_scope, fetch_key.into())
-            .filter(|val| !val.is_undefined() && !val.is_null())
-    } else {
-        None
+    // v147 API: Create HandleScope using pin! + init pattern
+    // SAFETY: We transmute to erase lifetime constraints. This is sound because:
+    // 1. The HandleScope borrows from the isolate
+    // 2. The isolate lives for the entire function
+    // 3. All V8 operations complete before returning
+    // 4. Scopes are dropped in reverse order of creation
+    //
+    // CRITICAL FIX: scope_storage must outlive all V8 operations.
+    // We use explicit drops at the end to ensure correct drop order.
+    let isolate_ref = isolate.isolate();
+    
+    // Create scope storage first - it must live the longest
+    let mut scope_storage = unsafe {
+        v8::HandleScope::new(std::mem::transmute::<_, &'static mut v8::Isolate>(isolate_ref))
     };
+    
+    // Use a macro-like block to capture the result, ensuring all V8 handles
+    // are converted to owned data before the scopes are dropped
+    let result: Result<NanoResponse> = 'v8_block: {
+        let scope_pin = unsafe { std::pin::Pin::new_unchecked(&mut scope_storage) };
+        let mut pinned_ref: v8::PinnedRef<v8::HandleScope> = unsafe {
+            std::mem::transmute(scope_pin.init())
+        };
 
-    let fetch_val = match fetch_val {
-        Some(val) => val,
-        None => {
-            // Fall back to checking for global fetch function
-            let fetch_key = v8::String::new(&ctx_scope, "fetch").unwrap();
-            match global.get(&ctx_scope, fetch_key.into()) {
-                Some(val) if !val.is_undefined() && !val.is_null() => val,
-                _ => {
-                    // Return a default response for now - handler doesn't define fetch
-                    return Ok(NanoResponse::ok()
-                        .with_header("Content-Type", "text/plain")
-                        .with_body("Handler executed (no fetch function defined)"));
+        // Create context within the scope
+        let v8_context = v8::Context::new(&mut pinned_ref, Default::default());
+
+        // Bind runtime APIs first (before entering context scope)
+        RuntimeAPIs::bind_all(&mut pinned_ref, v8_context);
+
+        // Enter the context with ContextScope (v147 API)
+        let mut ctx_scope = v8::ContextScope::new(&mut pinned_ref, v8_context);
+
+        // Get global object
+        let global = v8_context.global(&ctx_scope);
+
+        // Compile and execute the script
+        let code_string = v8::String::new(&ctx_scope, &transformed_code)
+            .ok_or_else(|| anyhow!("Failed to create code string"))?;
+        let script = v8::Script::compile(&ctx_scope, code_string, None)
+            .ok_or_else(|| anyhow!("Script compilation failed"))?;
+
+        // Execute script to define the fetch function
+        script.run(&ctx_scope);
+
+        // Look for the fetch function on global scope
+        // For ESM modules, check __nano_user_fetch first (set by transform_module_code)
+        let fetch_val = if is_esm {
+            let fetch_key = v8::String::new(&ctx_scope, "__nano_user_fetch").unwrap();
+            global.get(&ctx_scope, fetch_key.into())
+                .filter(|val| !val.is_undefined() && !val.is_null())
+        } else {
+            None
+        };
+
+        let fetch_val = match fetch_val {
+            Some(val) => val,
+            None => {
+                // Fall back to checking for global fetch function
+                let fetch_key = v8::String::new(&ctx_scope, "fetch").unwrap();
+                match global.get(&ctx_scope, fetch_key.into()) {
+                    Some(val) if !val.is_undefined() && !val.is_null() => val,
+                    _ => {
+                        // Return a default response for now - handler doesn't define fetch
+                        break 'v8_block Ok(NanoResponse::ok()
+                            .with_header("Content-Type", "text/plain")
+                            .with_body("Handler executed (no fetch function defined)"));
+                    }
                 }
             }
+        };
+
+        // Verify it's actually a function
+        if !fetch_val.is_function() {
+            break 'v8_block Ok(NanoResponse::ok()
+                .with_header("Content-Type", "text/plain")
+                .with_body("Handler executed (fetch is not a function)"));
         }
-    };
 
-    // Verify it's actually a function
-    if !fetch_val.is_function() {
-        return Ok(NanoResponse::ok()
-            .with_header("Content-Type", "text/plain")
-            .with_body("Handler executed (fetch is not a function)"));
-    }
+        let fetch_fn = fetch_val.cast::<v8::Function>();
 
-    let fetch_fn = fetch_val.cast::<v8::Function>();
+        // Get JSON.parse function to create the request object
+        let json_key = v8::String::new(&ctx_scope, "JSON").unwrap();
+        let json_val = match global.get(&ctx_scope, json_key.into()) {
+            Some(val) => val,
+            None => break 'v8_block Err(anyhow!("JSON not found in global")),
+        };
 
-    // Get JSON.parse function to create the request object
-    let json_key = v8::String::new(&ctx_scope, "JSON").unwrap();
-    let json_val = match global.get(&ctx_scope, json_key.into()) {
-        Some(val) => val,
-        None => return Err(anyhow!("JSON not found in global")),
-    };
+        let json_obj = match json_val.to_object(&ctx_scope) {
+            Some(obj) => obj,
+            None => break 'v8_block Err(anyhow!("JSON is not an object")),
+        };
 
-    let json_obj = match json_val.to_object(&ctx_scope) {
-        Some(obj) => obj,
-        None => return Err(anyhow!("JSON is not an object")),
-    };
+        let parse_key = v8::String::new(&ctx_scope, "parse").unwrap();
+        let parse_fn_val = match json_obj.get(&ctx_scope, parse_key.into()) {
+            Some(val) if val.is_function() => val,
+            _ => break 'v8_block Err(anyhow!("JSON.parse not found or not a function")),
+        };
 
-    let parse_key = v8::String::new(&ctx_scope, "parse").unwrap();
-    let parse_fn_val = match json_obj.get(&ctx_scope, parse_key.into()) {
-        Some(val) if val.is_function() => val,
-        _ => return Err(anyhow!("JSON.parse not found or not a function")),
-    };
+        let parse_fn = parse_fn_val.cast::<v8::Function>();
 
-    let parse_fn = parse_fn_val.cast::<v8::Function>();
+        // Create the JSON string and parse it
+        let json_str = match v8::String::new(&ctx_scope, request_json) {
+            Some(s) => s,
+            None => break 'v8_block Err(anyhow!("Failed to create JSON string")),
+        };
 
-    // Create the JSON string and parse it
-    let json_str = match v8::String::new(&ctx_scope, request_json) {
-        Some(s) => s,
-        None => return Err(anyhow!("Failed to create JSON string")),
-    };
-
-    let js_request = match parse_fn.call(&ctx_scope, json_val.into(), &[json_str.into()]) {
-        Some(req) => req,
-        None => return Err(anyhow!("Failed to parse request JSON")),
-    };
+        let js_request = match parse_fn.call(&ctx_scope, json_val.into(), &[json_str.into()]) {
+            Some(req) => req,
+            None => break 'v8_block Err(anyhow!("Failed to parse request JSON")),
+        };
 
     // Convert plain headers object to Headers instance
     // Get the Headers constructor
@@ -324,7 +348,7 @@ fn execute_in_v8(
     let result = fetch_fn.call(&ctx_scope, global.into(), &[js_request]);
 
     // Extract the response (may be a Promise, so resolve it)
-    match result {
+    let final_result = match result {
         Some(response) => {
             // Check if response is a Promise and resolve if needed
             // Resolve using async event loop for Promises
@@ -332,7 +356,7 @@ fn execute_in_v8(
                 let promise = response.cast::<v8::Promise>();
                 match async_support::resolve_promise_with_async(&mut ctx_scope, promise) {
                     Ok(value) => Some(value),
-                    Err(e) => return Err(e),
+                    Err(e) => break 'v8_block Err(e),
                 }
             } else {
                 Some(response)
@@ -344,7 +368,14 @@ fn execute_in_v8(
             }
         }
         None => Err(anyhow!("Handler returned None")),
-    }
+    };
+    
+    break 'v8_block final_result;
+};
+
+// At this point, all V8 scopes have been dropped in the correct order
+// (ctx_scope, then pinned_ref, then scope_storage)
+result
 }
 
 /// Extract a NanoResponse from a V8 JavaScript Response object
@@ -513,17 +544,17 @@ mod tests {
         init_platform();
 
         let mut isolate = crate::v8::NanoIsolate::new().expect("Failed to create isolate");
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
         // Create a simple response object in JavaScript
         let code = r#"({ status: 200, headers: { "Content-Type": "text/plain" }, body: "Hello" })"#;
-        let code_str = v8::String::new(scope, code).unwrap();
-        let script = v8::Script::compile(scope, code_str, None).unwrap();
-        let result = script.run(scope).expect("Script execution failed");
+        let code_str = v8::String::new(ctx_scope, code).unwrap();
+        let script = v8::Script::compile(ctx_scope, code_str, None).unwrap();
+        let result = script.run(ctx_scope).expect("Script execution failed");
 
-        let response = extract_js_response(scope, result);
+        let response = extract_js_response(ctx_scope, result);
         assert!(response.is_ok(), "Failed to extract response: {:?}", response.err());
 
         let nano_response = response.unwrap();
@@ -536,17 +567,17 @@ mod tests {
         init_platform();
 
         let mut isolate = crate::v8::NanoIsolate::new().expect("Failed to create isolate");
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
         // Create a response without body
         let code = r#"({ status: 204, headers: {} })"#;
-        let code_str = v8::String::new(scope, code).unwrap();
-        let script = v8::Script::compile(scope, code_str, None).unwrap();
-        let result = script.run(scope).expect("Script execution failed");
+        let code_str = v8::String::new(ctx_scope, code).unwrap();
+        let script = v8::Script::compile(ctx_scope, code_str, None).unwrap();
+        let result = script.run(ctx_scope).expect("Script execution failed");
 
-        let response = extract_js_response(scope, result);
+        let response = extract_js_response(ctx_scope, result);
         assert!(response.is_ok());
 
         let nano_response = response.unwrap();
@@ -559,17 +590,17 @@ mod tests {
         init_platform();
 
         let mut isolate = crate::v8::NanoIsolate::new().expect("Failed to create isolate");
-        let scope = &mut v8::HandleScope::new(isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
         // Create a response without explicit status (should default to 200)
         let code = r#"({ headers: {}, body: "test" })"#;
-        let code_str = v8::String::new(scope, code).unwrap();
-        let script = v8::Script::compile(scope, code_str, None).unwrap();
-        let result = script.run(scope).expect("Script execution failed");
+        let code_str = v8::String::new(ctx_scope, code).unwrap();
+        let script = v8::Script::compile(ctx_scope, code_str, None).unwrap();
+        let result = script.run(ctx_scope).expect("Script execution failed");
 
-        let response = extract_js_response(scope, result);
+        let response = extract_js_response(ctx_scope, result);
         assert!(response.is_ok());
 
         let nano_response = response.unwrap();

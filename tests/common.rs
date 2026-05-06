@@ -20,6 +20,15 @@ pub fn init_platform() {
     platform::initialize_platform().expect("Failed to initialize V8 platform");
 }
 
+/// Find an available port for testing
+pub fn find_available_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .expect("Failed to bind to find available port")
+        .local_addr()
+        .expect("Failed to get local address")
+        .port()
+}
+
 /// Create a test VFS with the given hostname
 pub fn create_test_vfs(hostname: &str) -> Arc<IsolateVfs> {
     Arc::new(IsolateVfs::new(
@@ -199,16 +208,6 @@ impl Drop for NanoProcess {
     fn drop(&mut self) {
         self.stop();
     }
-}
-
-/// Find available port for test server
-pub fn find_available_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .expect("Failed to bind to find available port");
-    let port = listener.local_addr().unwrap().port();
-    drop(listener);
-    std::thread::sleep(Duration::from_millis(100));
-    port
 }
 
 /// Find NANO binary path

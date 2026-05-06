@@ -74,9 +74,11 @@ impl ContextManager {
 
     /// Create the initial context for this isolate
     pub fn create_initial_context(&mut self) -> Result<()> {
-        let scope = &mut v8::HandleScope::new(self.isolate.isolate());
-        let context = v8::Context::new(scope, Default::default());
-        let global_context = v8::Global::new(scope, context);
+        // v147 API: HandleScope requires pin! + init
+        let scope_storage = std::pin::pin!(v8::HandleScope::new(self.isolate.isolate()));
+        let mut scope = scope_storage.init();
+        let context = v8::Context::new(&scope, Default::default());
+        let global_context = v8::Global::new(&scope, context);
 
         self.current_context = Some(global_context);
         self.creation_count = 1;
@@ -93,9 +95,11 @@ impl ContextManager {
         self.current_context = None;
 
         // Create new context with clean global scope
-        let scope = &mut v8::HandleScope::new(self.isolate.isolate());
-        let new_context = v8::Context::new(scope, Default::default());
-        let global_context = v8::Global::new(scope, new_context);
+        // v147 API: HandleScope requires pin! + init
+        let scope_storage = std::pin::pin!(v8::HandleScope::new(self.isolate.isolate()));
+        let mut scope = scope_storage.init();
+        let new_context = v8::Context::new(&scope, Default::default());
+        let global_context = v8::Global::new(&scope, new_context);
 
         self.current_context = Some(global_context);
         self.creation_count += 1;
@@ -116,7 +120,7 @@ impl ContextManager {
     /// Reset context and return a Local reference to the new context
     pub fn reset_and_get_context<'s>(
         &mut self,
-        scope: &mut v8::HandleScope<'s, ()>,
+        scope: &mut v8::PinnedRef<'s, v8::HandleScope<'s, ()>>,
     ) -> Result<(Duration, v8::Local<'s, v8::Context>)> {
         let elapsed = self.reset_context()?;
         let context = self
@@ -128,7 +132,7 @@ impl ContextManager {
     /// Get a Local reference to the current context for execution
     pub fn context<'s>(
         &self,
-        scope: &mut v8::HandleScope<'s, ()>,
+        scope: &mut v8::PinnedRef<'s, v8::HandleScope<'s, ()>>,
     ) -> Option<v8::Local<'s, v8::Context>> {
         self.current_context
             .as_ref()

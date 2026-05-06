@@ -14,6 +14,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
+/// Helper to execute code with V8 v147 scope pattern
+fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
+where
+    F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,
+{
+    v8::scope!(handle_scope, isolate);
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+    f(ctx_scope, context)
+}
+
 /// Get the path to a test fixture
 fn fixture_path(relative: &str) -> PathBuf {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -124,9 +135,9 @@ fn test_classic_script_still_works() {
     init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    v8::scope!(scope, isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
     // Classic script (not ESM)
     let code = r#"
@@ -143,14 +154,14 @@ fn test_classic_script_still_works() {
     assert!(!is_esm_module(code), "Classic script should not be detected as ESM");
 
     // Execute directly (no transformation needed)
-    let code_str = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_str, None).unwrap();
-    script.run(scope);
+    let code_str = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_str, None).unwrap();
+    script.run(ctx_scope);
 
     // Get global and look for fetch function
-    let global = context.global(scope);
-    let fetch_key = v8::String::new(scope, "fetch").unwrap();
-    let fetch_val = global.get(scope, fetch_key.into()).expect("fetch should be defined");
+    let global = context.global(ctx_scope);
+    let fetch_key = v8::String::new(ctx_scope, "fetch").unwrap();
+    let fetch_val = global.get(ctx_scope, fetch_key.into()).expect("fetch should be defined");
     
     assert!(fetch_val.is_function(), "fetch should be a function");
 }
@@ -160,9 +171,9 @@ fn test_esm_transformed_code_runs() {
     init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    v8::scope!(scope, isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
     // ESM pattern
     let code = r#"
@@ -182,16 +193,16 @@ fn test_esm_transformed_code_runs() {
 
     // Transform to classic script
     let transformed = transform_module_code(code);
-    
+
     // Execute transformed code
-    let code_str = v8::String::new(scope, &transformed).unwrap();
-    let script = v8::Script::compile(scope, code_str, None).unwrap();
-    script.run(scope);
+    let code_str = v8::String::new(ctx_scope, &transformed).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_str, None).unwrap();
+    script.run(ctx_scope);
 
     // Get global and look for __nano_user_fetch function (set by ESM transform)
-    let global = context.global(scope);
-    let fetch_key = v8::String::new(scope, "__nano_user_fetch").unwrap();
-    let fetch_val = global.get(scope, fetch_key.into()).expect("__nano_user_fetch should be defined after transformation");
+    let global = context.global(ctx_scope);
+    let fetch_key = v8::String::new(ctx_scope, "__nano_user_fetch").unwrap();
+    let fetch_val = global.get(ctx_scope, fetch_key.into()).expect("__nano_user_fetch should be defined after transformation");
     
     assert!(fetch_val.is_function(), "__nano_user_fetch should be a function after ESM transformation");
 }
@@ -201,9 +212,9 @@ fn test_export_default_function_pattern() {
     init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
+    v8::scope!(scope, isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
     // Alternative pattern: export default function
     let code = r#"
@@ -221,14 +232,14 @@ fn test_export_default_function_pattern() {
 
     // Transform and execute
     let transformed = transform_module_code(code);
-    let code_str = v8::String::new(scope, &transformed).unwrap();
-    let script = v8::Script::compile(scope, code_str, None).unwrap();
-    script.run(scope);
+    let code_str = v8::String::new(ctx_scope, &transformed).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_str, None).unwrap();
+    script.run(ctx_scope);
 
     // Should have fetch defined
-    let global = context.global(scope);
-    let fetch_key = v8::String::new(scope, "fetch").unwrap();
-    let fetch_val = global.get(scope, fetch_key.into());
+    let global = context.global(ctx_scope);
+    let fetch_key = v8::String::new(ctx_scope, "fetch").unwrap();
+    let fetch_val = global.get(ctx_scope, fetch_key.into());
     
     // Note: The current transform handles object exports better than function exports
     // This test verifies the detection works, the execution depends on transform quality

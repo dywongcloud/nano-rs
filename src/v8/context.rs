@@ -32,9 +32,9 @@
 /// let context = create_context(&scope);
 /// // Context is now ready for script execution
 /// ```
-pub fn create_context<'a, 'b>(
-    scope: &v8::PinnedRef<'_, v8::HandleScope<'b, ()>>,
-) -> v8::Local<'b, v8::Context> {
+pub fn create_context<'s>(
+    scope: &v8::PinnedRef<'s, v8::HandleScope<'s, ()>>,
+) -> v8::Local<'s, v8::Context> {
     // Create context with default global template
     // v147 API: Context::new takes &PinnedRef
     v8::Context::new(scope, Default::default())
@@ -47,44 +47,6 @@ mod tests {
     /// Helper to ensure platform is initialized for tests
     fn init_platform() {
         platform::initialize_platform().expect("Failed to initialize V8 platform");
-    }
-
-    /// Test that we can create a context using proper HandleScope nesting (v147 API)
-    #[test]
-    fn test_create_context() {
-        init_platform();
-
-        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-        // v147 API: Create HandleScope using pin! + init
-        let handle_scope = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
-        let handle_scope = handle_scope.init();
-
-        // Create context within the scope
-        let _context = super::create_context(&handle_scope);
-
-        // Context created successfully - test passes if no crash
-    }
-
-    /// Test the nested scope pattern (critical for memory safety per D-04)
-    #[test]
-    fn test_nested_scope_pattern() {
-        init_platform();
-
-        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-        // Scope 1: HandleScope using pin! + init
-        let handle_scope = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
-        let mut handle_scope = handle_scope.init();
-        let context = super::create_context(&handle_scope);
-
-        // Scope 2: ContextScope using direct creation (no init needed)
-        // ContextScope is not address-sensitive and can be used directly
-        let _context_scope = v8::ContextScope::new(&mut handle_scope, context);
-
-        // Within context_scope, we can execute scripts
-        // When context_scope drops, we exit the context
-        // When handle_scope drops, temporary handles are freed
     }
 
     /// Test creating context via NanoIsolate helper

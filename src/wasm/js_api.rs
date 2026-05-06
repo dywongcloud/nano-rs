@@ -22,57 +22,60 @@ impl WebAssemblyAPI {
         // We just need to ensure it's accessible on the global object
         // The native WebAssembly object is added by V8 automatically
         // We can optionally extend it with our custom functionality here
-        
+
         let global = context.global(scope);
-        
+
+        // Enter context scope for V8 APIs that require HandleScope<Context>
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
         // Check if WebAssembly already exists (it should in modern V8)
-        let wasm_key = v8::String::new(scope, "WebAssembly").unwrap();
-        
-        if global.get(scope, wasm_key.into()).is_none() {
+        let wasm_key = v8::String::new(&mut ctx_scope, "WebAssembly").unwrap();
+
+        if global.get(&mut ctx_scope, wasm_key.into()).is_none() {
             // If for some reason WebAssembly is not available, create a stub
             // that will throw meaningful errors
-            let wasm_obj = v8::Object::new(scope);
-            
+            let wasm_obj = v8::Object::new(&mut ctx_scope);
+
             // Create stub compile function
-            let compile_stub = v8::FunctionTemplate::new(scope, |scope: &mut v8::PinnedRef<v8::HandleScope>, 
-                _args: v8::FunctionCallbackArguments, 
+            let compile_stub = v8::FunctionTemplate::new(&mut ctx_scope, |scope: &mut v8::PinnedRef<v8::HandleScope>,
+                _args: v8::FunctionCallbackArguments,
                 mut _retval: v8::ReturnValue| {
                 let msg = v8::String::new(scope, "WebAssembly.compile is not available").unwrap();
                 let error = v8::Exception::error(scope, msg);
                 scope.throw_exception(error);
             });
-            let compile_fn = compile_stub.get_function(scope).unwrap();
-            let compile_name = v8::String::new(scope, "compile").unwrap();
-            wasm_obj.set(scope, compile_name.into(), compile_fn.into());
-            
+            let compile_fn = compile_stub.get_function(&mut ctx_scope).unwrap();
+            let compile_name = v8::String::new(&mut ctx_scope, "compile").unwrap();
+            wasm_obj.set(&mut ctx_scope, compile_name.into(), compile_fn.into());
+
             // Create stub instantiate function
-            let instantiate_stub = v8::FunctionTemplate::new(scope, |scope: &mut v8::PinnedRef<v8::HandleScope>,
+            let instantiate_stub = v8::FunctionTemplate::new(&mut ctx_scope, |scope: &mut v8::PinnedRef<v8::HandleScope>,
                 _args: v8::FunctionCallbackArguments,
                 mut _retval: v8::ReturnValue| {
                 let msg = v8::String::new(scope, "WebAssembly.instantiate is not available").unwrap();
                 let error = v8::Exception::error(scope, msg);
                 scope.throw_exception(error);
             });
-            let instantiate_fn = instantiate_stub.get_function(scope).unwrap();
-            let instantiate_name = v8::String::new(scope, "instantiate").unwrap();
-            wasm_obj.set(scope, instantiate_name.into(), instantiate_fn.into());
+            let instantiate_fn = instantiate_stub.get_function(&mut ctx_scope).unwrap();
+            let instantiate_name = v8::String::new(&mut ctx_scope, "instantiate").unwrap();
+            wasm_obj.set(&mut ctx_scope, instantiate_name.into(), instantiate_fn.into());
             
             // Set the stub WebAssembly object
-            global.set(scope, wasm_key.into(), wasm_obj.into());
-            
+            global.set(&mut ctx_scope, wasm_key.into(), wasm_obj.into());
+
             tracing::warn!("Created stub WebAssembly API - V8 WebAssembly not available");
         } else {
             tracing::debug!("WebAssembly API already available in V8");
         }
-        
+
         // Add our validate function which provides additional Rust-side validation
-        if let Some(wasm_val) = global.get(scope, wasm_key.into()) {
-            if let Some(wasm_obj) = wasm_val.to_object(scope) {
+        if let Some(wasm_val) = global.get(&mut ctx_scope, wasm_key.into()) {
+            if let Some(wasm_obj) = wasm_val.to_object(&mut ctx_scope) {
                 // Create validate function
-                let validate_fn = v8::FunctionTemplate::new(scope, wasm_validate_callback);
-                let validate_func = validate_fn.get_function(scope).unwrap();
-                let validate_name = v8::String::new(scope, "validate").unwrap();
-                wasm_obj.set(scope, validate_name.into(), validate_func.into());
+                let validate_fn = v8::FunctionTemplate::new(&mut ctx_scope, wasm_validate_callback);
+                let validate_func = validate_fn.get_function(&mut ctx_scope).unwrap();
+                let validate_name = v8::String::new(&mut ctx_scope, "validate").unwrap();
+                wasm_obj.set(&mut ctx_scope, validate_name.into(), validate_func.into());
             }
         }
         

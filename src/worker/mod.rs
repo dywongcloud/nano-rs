@@ -168,7 +168,7 @@ pub use app_source::AppSource;
 pub use context::ContextManager;
 pub use cpu_tracker::{CpuTimeError, CpuTimeSnapshot, CpuTracker};
 pub use eviction::{EvictionAction, EvictionManager, EvictionPolicy, IsolateMetadata};
-pub use limits::{HeapStatistics, MemoryLimiter, OomError, RequestMemoryChecker, RequestMemoryTracker};
+pub use limits::{HeapStatistics, MemoryLimiter, OomError, RequestMemoryTracker};
 pub use memory_monitor::{MemoryMonitor, MemoryMonitorConfig, MemoryPressureLevel, MemorySnapshot, MemoryTrend};
 pub use oom::{OomMonitor, OomMonitorBuilder};
 pub use pool::{SliverWorkerPool, WorkerHandle, WorkerPool};

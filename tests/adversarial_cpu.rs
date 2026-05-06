@@ -11,8 +11,10 @@
 //! - JSON parse bombs
 
 
+#[path = "common.rs"]
+mod common;
 use std::time::{Duration, Instant};
-use crate::security_utils::{find_available_port, NanoProcess};
+use common::{find_available_port, NanoProcess};
 
 /// Test infinite loop termination
 /// Attack: while(true) { Math.random(); }

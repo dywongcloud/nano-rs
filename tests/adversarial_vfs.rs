@@ -15,8 +15,21 @@
 //! - Write operations outside namespace
 
 
-use crate::security_utils::{init_platform, create_test_vfs, SecurityTestContext};
+#[path = "common.rs"]
+mod common;
+use common::{init_platform, create_test_vfs, SecurityTestContext};
 use nano::runtime::fs_polyfill::set_current_vfs;
+
+/// Helper to execute code with V8 v147 scope pattern
+fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
+where
+    F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,
+{
+    v8::scope!(handle_scope, isolate);
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+    f(ctx_scope, context)
+}
 
 /// Test basic path traversal is blocked
 /// Attack: ../etc/passwd
@@ -25,14 +38,14 @@ use nano::runtime::fs_polyfill::set_current_vfs;
 fn test_traversal_basic_blocked() {
     let ctx = SecurityTestContext::new("vfs-traversal.example.com");
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(handle_scope, nano_isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const fs = require('fs');
         try {
             fs.readFileSync('../etc/passwd');
@@ -42,9 +55,9 @@ fn test_traversal_basic_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "EINVAL", "Basic path traversal should be blocked with EINVAL");
 }
@@ -56,14 +69,14 @@ fn test_traversal_basic_blocked() {
 fn test_traversal_encoded_blocked() {
     let ctx = SecurityTestContext::new("vfs-encoded.example.com");
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const fs = require('fs');
         try {
             // URL encoded: %2e = ., %2f = /
@@ -74,9 +87,9 @@ fn test_traversal_encoded_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     // Encoded traversal should be blocked (results in EINVAL or ENOENT depending on path handling)
     assert!(
@@ -93,14 +106,14 @@ fn test_traversal_encoded_blocked() {
 fn test_traversal_double_encoded_blocked() {
     let ctx = SecurityTestContext::new("vfs-double-enc.example.com");
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const fs = require('fs');
         try {
             // Double encoded: %25 = %, so %252e = %2e = .
@@ -111,9 +124,9 @@ fn test_traversal_double_encoded_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     // Double encoding results in a path with literal % characters
     // Should either be blocked (EINVAL) or treated as file not found (ENOENT)
@@ -131,14 +144,14 @@ fn test_traversal_double_encoded_blocked() {
 fn test_traversal_null_byte_blocked() {
     let ctx = SecurityTestContext::new("vfs-null.example.com");
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const fs = require('fs');
         try {
             // Null byte injection attempt
@@ -149,9 +162,9 @@ fn test_traversal_null_byte_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "EINVAL", "Null byte injection should be blocked with EINVAL");
 }
@@ -169,15 +182,15 @@ fn test_traversal_unicode_blocked() {
         ctx.vfs.write("/文件.txt", b"unicode content").await.unwrap();
     });
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(ctx_scope, context);
 
     // Test that U+2024 (one dot leader) + U+2024 doesn't become ".."
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const fs = require('fs');
         try {
             // U+2024 is ․ (One Dot Leader) - looks like . but different
@@ -189,9 +202,9 @@ fn test_traversal_unicode_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     // Should be blocked (EINVAL) or not found (ENOENT) - but definitely not success
     assert!(
@@ -232,14 +245,14 @@ fn test_symlink_escape_blocked() {
 fn test_absolute_path_blocked() {
     let ctx = SecurityTestContext::new("vfs-absolute.example.com");
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const fs = require('fs');
         try {
             // Absolute path attack
@@ -250,9 +263,9 @@ fn test_absolute_path_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     // Should be ENOENT (file not found) - /etc/passwd is outside namespace
     // Not EINVAL because it's a valid absolute path, just not accessible
@@ -266,14 +279,14 @@ fn test_absolute_path_blocked() {
 fn test_traversal_case_variants_blocked() {
     let ctx = SecurityTestContext::new("vfs-case.example.com");
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const fs = require('fs');
         const attempts = [
             '../etc/passwd',
@@ -294,9 +307,9 @@ fn test_traversal_case_variants_blocked() {
         results.join(',')
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     // All attempts should fail (not be 'success')
     assert!(
@@ -313,14 +326,14 @@ fn test_traversal_case_variants_blocked() {
 fn test_traversal_nested_deep_blocked() {
     let ctx = SecurityTestContext::new("vfs-deep.example.com");
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const fs = require('fs');
         try {
             // Deeply nested traversal
@@ -331,9 +344,9 @@ fn test_traversal_nested_deep_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "EINVAL", "Deeply nested traversal should be blocked");
 }
@@ -345,14 +358,14 @@ fn test_traversal_nested_deep_blocked() {
 fn test_traversal_with_null_blocked() {
     let ctx = SecurityTestContext::new("vfs-null-trav.example.com");
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const fs = require('fs');
         try {
             // Null byte in traversal path
@@ -363,9 +376,9 @@ fn test_traversal_with_null_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "EINVAL", "Traversal with null byte should be blocked");
 }
@@ -380,22 +393,22 @@ fn test_directory_traversal_listing() {
     
     let ctx = SecurityTestContext::new("vfs-listing.example.com");
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const fs = require('fs');
         // Check if readdir exists (it shouldn't in NANO)
         typeof fs.readdir === 'function' ? 'exists' : 'not-exposed'
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "not-exposed", "readdir should not be exposed to prevent directory listing");
 }
@@ -407,14 +420,14 @@ fn test_directory_traversal_listing() {
 fn test_write_to_parent_blocked() {
     let ctx = SecurityTestContext::new("vfs-write-parent.example.com");
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    nano::runtime::fs_polyfill::bind_fs_polyfill(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const fs = require('fs');
         try {
             // Attempt to write outside namespace
@@ -425,9 +438,9 @@ fn test_write_to_parent_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "EINVAL", "Write to parent directory should be blocked");
 }

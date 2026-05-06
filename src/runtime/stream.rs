@@ -68,97 +68,100 @@ impl Default for StreamResourceTable {
 pub fn bind_streams(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
     let global = context.global(scope);
 
+    // Enter context scope for V8 APIs that require HandleScope<Context>
+    let mut ctx_scope = v8::ContextScope::new(scope, context);
+
     // Create ReadableStream constructor
-    let rs_template = v8::FunctionTemplate::new(scope, readable_stream_constructor);
-    let rs_ctor = rs_template.get_function(scope).unwrap();
+    let rs_template = v8::FunctionTemplate::new(&mut ctx_scope, readable_stream_constructor);
+    let rs_ctor = rs_template.get_function(&mut ctx_scope).unwrap();
     
     // Add getReader method to prototype
-    if let Some(rs_obj) = rs_ctor.to_object(scope) {
-        let proto_key = v8::String::new(scope, "prototype").unwrap();
-        if let Some(proto) = rs_obj.get(scope, proto_key.into()) {
-            if let Some(proto_obj) = proto.to_object(scope) {
-                if let Some(get_reader_fn) = v8::Function::new(scope, readable_stream_get_reader) {
-                    let get_reader_key = v8::String::new(scope, "getReader").unwrap();
-                    proto_obj.set(scope, get_reader_key.into(), get_reader_fn.into());
+    if let Some(rs_obj) = rs_ctor.to_object(&mut ctx_scope) {
+        let proto_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
+        if let Some(proto) = rs_obj.get(&mut ctx_scope, proto_key.into()) {
+            if let Some(proto_obj) = proto.to_object(&mut ctx_scope) {
+                if let Some(get_reader_fn) = v8::Function::new(&mut ctx_scope, readable_stream_get_reader) {
+                    let get_reader_key = v8::String::new(&mut ctx_scope, "getReader").unwrap();
+                    proto_obj.set(&mut ctx_scope, get_reader_key.into(), get_reader_fn.into());
                 }
             }
         }
     }
     
-    let rs_key = v8::String::new(scope, "ReadableStream").unwrap();
-    global.set(scope, rs_key.into(), rs_ctor.into());
+    let rs_key = v8::String::new(&mut ctx_scope, "ReadableStream").unwrap();
+    global.set(&mut ctx_scope, rs_key.into(), rs_ctor.into());
 
     // Create ReadableStreamDefaultReader constructor
-    let reader_template = v8::FunctionTemplate::new(scope, readable_stream_default_reader_constructor);
-    let reader_ctor = reader_template.get_function(scope).unwrap();
+    let reader_template = v8::FunctionTemplate::new(&mut ctx_scope, readable_stream_default_reader_constructor);
+    let reader_ctor = reader_template.get_function(&mut ctx_scope).unwrap();
     
     // Add read method to prototype
-    if let Some(reader_obj) = reader_ctor.to_object(scope) {
-        let proto_key = v8::String::new(scope, "prototype").unwrap();
-        if let Some(proto) = reader_obj.get(scope, proto_key.into()) {
-            if let Some(proto_obj) = proto.to_object(scope) {
-                if let Some(read_fn) = v8::Function::new(scope, reader_read_callback) {
-                    let read_key = v8::String::new(scope, "read").unwrap();
-                    proto_obj.set(scope, read_key.into(), read_fn.into());
+    if let Some(reader_obj) = reader_ctor.to_object(&mut ctx_scope) {
+        let proto_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
+        if let Some(proto) = reader_obj.get(&mut ctx_scope, proto_key.into()) {
+            if let Some(proto_obj) = proto.to_object(&mut ctx_scope) {
+                if let Some(read_fn) = v8::Function::new(&mut ctx_scope, reader_read_callback) {
+                    let read_key = v8::String::new(&mut ctx_scope, "read").unwrap();
+                    proto_obj.set(&mut ctx_scope, read_key.into(), read_fn.into());
                 }
-                if let Some(release_fn) = v8::Function::new(scope, reader_release_lock_callback) {
-                    let release_key = v8::String::new(scope, "releaseLock").unwrap();
-                    proto_obj.set(scope, release_key.into(), release_fn.into());
+                if let Some(release_fn) = v8::Function::new(&mut ctx_scope, reader_release_lock_callback) {
+                    let release_key = v8::String::new(&mut ctx_scope, "releaseLock").unwrap();
+                    proto_obj.set(&mut ctx_scope, release_key.into(), release_fn.into());
                 }
             }
         }
     }
     
-    let reader_key = v8::String::new(scope, "ReadableStreamDefaultReader").unwrap();
-    global.set(scope, reader_key.into(), reader_ctor.into());
+    let reader_key = v8::String::new(&mut ctx_scope, "ReadableStreamDefaultReader").unwrap();
+    global.set(&mut ctx_scope, reader_key.into(), reader_ctor.into());
 
     // Create WritableStream constructor
-    let ws_template = v8::FunctionTemplate::new(scope, writable_stream_constructor);
-    let ws_ctor = ws_template.get_function(scope).unwrap();
+    let ws_template = v8::FunctionTemplate::new(&mut ctx_scope, writable_stream_constructor);
+    let ws_ctor = ws_template.get_function(&mut ctx_scope).unwrap();
     
     // Add getWriter method to prototype
-    if let Some(ws_obj) = ws_ctor.to_object(scope) {
-        let proto_key = v8::String::new(scope, "prototype").unwrap();
-        if let Some(proto) = ws_obj.get(scope, proto_key.into()) {
-            if let Some(proto_obj) = proto.to_object(scope) {
-                if let Some(get_writer_fn) = v8::Function::new(scope, writable_stream_get_writer) {
-                    let get_writer_key = v8::String::new(scope, "getWriter").unwrap();
-                    proto_obj.set(scope, get_writer_key.into(), get_writer_fn.into());
+    if let Some(ws_obj) = ws_ctor.to_object(&mut ctx_scope) {
+        let proto_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
+        if let Some(proto) = ws_obj.get(&mut ctx_scope, proto_key.into()) {
+            if let Some(proto_obj) = proto.to_object(&mut ctx_scope) {
+                if let Some(get_writer_fn) = v8::Function::new(&mut ctx_scope, writable_stream_get_writer) {
+                    let get_writer_key = v8::String::new(&mut ctx_scope, "getWriter").unwrap();
+                    proto_obj.set(&mut ctx_scope, get_writer_key.into(), get_writer_fn.into());
                 }
             }
         }
     }
     
-    let ws_key = v8::String::new(scope, "WritableStream").unwrap();
-    global.set(scope, ws_key.into(), ws_ctor.into());
+    let ws_key = v8::String::new(&mut ctx_scope, "WritableStream").unwrap();
+    global.set(&mut ctx_scope, ws_key.into(), ws_ctor.into());
 
     // Create WritableStreamDefaultWriter constructor
-    let writer_template = v8::FunctionTemplate::new(scope, writable_stream_default_writer_constructor);
-    let writer_ctor = writer_template.get_function(scope).unwrap();
+    let writer_template = v8::FunctionTemplate::new(&mut ctx_scope, writable_stream_default_writer_constructor);
+    let writer_ctor = writer_template.get_function(&mut ctx_scope).unwrap();
     
     // Add write and close methods to prototype
-    if let Some(writer_obj) = writer_ctor.to_object(scope) {
-        let proto_key = v8::String::new(scope, "prototype").unwrap();
-        if let Some(proto) = writer_obj.get(scope, proto_key.into()) {
-            if let Some(proto_obj) = proto.to_object(scope) {
-                if let Some(write_fn) = v8::Function::new(scope, writer_write_callback) {
-                    let write_key = v8::String::new(scope, "write").unwrap();
-                    proto_obj.set(scope, write_key.into(), write_fn.into());
+    if let Some(writer_obj) = writer_ctor.to_object(&mut ctx_scope) {
+        let proto_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
+        if let Some(proto) = writer_obj.get(&mut ctx_scope, proto_key.into()) {
+            if let Some(proto_obj) = proto.to_object(&mut ctx_scope) {
+                if let Some(write_fn) = v8::Function::new(&mut ctx_scope, writer_write_callback) {
+                    let write_key = v8::String::new(&mut ctx_scope, "write").unwrap();
+                    proto_obj.set(&mut ctx_scope, write_key.into(), write_fn.into());
                 }
-                if let Some(close_fn) = v8::Function::new(scope, writer_close_callback) {
-                    let close_key = v8::String::new(scope, "close").unwrap();
-                    proto_obj.set(scope, close_key.into(), close_fn.into());
+                if let Some(close_fn) = v8::Function::new(&mut ctx_scope, writer_close_callback) {
+                    let close_key = v8::String::new(&mut ctx_scope, "close").unwrap();
+                    proto_obj.set(&mut ctx_scope, close_key.into(), close_fn.into());
                 }
-                if let Some(release_fn) = v8::Function::new(scope, writer_release_lock_callback) {
-                    let release_key = v8::String::new(scope, "releaseLock").unwrap();
-                    proto_obj.set(scope, release_key.into(), release_fn.into());
+                if let Some(release_fn) = v8::Function::new(&mut ctx_scope, writer_release_lock_callback) {
+                    let release_key = v8::String::new(&mut ctx_scope, "releaseLock").unwrap();
+                    proto_obj.set(&mut ctx_scope, release_key.into(), release_fn.into());
                 }
             }
         }
     }
     
-    let writer_key = v8::String::new(scope, "WritableStreamDefaultWriter").unwrap();
-    global.set(scope, writer_key.into(), writer_ctor.into());
+    let writer_key = v8::String::new(&mut ctx_scope, "WritableStreamDefaultWriter").unwrap();
+    global.set(&mut ctx_scope, writer_key.into(), writer_ctor.into());
 
     tracing::debug!("Streams API bindings initialized");
 }

@@ -23,34 +23,12 @@
 /// It's a PinnedRef that can be used directly with V8 APIs.
 pub type PinnedHandleScope<'a, 'b> = v8::PinnedRef<'a, v8::HandleScope<'b, ()>>;
 
-/// Initialize a HandleScope and return a PinnedRef to it
-///
-/// This creates a HandleScope for an isolate using the v147 pattern.
-///
-/// # Example
-/// ```rust,ignore
-/// let scope = init_handle_scope(&mut isolate);
-/// let context = v8::Context::new(&scope, Default::default());
-/// ```
-pub fn init_handle_scope<'a>(
-    isolate: &'a mut v8::Isolate,
-) -> v8::PinnedRef<'a, v8::HandleScope<'a, ()>> {
-    let scope = std::pin::pin!(v8::HandleScope::new(isolate));
-    scope.init()
-}
-
-/// Initialize a nested HandleScope from an existing scope
-///
-/// # Example
-/// ```rust,ignore
-/// let nested_scope = init_nested_handle_scope(&mut scope);
-/// ```
-pub fn init_nested_handle_scope<'a, 'b>(
-    parent: &mut v8::PinnedRef<'_, v8::HandleScope<'b, ()>>,
-) -> v8::PinnedRef<'a, v8::HandleScope<'a, ()>> {
-    let scope = std::pin::pin!(v8::HandleScope::new(parent));
-    scope.init()
-}
+// NOTE: Functions that create HandleScope and return PinnedRef cannot work
+// because pin! creates a stack value that gets dropped at end of function.
+// Use the inline pin! + init() pattern instead:
+//
+// let scope_storage = std::pin::pin!(v8::HandleScope::new(isolate));
+// let mut scope = scope_storage.init();
 
 /// Helper to create a context from a pinned scope
 ///
@@ -58,9 +36,9 @@ pub fn init_nested_handle_scope<'a, 'b>(
 /// ```rust,ignore
 /// let context = create_context_from_scope(&scope);
 /// ```
-pub fn create_context_from_scope<'a, 'b>(
-    scope: &v8::PinnedRef<'_, v8::HandleScope<'b, ()>>,
-) -> v8::Local<'b, v8::Context> {
+pub fn create_context_from_scope<'s>(
+    scope: &v8::PinnedRef<'s, v8::HandleScope<'s, ()>>,
+) -> v8::Local<'s, v8::Context> {
     // In v147, Context::new takes &PinnedRef
     v8::Context::new(scope, Default::default())
 }
@@ -73,8 +51,8 @@ pub fn create_context_from_scope<'a, 'b>(
 /// ```rust,ignore
 /// let global = create_global_from_scope(&scope, local_value);
 /// ```
-pub fn create_global_from_scope<T>(
-    scope: &v8::PinnedRef<'_, v8::HandleScope<'_, ()>>,
+pub fn create_global_from_scope<'s, T>(
+    scope: &v8::PinnedRef<'s, v8::HandleScope<'s, ()>>,
     handle: v8::Local<T>,
 ) -> v8::Global<T> {
     // Global::new needs &Isolate - we get it from the HandleScope
@@ -88,9 +66,9 @@ pub fn create_global_from_scope<T>(
 /// ```rust,ignore
 /// let undefined = undefined_from_scope(&scope);
 /// ```
-pub fn undefined_from_scope<'a, 'b>(
-    scope: &v8::PinnedRef<'_, v8::HandleScope<'b, ()>>,
-) -> v8::Local<'b, v8::Primitive> {
+pub fn undefined_from_scope<'s>(
+    scope: &v8::PinnedRef<'s, v8::HandleScope<'s, ()>>,
+) -> v8::Local<'s, v8::Primitive> {
     v8::undefined(scope)
 }
 
@@ -100,9 +78,9 @@ pub fn undefined_from_scope<'a, 'b>(
 /// ```rust,ignore
 /// let null = null_from_scope(&scope);
 /// ```
-pub fn null_from_scope<'a, 'b>(
-    scope: &v8::PinnedRef<'_, v8::HandleScope<'b, ()>>,
-) -> v8::Local<'b, v8::Primitive> {
+pub fn null_from_scope<'s>(
+    scope: &v8::PinnedRef<'s, v8::HandleScope<'s, ()>>,
+) -> v8::Local<'s, v8::Primitive> {
     v8::null(scope)
 }
 
@@ -112,34 +90,27 @@ pub fn null_from_scope<'a, 'b>(
 /// ```rust,ignore
 /// let str = string_from_scope(&scope, "hello");
 /// ```
-pub fn string_from_scope<'a, 'b>(
-    scope: &v8::PinnedRef<'_, v8::HandleScope<'b, ()>>,
+pub fn string_from_scope<'s>(
+    scope: &v8::PinnedRef<'s, v8::HandleScope<'s, ()>>,
     value: &str,
-) -> Option<v8::Local<'b, v8::String>> {
+) -> Option<v8::Local<'s, v8::String>> {
     v8::String::new(scope, value)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::v8::platform;
 
     #[test]
-    fn test_init_handle_scope() {
+    fn test_pin_init_pattern() {
         platform::initialize_platform().unwrap();
 
         let mut isolate = v8::Isolate::new(Default::default());
-        let _scope = init_handle_scope(&mut isolate);
+
+        // v147 pattern: pin! + init()
+        let scope_storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+        let _scope = scope_storage.init();
         // Test that we can create a scope without crashing
     }
 
-    #[test]
-    fn test_create_context_from_scope() {
-        platform::initialize_platform().unwrap();
-
-        let mut isolate = v8::Isolate::new(Default::default());
-        let scope = init_handle_scope(&mut isolate);
-        let _context = create_context_from_scope(&scope);
-        // Test that we can create a context without crashing
-    }
 }

@@ -559,31 +559,6 @@ impl RequestMemoryTracker {
     }
 }
 
-/// Adapter to use RequestMemoryTracker as a MemoryLimitChecker
-///
-/// This allows the RequestMemoryTracker to be used with the async_support
-/// module's memory checking functions.
-pub struct RequestMemoryChecker<'a> {
-    tracker: &'a RequestMemoryTracker,
-}
-
-impl<'a> RequestMemoryChecker<'a> {
-    /// Create a new memory checker wrapper around a RequestMemoryTracker
-    pub fn new(tracker: &'a RequestMemoryTracker) -> Self {
-        Self { tracker }
-    }
-}
-
-impl<'a> crate::runtime::async_support::MemoryLimitChecker for RequestMemoryChecker<'a> {
-    fn check_memory(&self, isolate: &mut v8::Isolate) -> Result<(), String> {
-        self.tracker.check_memory(isolate)
-    }
-    
-    fn limit_mb(&self) -> u32 {
-        self.tracker.limit_mb() as u32
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

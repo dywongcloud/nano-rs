@@ -9,8 +9,22 @@
 //! - Key extraction enforcement
 
 
+#[path = "common.rs"]
+mod common;
+
 use nano::v8::initialize_platform;
 use nano::runtime::apis::RuntimeAPIs;
+
+/// Helper to execute code with V8 v147 scope pattern
+fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
+where
+    F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,
+{
+    v8::scope!(handle_scope, isolate);
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+    f(ctx_scope, context)
+}
 
 fn init_platform() {
     initialize_platform().expect("Failed to initialize V8 platform");
@@ -23,15 +37,15 @@ fn init_platform() {
 fn test_weak_rsa_key_rejected() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test RSA key generation
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         (async function() {
             try {
                 // Try to generate 1024-bit RSA key (weak)
@@ -54,20 +68,20 @@ fn test_weak_rsa_key_rejected() {
         })()
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
     
     // Check if promise resolved
     if result.is_promise() {
         let promise = result.cast::<v8::Promise>();
         // Wait for promise or check state
         // For async tests, we'd need to run the microtask queue
-        scope.perform_microtask_checkpoint();
+        ctx_scope.perform_microtask_checkpoint();
         
         match promise.state() {
             v8::PromiseState::Fulfilled => {
-                let value = promise.result(scope);
-                let result_str = value.to_string(scope).unwrap().to_rust_string_lossy(scope);
+                let value = promise.result(ctx_scope);
+                let result_str = value.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
                 println!("RSA weak key result: {}", result_str);
             }
             v8::PromiseState::Rejected => {
@@ -90,15 +104,15 @@ fn test_weak_rsa_key_rejected() {
 fn test_weak_ec_curve_rejected() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test EC key generation
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         (async function() {
             try {
                 // Try P-256 (strong, should work)
@@ -125,17 +139,17 @@ fn test_weak_ec_curve_rejected() {
         })()
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
     
-    scope.perform_microtask_checkpoint();
+    ctx_scope.perform_microtask_checkpoint();
     
     if result.is_promise() {
         let promise = result.cast::<v8::Promise>();
         match promise.state() {
             v8::PromiseState::Fulfilled => {
-                let value = promise.result(scope);
-                let result_str = value.to_string(scope).unwrap().to_rust_string_lossy(scope);
+                let value = promise.result(ctx_scope);
+                let result_str = value.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
                 println!("EC curve result: {}", result_str);
             }
             _ => {}
@@ -152,15 +166,15 @@ fn test_weak_ec_curve_rejected() {
 fn test_weak_aes_key_rejected() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test AES key generation
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         (async function() {
             try {
                 // Generate AES-256 key (strong)
@@ -181,17 +195,17 @@ fn test_weak_aes_key_rejected() {
         })()
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
     
-    scope.perform_microtask_checkpoint();
+    ctx_scope.perform_microtask_checkpoint();
     
     if result.is_promise() {
         let promise = result.cast::<v8::Promise>();
         match promise.state() {
             v8::PromiseState::Fulfilled => {
-                let value = promise.result(scope);
-                let result_str = value.to_string(scope).unwrap().to_rust_string_lossy(scope);
+                let value = promise.result(ctx_scope);
+                let result_str = value.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
                 println!("AES key result: {}", result_str);
             }
             _ => {}
@@ -237,15 +251,15 @@ fn test_constant_time_comparison() {
 fn test_predictable_random_rejected() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Generate random values and verify they're not predictable
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         const results = [];
         
         // Generate 5 sets of random values
@@ -263,9 +277,9 @@ fn test_predictable_random_rejected() {
         allDifferent ? 'random-ok' : 'predictable'
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "random-ok", "getRandomValues should produce unpredictable values");
 }
@@ -277,15 +291,15 @@ fn test_predictable_random_rejected() {
 fn test_key_extraction_blocked() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test key extraction
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         (async function() {
             try {
                 // Generate non-extractable key
@@ -308,17 +322,17 @@ fn test_key_extraction_blocked() {
         })()
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
     
-    scope.perform_microtask_checkpoint();
+    ctx_scope.perform_microtask_checkpoint();
     
     if result.is_promise() {
         let promise = result.cast::<v8::Promise>();
         match promise.state() {
             v8::PromiseState::Fulfilled => {
-                let value = promise.result(scope);
-                let result_str = value.to_string(scope).unwrap().to_rust_string_lossy(scope);
+                let value = promise.result(ctx_scope);
+                let result_str = value.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
                 println!("Key extraction result: {}", result_str);
                 
                 // Should be blocked if extractable flag is enforced
@@ -342,21 +356,21 @@ fn test_key_extraction_blocked() {
 fn test_digest_timing_consistency() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test digest availability
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         typeof crypto.subtle.digest === 'function' ? 'available' : 'not-available'
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "available", "digest should be available");
     

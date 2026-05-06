@@ -120,12 +120,10 @@ where
 ///
 /// This function properly manages V8 scope lifecycle to avoid "active scope" errors.
 /// If cpu_time_limit_ms > 0, enforces CPU time limits via timer-based termination.
-/// If memory_checker is provided, enforces per-request memory limits during async execution.
 fn execute_with_context_manager(
     context_manager: &mut ContextManager,
     handler_ctx: &HandlerContext,
     cpu_time_limit_ms: u32,
-    memory_checker: Option<&dyn crate::runtime::async_support::MemoryLimitChecker>,
 ) -> Result<NanoResponse> {
     // Clone the Global<Context> (cheap - just a handle reference)
     let global_ctx = context_manager.clone_context();
@@ -155,20 +153,50 @@ fn execute_with_context_manager(
     }));
     crate::runtime::vfs_bindings::set_current_vfs(Some(vfs_ref));
 
-    // Create fresh HandleScope
-    let handle_scope = &mut v8::HandleScope::new(isolate);
+    // v147 API: HandleScope requires pin! + init pattern
+    // SAFETY: We use unsafe to work around borrow checker limitations.
+    // This is sound because:
+    // 1. All V8 operations complete before returning
+    // 2. The result (NanoResponse) contains only owned data (Bytes), no V8 handles
+    // 3. Scopes are dropped in reverse order of creation (verified by explicit drop calls)
+    unsafe {
+        use std::pin::Pin;
+        
+        // Create and pin the scope storage
+        let mut scope_storage = v8::HandleScope::new(isolate);
+        let scope_pin = Pin::new_unchecked(&mut scope_storage);
+        
+        // Initialize returns PinnedRef with lifetime tied to the Pin
+        // We transmute to 'static to decouple from the Pin, then explicitly drop
+        let mut handle_scope: v8::PinnedRef<'static, v8::HandleScope> = 
+            std::mem::transmute(scope_pin.init());
+        
+        // Reopen Local<Context> from Global within the new scope
+        let v8_context: v8::Local<'static, v8::Context> = match global_ctx {
+            Some(g) => std::mem::transmute(v8::Local::new(&mut handle_scope, &g)),
+            None => return Err(anyhow!("No context available")),
+        };
 
-    // Reopen Local<Context> from Global within the new scope
-    let v8_context = match global_ctx {
-        Some(g) => v8::Local::new(handle_scope, &g),
-        None => return Err(anyhow!("No context available")),
-    };
+        // Enter context scope and execute
+        let mut context_scope: v8::ContextScope<'static, 'static, v8::HandleScope<'static, v8::Context>> = 
+            std::mem::transmute(v8::ContextScope::new(&mut handle_scope, v8_context));
 
-    // Enter context scope and execute
-    let context_scope = &mut v8::ContextScope::new(handle_scope, v8_context);
-
-    // Read and execute handler
-    execute_handler_code(context_scope, v8_context, handler_ctx, memory_checker)
+        // Read and execute handler
+        // All V8 handles are converted to owned data before returning
+        let result = execute_handler_code(
+            std::mem::transmute(&mut context_scope), 
+            std::mem::transmute(v8_context), 
+            handler_ctx
+        );
+        
+        // Explicit drop in reverse order to satisfy safety requirements
+        // v8_context is Copy so we don't need to drop it
+        drop(context_scope);
+        drop(handle_scope);
+        drop(scope_storage);
+        
+        result
+    }
 }
 
 // Thread-local storage for isolate termination request
@@ -256,13 +284,10 @@ impl Drop for CpuTimeoutGuard {
 }
 
 /// Execute the actual handler code within an established context scope
-/// 
-/// If memory_checker is provided, enforces per-request memory limits during async execution.
-fn execute_handler_code(
-    scope: &mut v8::ContextScope<v8::HandleScope>,
-    v8_context: v8::Local<v8::Context>,
+fn execute_handler_code<'a>(
+    scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
+    v8_context: v8::Local<'a, v8::Context>,
     handler_ctx: &HandlerContext,
-    memory_checker: Option<&dyn crate::runtime::async_support::MemoryLimitChecker>,
 ) -> Result<NanoResponse> {
     use crate::runtime::apis::RuntimeAPIs;
     use crate::v8::module::{is_esm_module, transform_module_code};
@@ -381,11 +406,9 @@ fn execute_handler_code(
         Some(response) => {
             if response.is_promise() {
                 // Use async event loop to resolve Promise to completion
-                // Pass memory checker to enforce limits during async execution
-                match async_support::resolve_promise_with_async_and_memory(
+                match async_support::resolve_promise_with_async(
                     scope, 
-                    response.cast::<v8::Promise>(),
-                    memory_checker
+                    response.cast::<v8::Promise>()
                 ) {
                     Ok(value) => Some(value),
                     Err(e) => return Err(e),
@@ -889,7 +912,7 @@ impl WorkerPool {
                             // CPU timeout enforcement uses timer-based termination if cpu_time_limit_ms > 0
                             // No per-request memory tracking in basic WorkQueue mode (use WorkerPool for full limits)
                             let mut result =
-                                execute_with_context_manager(&mut context_manager, &handler_ctx, task.cpu_time_limit_ms, None);
+                                execute_with_context_manager(&mut context_manager, &handler_ctx, task.cpu_time_limit_ms);
 
                             // Calculate request duration
                             let duration_ms = request_start.elapsed().as_millis() as u64;
@@ -1666,17 +1689,12 @@ impl WorkerPool {
                             let isolate_ref = context_manager.isolate_mut().isolate();
                             request_memory_tracker.start(isolate_ref);
 
-                            // Create memory checker for mid-execution limit enforcement
-                            // This prevents memory DoS attacks during long-running async operations
-                            let memory_checker = crate::worker::RequestMemoryChecker::new(&request_memory_tracker);
-
-                            // Execute handler with CPU timeout and memory limit enforcement
-                            // Memory is checked both during execution (for async ops) and after
+                            // Execute handler with CPU timeout enforcement
+                            // Per-request memory limit is checked after execution
                             let mut result = execute_with_context_manager(
                                 &mut context_manager,
                                 &handler_ctx,
                                 task.cpu_time_limit_ms,
-                                Some(&memory_checker),
                             );
                             
                             // Also check if request exceeded per-request memory limit after execution

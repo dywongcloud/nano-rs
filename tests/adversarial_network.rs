@@ -9,8 +9,10 @@
 //! - Large header rejection
 
 
+#[path = "common.rs"]
+mod common;
 use std::time::{Duration, Instant};
-use crate::security_utils::{find_available_port, NanoProcess};
+use common::{find_available_port, NanoProcess};
 
 /// Test DNS rebinding protection
 /// Attack: Rapidly changing Host header to bypass origin checks

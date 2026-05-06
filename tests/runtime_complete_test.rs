@@ -14,19 +14,29 @@ use nano::runtime::RuntimeAPIs;
 use nano::v8::initialize_platform;
 use nano::v8::NanoIsolate;
 
+/// Helper to execute code with V8 v147 scope pattern
+fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
+where
+    F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,
+{
+    v8::scope!(handle_scope, isolate);
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+    f(ctx_scope, context)
+}
+
 /// Test all APIs together in a single context
 #[test]
 fn test_all_apis_together() {
     initialize_platform().expect("Failed to initialize V8 platform");
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Bind all APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test all APIs in sequence
     let code = r#"
@@ -81,11 +91,11 @@ fn test_all_apis_together() {
         encoding_ok && crypto_ok && perf_ok && clone_ok && exception_ok && blob_ok && form_ok
     "#;
 
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
     assert_eq!(result_str, "true", "All Phase 3 APIs should work together");
 }
@@ -96,13 +106,12 @@ fn test_crypto_various_typed_arrays() {
     initialize_platform().expect("Failed to initialize V8 platform");
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     let code = r#"
         // Test Uint8Array
@@ -123,11 +132,11 @@ fn test_crypto_various_typed_arrays() {
         u8_ok && u16_ok && u32_ok
     "#;
 
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
     assert_eq!(
         result_str, "true",
@@ -141,13 +150,12 @@ fn test_performance_monotonic() {
     initialize_platform().expect("Failed to initialize V8 platform");
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     let code = r#"
         const times = [];
@@ -169,11 +177,11 @@ fn test_performance_monotonic() {
         monotonic && allNumbers
     "#;
 
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
     assert_eq!(result_str, "true", "performance.now() should be monotonic");
 }
@@ -184,13 +192,12 @@ fn test_structured_clone_complex() {
     initialize_platform().expect("Failed to initialize V8 platform");
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     let code = r#"
         // Test nested objects
@@ -213,11 +220,11 @@ fn test_structured_clone_complex() {
         nested_ok && arr_ok && null_ok
     "#;
 
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
     assert_eq!(
         result_str, "true",
@@ -231,13 +238,12 @@ fn test_dom_exception_various_names() {
     initialize_platform().expect("Failed to initialize V8 platform");
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     let code = r#"
         const abortError = new DOMException("Aborted", "AbortError");
@@ -253,11 +259,11 @@ fn test_dom_exception_various_names() {
         abort_ok && type_ok && notfound_ok && default_ok
     "#;
 
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
     assert_eq!(
         result_str, "true",
@@ -271,13 +277,12 @@ fn test_blob_with_type() {
     initialize_platform().expect("Failed to initialize V8 platform");
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     let code = r#"
         const textBlob = new Blob(["hello"], { type: "text/plain" });
@@ -291,11 +296,11 @@ fn test_blob_with_type() {
         text_ok && json_ok && default_ok
     "#;
 
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
     assert_eq!(result_str, "true", "Blob should support type option");
 }

@@ -6,6 +6,17 @@
 use nano::v8::{initialize_platform, NanoIsolate};
 use nano::runtime::apis::RuntimeAPIs;
 
+/// Helper to execute code with V8 v147 scope pattern
+fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
+where
+    F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,
+{
+    v8::scope!(handle_scope, isolate);
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+    f(ctx_scope, context)
+}
+
 fn init_platform() {
     initialize_platform().expect("Failed to initialize V8 platform");
 }
@@ -15,12 +26,12 @@ fn test_crypto_subtle_exists() {
     init_platform();
     
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
     
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
     
     // Test that crypto.subtle exists
     let code = r#"
@@ -34,12 +45,12 @@ fn test_crypto_subtle_exists() {
         typeof crypto.subtle.verify === "function"
     "#;
     
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
     
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "true", "crypto.subtle and all methods should exist");
 }
@@ -49,12 +60,12 @@ fn test_crypto_getrandomvalues_still_works() {
     init_platform();
     
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
     
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
     
     // Test that crypto.getRandomValues still works
     let code = r#"
@@ -63,12 +74,12 @@ fn test_crypto_getrandomvalues_still_works() {
         result.length === 8 && result === arr
     "#;
     
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
     
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "true", "crypto.getRandomValues should still work");
 }
@@ -78,12 +89,12 @@ fn test_subtle_generate_key_returns_object() {
     init_platform();
     
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
     
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
     
     // Test generateKey for AES-GCM
     let code = r#"
@@ -106,12 +117,12 @@ fn test_subtle_generate_key_returns_object() {
         }
     "#;
     
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
     
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "true", "generateKey should return valid CryptoKey");
 }
@@ -121,12 +132,12 @@ fn test_subtle_generate_key_hmac() {
     init_platform();
     
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
     
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
     
     // Test generateKey for HMAC
     let code = r#"
@@ -157,12 +168,12 @@ fn test_subtle_generate_key_hmac() {
         })()
     "#;
     
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
     
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     eprintln!("DEBUG HMAC - result_str: {}", result_str);
     
@@ -174,12 +185,12 @@ fn test_unsupported_algorithm_error() {
     init_platform();
     
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
     
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
     
     // Test that unsupported algorithms throw errors
     let code = r#"
@@ -195,12 +206,12 @@ fn test_unsupported_algorithm_error() {
         }
     "#;
     
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
     
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     eprintln!("DEBUG - result_str: {}", result_str);
     
@@ -218,12 +229,12 @@ fn test_algorithm_properties_hmac_hash() {
     init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test that HMAC algorithm includes hash property with correct structure
     let code = r#"
@@ -251,12 +262,12 @@ fn test_algorithm_properties_hmac_hash() {
         })()
     "#;
 
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
 
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
     assert_eq!(result_str, "true", "HMAC algorithm should have hash property with name");
 }
@@ -266,12 +277,12 @@ fn test_algorithm_properties_aes_gcm_length() {
     init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test that AES-GCM algorithm includes length property
     let code = r#"
@@ -298,12 +309,12 @@ fn test_algorithm_properties_aes_gcm_length() {
         })()
     "#;
 
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
 
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
     assert_eq!(result_str, "true", "AES-GCM algorithm should have length property");
 }
@@ -313,12 +324,12 @@ fn test_hmac_with_explicit_length() {
     init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Bind APIs
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test HMAC with explicit length property
     let code = r#"
@@ -348,12 +359,12 @@ fn test_hmac_with_explicit_length() {
         })()
     "#;
 
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
 
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
     assert_eq!(result_str, "true", "HMAC algorithm with explicit length should have all properties");
 }

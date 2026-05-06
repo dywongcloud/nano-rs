@@ -10,8 +10,22 @@
 //! - setTimeout string code
 //! - Symbol constructor pollution
 
+#[path = "common.rs"]
+mod common;
+
 use nano::v8::{initialize_platform, NanoIsolate};
 use nano::runtime::apis::RuntimeAPIs;
+
+/// Helper to execute code with V8 v147 scope pattern
+fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
+where
+    F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,
+{
+    v8::scope!(handle_scope, isolate);
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+    f(ctx_scope, context)
+}
 
 fn init_platform() {
     initialize_platform().expect("Failed to initialize V8 platform");
@@ -24,14 +38,14 @@ fn init_platform() {
 fn test_prototype_pollution_blocked() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         // Attempt prototype pollution
         Object.prototype.polluted = true;
         
@@ -46,8 +60,8 @@ fn test_prototype_pollution_blocked() {
         hasPolluted
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
     
     // In a multi-tenant system, we need to verify:
     // 1. Prototype pollution doesn't affect other tenants (cross-isolate)
@@ -69,14 +83,14 @@ fn test_prototype_pollution_blocked() {
 fn test_constructor_pollution_blocked() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         // Save original constructor
         const original = Object.constructor;
         
@@ -95,9 +109,9 @@ fn test_constructor_pollution_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     // If constructor pollution was blocked by V8, result is 'blocked'
     // Otherwise, mitigation is via context reset
@@ -115,14 +129,14 @@ fn test_constructor_pollution_blocked() {
 fn test_json_parse_prototype_blocked() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         // JSON with __proto__ attack
         const malicious = '{\"__proto__\": {\"polluted\": true}}';
         
@@ -144,9 +158,9 @@ fn test_json_parse_prototype_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     // Modern V8 has __proto__ pollution protection
     // Result should be 'safe' or 'parse-error'
@@ -164,21 +178,21 @@ fn test_json_parse_prototype_blocked() {
 fn test_eval_not_exposed() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         // Check if eval is available
         typeof eval === 'function' ? 'exposed' : 'not-exposed'
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "not-exposed", "eval() should not be exposed in NANO isolate");
 }
@@ -190,14 +204,14 @@ fn test_eval_not_exposed() {
 fn test_function_constructor_blocked() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         // Check if Function constructor is available
         try {
             const fn = new Function('return 1+1');
@@ -207,9 +221,9 @@ fn test_function_constructor_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "not-exposed", "Function constructor should not be available");
 }
@@ -221,21 +235,21 @@ fn test_function_constructor_blocked() {
 fn test_import_scripts_blocked() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         // Check if importScripts is available
         typeof importScripts === 'function' ? 'exposed' : 'not-exposed'
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "not-exposed", "importScripts should not be exposed");
 }
@@ -247,14 +261,14 @@ fn test_import_scripts_blocked() {
 fn test_settimeout_string_blocked() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         // Check if setTimeout accepts string code
         try {
             const id = setTimeout('1+1', 1000);
@@ -265,9 +279,9 @@ fn test_settimeout_string_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     // Should reject string argument (or accept but not execute as code)
     assert!(
@@ -284,14 +298,14 @@ fn test_settimeout_string_blocked() {
 fn test_symbol_constructor_blocked() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         // Attempt to pollute Symbol.for
         const original = Symbol.for;
         
@@ -306,9 +320,9 @@ fn test_symbol_constructor_blocked() {
         }
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     // Well-known symbols should be protected
     assert!(

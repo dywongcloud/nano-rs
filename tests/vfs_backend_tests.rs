@@ -3,14 +3,14 @@
 //! Cross-backend verification tests to ensure all storage backends
 //! (Memory, Disk, S3) behave consistently.
 
-use nano::vfs::{BackendFactory, DiskBackend, MemoryBackend, VfsBackend, VfsPath};
+use nano::vfs::{BackendFactory, DiskBackend, MemoryBackend, VfsBackend, VfsBackendEnum, VfsPath};
 use nano::config::{VfsBackendType, VfsDiskConfig};
 use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Helper to create a memory backend for testing
-fn create_memory_backend() -> Arc<dyn VfsBackend> {
-    Arc::new(MemoryBackend::default())
+fn create_memory_backend() -> VfsBackendEnum {
+    VfsBackendEnum::Memory(Arc::new(MemoryBackend::default()))
 }
 
 /// Helper to create a disk backend for testing

@@ -6,6 +6,17 @@
 use nano::v8::{initialize_platform, NanoIsolate};
 use nano::runtime::apis::RuntimeAPIs;
 
+/// Helper to execute code with V8 v147 scope pattern
+fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
+where
+    F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,
+{
+    v8::scope!(handle_scope, isolate);
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+    f(ctx_scope, context)
+}
+
 fn init_platform() {
     initialize_platform().expect("Failed to initialize V8 platform");
 }
@@ -15,11 +26,11 @@ fn test_aes_gcm_encrypt_decrypt_roundtrip() {
     init_platform();
     
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
     
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
     
     let code = r#"
         (function() {
@@ -82,12 +93,12 @@ fn test_aes_gcm_encrypt_decrypt_roundtrip() {
         })()
     "#;
     
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
     
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     // Debug: print the result
     eprintln!("DEBUG AES-GCM roundtrip result: {}", result_str);
@@ -100,11 +111,11 @@ fn test_aes_gcm_different_key_lengths() {
     init_platform();
     
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
     
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
     
     let code = r#"
         try {
@@ -154,12 +165,12 @@ fn test_aes_gcm_different_key_lengths() {
         }
     "#;
     
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
     
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "true", "Both 128-bit and 256-bit AES-GCM should work");
 }
@@ -171,11 +182,11 @@ fn test_aes_gcm_tampered_ciphertext_fails() {
     init_platform();
     
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
     
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
     
     let code = r#"
         try {
@@ -213,12 +224,12 @@ fn test_aes_gcm_tampered_ciphertext_fails() {
         }
     "#;
     
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
     
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     eprintln!("DEBUG tampered test result: {}", result_str);
     assert!(result_str.contains("Tampering detected"), "Should detect tampered ciphertext, got: {}", result_str);
@@ -229,11 +240,11 @@ fn test_aes_gcm_with_additional_data() {
     init_platform();
     
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
     
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
     
     let code = r#"
         try {
@@ -268,12 +279,12 @@ fn test_aes_gcm_with_additional_data() {
         }
     "#;
     
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
     
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "true", "AES-GCM with AAD should work");
 }
@@ -283,11 +294,11 @@ fn test_aes_gcm_jwk_import_export() {
     init_platform();
     
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
     
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
     
     let code = r#"
         try {
@@ -339,12 +350,12 @@ fn test_aes_gcm_jwk_import_export() {
         }
     "#;
     
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
     
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "true", "AES-GCM JWK import/export should work");
 }
@@ -356,11 +367,11 @@ fn test_non_extractable_key_cannot_export() {
     init_platform();
     
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    let scope = &mut v8::HandleScope::new(isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    v8::scope!(handle_scope, isolate.isolate());
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
     
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
     
     let code = r#"
         try {
@@ -383,12 +394,12 @@ fn test_non_extractable_key_cannot_export() {
         }
     "#;
     
-    let code_string = v8::String::new(scope, code).unwrap();
-    let script = v8::Script::compile(scope, code_string, None)
+    let code_string = v8::String::new(ctx_scope, code).unwrap();
+    let script = v8::Script::compile(ctx_scope, code_string, None)
         .expect("Script compilation failed");
     
-    let result = script.run(scope).expect("Script execution failed");
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let result = script.run(ctx_scope).expect("Script execution failed");
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     eprintln!("DEBUG export test result: {}", result_str);
     assert!(result_str.contains("Export blocked"), "Should block export of non-extractable key, got: {}", result_str);

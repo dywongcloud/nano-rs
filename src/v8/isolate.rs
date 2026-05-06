@@ -273,16 +273,17 @@ impl NanoIsolate {
     /// let context = isolate.create_context();
     /// // Execute scripts in the context...
     /// ```
-    pub fn create_context(&mut self) -> v8::Local<'_, v8::Context> {
+    pub fn create_context(&mut self) -> v8::Global<v8::Context> {
         // v147 API: Create HandleScope using pin! pattern, init to get PinnedRef
-        let scope = std::pin::pin!(v8::HandleScope::new(&mut self.isolate));
-        let scope = scope.init();
+        let scope_storage = std::pin::pin!(v8::HandleScope::new(&mut self.isolate));
+        let scope = scope_storage.init();
 
         // Create a context with default options
         // v147 API: Context::new takes &PinnedRef
         let context = v8::Context::new(&scope, Default::default());
 
-        context
+        // Convert to Global so it can outlive the scope
+        v8::Global::new(&scope, context)
     }
 
     /// Get a reference to the underlying isolate

@@ -13,9 +13,23 @@
 //! - Memory growth bomb
 
 
+#[path = "common.rs"]
+mod common;
+
 use nano::wasm::loader::WasmLoader;
 use nano::v8::initialize_platform;
 use nano::runtime::apis::RuntimeAPIs;
+
+/// Helper to execute code with V8 v147 scope pattern
+fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
+where
+    F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,
+{
+    v8::scope!(handle_scope, isolate);
+    let context = v8::Context::new(handle_scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+    f(ctx_scope, context)
+}
 
 fn init_platform() {
     initialize_platform().expect("Failed to initialize V8 platform");
@@ -373,15 +387,15 @@ fn test_wasm_extension_vs_magic() {
 fn test_wasm_v8_integration() {
     init_platform();
     
-    let mut nano_isolate = crate::security_utils::create_test_isolate();
-    let scope = &mut v8::HandleScope::new(nano_isolate.isolate());
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    RuntimeAPIs::bind_all(scope, context);
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test WebAssembly.validate in JS
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(ctx_scope, "
         // Test with valid WASM
         const valid = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
         const invalid = new Uint8Array([0x77, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
@@ -392,9 +406,9 @@ fn test_wasm_v8_integration() {
         validResult + ',' + invalidResult
     ").unwrap();
     
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
     
     assert_eq!(result_str, "true,false", "WebAssembly.validate should work: {}", result_str);
 }
