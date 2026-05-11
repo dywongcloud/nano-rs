@@ -9,7 +9,8 @@
 
 - ✅ **v1.0 Foundation** — Phases 1-9 (shipped 2026-04-19)
 - ✅ **v1.1 SLIVER** — Phases 10-16 (shipped 2026-04-20)
-- 📋 **v2.0 Advanced Features** — Phases 17+ (planned)
+- 📋 **v1.6 Architecture Hardening** — Phase 37 (planned)
+- 📋 **v2.0 Advanced Features** — Phases 23+ (planned)
 
 ---
 
@@ -245,6 +246,32 @@
 **Location:** `.planning/phases/22-documentation-architecture/`
 
 **Full details:** [REMEDIATION-v1.2.md](./REMEDIATION-v1.2.md)
+
+---
+
+## v1.6 Architecture Hardening 📋 (NEW)
+
+**Milestone Goal:** Apply TigerBeetle's TigerStyle methodology for safety, performance, and correctness
+
+<blockquote>
+📚 **TigerStyle Philosophy:** Safety-first engineering with static memory, comprehensive assertions, explicit limits, minimal dependencies, and clear separation of concerns.
+</blockquote>
+
+### Phase 37: TigerStyle Architecture Adoption
+**Goal:** Apply TigerBeetle's TigerStyle methodology for safety, performance, and correctness  
+**Depends on:** Phase 36 (v1.5 test infrastructure remediation)  
+**Requirements:** TIGER-01, TIGER-02, TIGER-03, TIGER-04, TIGER-05, TIGER-06, TIGER-07, TIGER-08  
+**Success Criteria** (what must be TRUE):
+  1. All isolate pools pre-allocated with fixed heap sizes
+  2. WorkQueue has hard size limits with bounded channels
+  3. Average 2+ assertions per function in safety-critical code
+  4. Dependency audit complete with reduction plan
+  5. Control/data plane separation documented
+  6. No functions exceed 70 lines
+  7. Naming follows TigerStyle conventions
+  8. All placeholders replaced with real implementations
+**Plans**: TBD  
+**UI hint**: no
 
 ---
 
@@ -521,6 +548,16 @@
 
 ---
 
+## v1.6 Architecture Hardening 📋 (NEW)
+
+**Milestone Goal:** Apply TigerBeetle's TigerStyle methodology for safety, performance, and correctness
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 37. TigerStyle Architecture | v1.6 | 0/TBD | Not started | - |
+
+---
+
 ## What's Next
 
 **v1.5 IN PROGRESS:** Test infrastructure remediation - fixing "Promise still pending" and inflated claims  
@@ -539,9 +576,22 @@
 **Phase 35: WorkerPool Unification** — ✅ COMPLETE - Unified Entrypoint/Sliver engine, 638 tests passing  
 **Phase 36: Test Issues Resolution** — 🔄 IN PROGRESS - 4/5 fixes complete (VFS, WASM, Memory DoS, Performance), pending security hardening
 
+### v1.6 Roadmap (Planned):
+
+**Phase 37: TigerStyle Architecture** — Apply TigerBeetle's TigerStyle methodology  
+- TIGER-01: Static Memory Allocation - Pre-allocate all isolate and buffer pools  
+- TIGER-02: Comprehensive Assertions - Minimum 2 assertions per function  
+- TIGER-03: Explicit Resource Limits - Fixed u32 limits for all resources  
+- TIGER-04: Zero Dependencies Audit - Review all 30+ Cargo dependencies  
+- TIGER-05: Control/Data Plane Separation - Batching and assertions in control plane  
+- TIGER-06: Function Size Limits - Hard 70-line limit per function  
+- TIGER-07: Naming Convention Alignment - snake_case, big-endian naming  
+- TIGER-08: Mock/Placeholder Removal - Address 17 TODO/FIXME items
+
 ### Commands:
 - View progress: `/gsd-progress`
 - Start v1.5 planning: `/gsd-plan-phase 28`
+- Start v1.6 planning: `/gsd-plan-phase 37`
 
 ### Completed in v1.4.2:
 - ✅ **Phase 21** — v1.2.0 Remediation (VFS, WinterCG APIs, Streams, Timers, SHA-256)
