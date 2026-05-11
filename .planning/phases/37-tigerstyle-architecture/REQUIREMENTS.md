@@ -10,6 +10,24 @@
 
 This phase adopts TigerBeetle's TigerStyle engineering methodology to harden the nano-rs runtime for production use. TigerStyle emphasizes static memory allocation, comprehensive assertions, explicit resource limits, minimal dependencies, and clear control/data plane separation.
 
+## Critical Policy: Zero Technical Debt
+
+> **"Code, like steel, is easier to change while it's hot. Do it right the first time, the best you know how, because you may not get another chance, and because quality builds momentum."** — TigerStyle
+
+**DECISION: This phase will NOT accumulate technical debt.**
+
+- All placeholders MUST be fixed with production-ready implementations
+- NO partial features — if it can't be completed now, it doesn't ship now
+- NO "TODO: Implement in Phase X" — either implement it or remove it
+- NO documentation-only decisions for broken code — fix it or delete it
+- Every commit in this phase leaves the codebase cleaner, safer, and more complete
+
+**Consequence of This Policy:**
+- Some features may be removed temporarily until properly implemented
+- Implementation time may be longer than stubbing
+- The codebase will be in a known-good state at every commit
+- Future work will build on solid foundations, not accumulated debt
+
 ---
 
 ## Requirements
@@ -181,21 +199,42 @@ This phase adopts TigerBeetle's TigerStyle engineering methodology to harden the
 ---
 
 ### TIGER-08: Mock/Placeholder Removal
-**Priority:** High  
-**Description:** Address all 17 TODO/FIXME items in codebase  
+**Priority:** Critical  
+**Description:** ELIMINATE all 17 TODO/FIXME items and 5 placeholder implementations. NO partial fixes. NO documentation-only decisions. NO growing technical debt.  
+
+**⚠️ CRITICAL DECISION: All Placeholders Must Be Fixed**
+Following TigerStyle's "zero technical debt" policy, every placeholder must be either:
+1. **Fully implemented** with production-ready code
+2. **Completely removed** with feature disabled until ready
+
+There is NO option 3. No stubs, no mocks, no "Phase X" promises in code.
 
 **Acceptance Criteria:**
-- All `TODO` comments replaced with real implementations or removed
-- All `FIXME` comments resolved or converted to tracked issues
-- No placeholder functions (functions that panic or return dummy values)
-- No unimplemented!() macros in production code paths
-- All stubs have clear paths to completion or are removed
+- [ ] ZERO `TODO` comments in production code (src/, not tests/)
+- [ ] ZERO `FIXME` comments in production code
+- [ ] ZERO placeholder functions (panics, dummy returns, "Phase 3" strings)
+- [ ] ZERO `unimplemented!()` macros in production paths
+- [ ] ZERO stub WebAssembly API (real implementation or remove)
+- [ ] ZERO placeholder heap in sliver packager (real heap capture or fail)
+- [ ] ZERO router placeholder returning "JS handler (Phase 3)" (real routing or fail)
+- [ ] ZERO mock timeout responses in HTTP client (real timeout or fail)
 
-**TODO Categories to Address:**
-1. **Implement** - Add real implementation (most TODOs)
-2. **Document** - Convert to documented intentional debt
-3. **Remove** - Delete if no longer relevant
-4. **Defer** - Move to GitHub issues for future work
+**Placeholders to Fix (MUST be production-ready or removed):**
+
+| Location | Current State | Required Fix |
+|----------|---------------|--------------|
+| `src/wasm/js_api.rs:35-66` | Stub WebAssembly object | Real WAS API or remove WASM support |
+| `src/sliver/packager.rs:166-180` | Placeholder heap data | Real V8 heap capture or error |
+| `src/v8/module.rs:514-522` | VFS placeholder in loader | Real VFS reference passing |
+| `src/http/router.rs` | Returns "JS handler (Phase 3)" | Real route dispatch or panic |
+| `src/admin/unix_socket.rs:274` | Unix socket placeholder | Real Unix socket or remove feature |
+| `src/http/client.rs:419` | Mock timeout response | Real timeout handling |
+
+**TODOs to Resolve:**
+- `src/runtime/fetch.rs:143` - Unused fields: either USE them or REMOVE them
+- `src/worker/queue.rs:335` - CPU timeout future: either IMPLEMENT now or REMOVE comment
+- `src/cli/error.rs:134` - Re-enable helpers: either FIX or DELETE the code
+- `src/v8/isolate.rs:186` - Legacy placeholder: either SUPPORT legacy or ERROR on detection
 
 **Related Files:**
 - All `src/` files with TODO/FIXME comments
@@ -214,7 +253,7 @@ This phase adopts TigerBeetle's TigerStyle engineering methodology to harden the
 | TIGER-05 | 37 | High | Separation documented | Architecture review |
 | TIGER-06 | 37 | Medium | No functions >70 lines | Line count check |
 | TIGER-07 | 37 | Low | Naming consistent | Naming audit |
-| TIGER-08 | 37 | High | 0 TODOs remaining | TODO count verification |
+| TIGER-08 | 37 | **Critical** | **ZERO placeholders remaining** | grep verification + test suite |
 
 ---
 
@@ -239,12 +278,37 @@ This phase adopts TigerBeetle's TigerStyle engineering methodology to harden the
 
 ## Definition of Done
 
-1. All 8 TIGER requirements implemented and verified
-2. Documentation updated with TigerStyle rationale
-3. No regressions in existing test suite
-4. Performance benchmarks show improvement or neutrality
-5. Code review passed with TigerStyle checklist
-6. Architecture Decision Record created for TigerStyle adoption
+### Hard Requirements (Must ALL Pass)
+
+1. **All 8 TIGER requirements implemented and verified**
+2. **ZERO placeholders remaining** — grep -r "TODO\|FIXME\|placeholder\|stub\|mock" src/ returns nothing
+3. **ZERO unimplemented!() macros** in production code paths
+4. **NO functions** that panic or return dummy values as "temporary" solutions
+5. **All tests passing** — no regressions, no "expected failures"
+6. **Documentation updated** with TigerStyle rationale and policy
+7. **Performance benchmarks** show improvement or neutrality (no degradation accepted)
+8. **Code review passed** with TigerStyle checklist
+9. **Architecture Decision Record** created documenting the zero-debt policy
+
+### Verification Commands
+
+```bash
+# Verify no TODOs in production code
+grep -r "TODO\|FIXME" src/ --include="*.rs" | grep -v "test" | wc -l
+# Expected output: 0
+
+# Verify no unimplemented!() macros
+grep -r "unimplemented!" src/ --include="*.rs" | wc -l
+# Expected output: 0
+
+# Verify no placeholder patterns
+grep -r "placeholder\|stub\|mock" src/ --include="*.rs" | grep -v "// Mock" | wc -l
+# Expected output: 0
+
+# Verify all tests pass
+cargo test --all 2>&1 | tail -1
+# Expected output: test result: ok. NNN tests passed
+```
 
 ---
 

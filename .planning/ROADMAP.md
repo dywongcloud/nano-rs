@@ -258,20 +258,42 @@
 </blockquote>
 
 ### Phase 37: TigerStyle Architecture Adoption
-**Goal:** Apply TigerBeetle's TigerStyle methodology for safety, performance, and correctness  
+**Goal:** Apply TigerBeetle's TigerStyle methodology for safety, performance, and correctness with **ZERO TECHNICAL DEBT**  
 **Depends on:** Phase 36 (v1.5 test infrastructure remediation)  
 **Requirements:** TIGER-01, TIGER-02, TIGER-03, TIGER-04, TIGER-05, TIGER-06, TIGER-07, TIGER-08  
+
+<blockquote>
+⚠️ **ZERO TECHNICAL DEBT POLICY:**  
+> "Code, like steel, is easier to change while it's hot. Do it right the first time... because you may not get another chance, and because quality builds momentum." — TigerStyle
+
+**NO placeholders. NO partial implementations. NO "TODO: Fix in Phase X". NO exceptions.**  
+**All broken features will be either fully fixed or completely removed.**
+</blockquote>
+
 **Success Criteria** (what must be TRUE):
-  1. All isolate pools pre-allocated with fixed heap sizes
+  1. All isolate pools pre-allocated with fixed heap sizes (no runtime allocation)
   2. WorkQueue has hard size limits with bounded channels
   3. Average 2+ assertions per function in safety-critical code
   4. Dependency audit complete with reduction plan
   5. Control/data plane separation documented
   6. No functions exceed 70 lines
   7. Naming follows TigerStyle conventions
-  8. All placeholders replaced with real implementations
-**Plans**: TBD  
+  8. **ZERO placeholders remaining in codebase**
+  9. **ZERO TODO/FIXME comments in production code**
+  10. **All advertised features actually work** (router, WASM, slivers)
+
+**Plans**:
+- [ ] 37-01-PLAN.md — TIGER-01: Static Memory Allocation (Pre-allocated isolate pools, bounded work queues)
+- [ ] 37-02-PLAN.md — TIGER-02: Comprehensive Assertions (2+ assertions per function, assertion framework)
+- [ ] 37-03-PLAN.md — TIGER-03: Explicit Resource Limits (u32 types, fixed limits, loop bounds)
+- [ ] 37-04-PLAN.md — TIGER-04: Zero Dependencies Audit (Audit 40+ deps, vendor small utilities)
+- [ ] 37-05-PLAN.md — TIGER-05: Control/Data Plane Separation (Batching, zero-copy data plane)
+- [ ] 37-06-PLAN.md — TIGER-06: Function Size Limits (70-line limit, push ifs up, fors down)
+- [ ] 37-07-PLAN.md — TIGER-07: Naming Convention Alignment (snake_case, no abbreviations, big-endian)
+- [ ] 37-08-PLAN.md — TIGER-08: **Mock/Placeholder Elimination** (**FIX router, module loader, WASM, heap, timeouts - NO STUBS**)
+
 **UI hint**: no
+**Location:** `.planning/phases/37-tigerstyle-architecture/`
 
 ---
 
@@ -550,11 +572,16 @@
 
 ## v1.6 Architecture Hardening 📋 (NEW)
 
-**Milestone Goal:** Apply TigerBeetle's TigerStyle methodology for safety, performance, and correctness
+**Milestone Goal:** Apply TigerBeetle's TigerStyle methodology with **ZERO TECHNICAL DEBT** — all placeholders eliminated, all features production-ready
+
+<blockquote>
+🔥 **ZERO TECHNICAL DEBT MANDATE:**  
+This milestone eliminates ALL technical debt from nano-rs. Every placeholder becomes production code or is removed. Every TODO is fixed or deleted. We ship only working features.
+</blockquote>
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 37. TigerStyle Architecture | v1.6 | 0/TBD | Not started | - |
+| 37. TigerStyle Architecture | v1.6 | 0/8 | Not started | - |
 
 ---
 
@@ -578,15 +605,20 @@
 
 ### v1.6 Roadmap (Planned):
 
-**Phase 37: TigerStyle Architecture** — Apply TigerBeetle's TigerStyle methodology  
-- TIGER-01: Static Memory Allocation - Pre-allocate all isolate and buffer pools  
-- TIGER-02: Comprehensive Assertions - Minimum 2 assertions per function  
-- TIGER-03: Explicit Resource Limits - Fixed u32 limits for all resources  
-- TIGER-04: Zero Dependencies Audit - Review all 30+ Cargo dependencies  
-- TIGER-05: Control/Data Plane Separation - Batching and assertions in control plane  
-- TIGER-06: Function Size Limits - Hard 70-line limit per function  
-- TIGER-07: Naming Convention Alignment - snake_case, big-endian naming  
-- TIGER-08: Mock/Placeholder Removal - Address 17 TODO/FIXME items
+**Phase 37: TigerStyle Architecture** — Apply TigerBeetle's TigerStyle methodology with **ZERO TECHNICAL DEBT** policy  
+
+> **⚠️ CRITICAL POLICY:** This phase follows TigerStyle's "zero technical debt" principle.  
+> **NO placeholders. NO partial implementations. NO "TODO: Fix in Phase X". NO exceptions.**
+> All broken features will be either **fully fixed** or **completely removed**.
+
+- **TIGER-01:** Static Memory Allocation - Pre-allocate all isolate and buffer pools  
+- **TIGER-02:** Comprehensive Assertions - Minimum 2 assertions per function  
+- **TIGER-03:** Explicit Resource Limits - Fixed u32 limits for all resources  
+- **TIGER-04:** Zero Dependencies Audit - Review all 30+ Cargo dependencies  
+- **TIGER-05:** Control/Data Plane Separation - Batching and assertions in control plane  
+- **TIGER-06:** Function Size Limits - Hard 70-line limit per function  
+- **TIGER-07:** Naming Convention Alignment - snake_case, big-endian naming  
+- **TIGER-08:** Mock/Placeholder Removal - **ELIMINATE all 17 TODOs and 5 placeholders (router, module loader, WASM, heap, timeouts)**
 
 ### Commands:
 - View progress: `/gsd-progress`
