@@ -232,39 +232,39 @@ pub type VfsResult<T> = Result<T, VfsError>;
 #[derive(Debug, Clone, Copy)]
 pub struct ResourceLimits {
     /// Maximum size of a single file in bytes (default: 10MB)
-    pub max_file_size: usize,
+    pub file_size_bytes_max: usize,
     /// Maximum total storage per namespace in bytes (default: 100MB)
-    pub max_total_storage: usize,
+    pub total_storage_bytes_max: usize,
     /// Maximum number of files per namespace (default: 1000)
-    pub max_files: usize,
+    pub files_count_max: usize,
 }
 
 impl Default for ResourceLimits {
     fn default() -> Self {
         Self {
-            max_file_size: 10 * 1024 * 1024,      // 10MB
-            max_total_storage: 100 * 1024 * 1024, // 100MB
-            max_files: 1000,
+            file_size_bytes_max: 10 * 1024 * 1024,      // 10MB
+            total_storage_bytes_max: 100 * 1024 * 1024, // 100MB
+            files_count_max: 1000,
         }
     }
 }
 
 impl ResourceLimits {
     /// Create limits with custom values
-    pub fn new(max_file_size: usize, max_total_storage: usize, max_files: usize) -> Self {
+    pub fn new(file_size_bytes_max: usize, total_storage_bytes_max: usize, files_count_max: usize) -> Self {
         Self {
-            max_file_size,
-            max_total_storage,
-            max_files,
+            file_size_bytes_max,
+            total_storage_bytes_max,
+            files_count_max,
         }
     }
     
     /// Create limits for testing (very small limits)
     pub fn test_limits() -> Self {
         Self {
-            max_file_size: 100,     // 100 bytes
-            max_total_storage: 500, // 500 bytes
-            max_files: 5,
+            file_size_bytes_max: 100,     // 100 bytes
+            total_storage_bytes_max: 500, // 500 bytes
+            files_count_max: 5,
         }
     }
 }
@@ -354,8 +354,8 @@ mod tests {
     #[test]
     fn test_resource_limits_default() {
         let limits = ResourceLimits::default();
-        assert_eq!(limits.max_file_size, 10 * 1024 * 1024);
-        assert_eq!(limits.max_total_storage, 100 * 1024 * 1024);
-        assert_eq!(limits.max_files, 1000);
+        assert_eq!(limits.file_size_bytes_max, 10 * 1024 * 1024);
+        assert_eq!(limits.total_storage_bytes_max, 100 * 1024 * 1024);
+        assert_eq!(limits.files_count_max, 1000);
     }
 }

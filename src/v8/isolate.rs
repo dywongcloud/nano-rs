@@ -21,6 +21,11 @@ use anyhow::Result;
 use std::marker::PhantomData;
 
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
+use crate::limits::isolate::{HEAP_SIZE_BYTES_PER_ISOLATE, HEAP_SIZE_BYTES_MAX};
+use crate::{
+    assert_precondition, assert_postcondition, assert_positive, assert_negative,
+    assert_invariant, assert_range, assert_non_null
+};
 
 /// V8 snapshot format magic number (for future validation)
 ///
@@ -34,6 +39,36 @@ const V8_SNAPSHOT_MAGIC: &[u8] = &[0xD7, 0x3C, 0xD7, 0x3C];
 
 /// Minimum valid snapshot size (header + at least some data)
 const MIN_SNAPSHOT_SIZE: usize = 8;
+
+/// Isolate state for lifecycle tracking and assertion validation
+///
+/// Tracks the current state of an isolate through its lifecycle to enable
+/// state transition assertions and prevent invalid operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IsolateState {
+    /// Isolate is being created
+    Creating,
+    /// Isolate is ready for use
+    Ready,
+    /// Isolate is currently executing a request
+    Executing,
+    /// Isolate is being reset/recycled
+    Resetting,
+    /// Isolate has been terminated
+    Terminated,
+}
+
+impl std::fmt::Display for IsolateState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IsolateState::Creating => write!(f, "Creating"),
+            IsolateState::Ready => write!(f, "Ready"),
+            IsolateState::Executing => write!(f, "Executing"),
+            IsolateState::Resetting => write!(f, "Resetting"),
+            IsolateState::Terminated => write!(f, "Terminated"),
+        }
+    }
+}
 
 /// A V8 isolate with the EPT fix sentinel
 ///
@@ -66,6 +101,15 @@ pub struct NanoIsolate {
     /// Per-isolate VFS for filesystem operations
     /// Dropped before sentinel/isolate (ephemeral per isolate)
     vfs: IsolateVfs,
+
+    /// Current state of the isolate for lifecycle tracking
+    state: IsolateState,
+
+    /// Thread ID that created this isolate (for thread affinity checks)
+    creation_thread_id: std::thread::ThreadId,
+
+    /// Heap size limit in bytes
+    heap_limit_bytes: u32,
 }
 
 /// Callback to allow WebAssembly code generation
@@ -136,8 +180,26 @@ impl NanoIsolate {
     /// let isolate = NanoIsolate::new_with_vfs(vfs).unwrap();
     /// ```
     pub fn new_with_vfs(vfs: IsolateVfs) -> Result<Self> {
+        // PRECONDITION: Platform must be initialized
+        assert_precondition!(
+            crate::v8::is_initialized(),
+            "V8 platform must be initialized before creating isolates"
+        );
+
+        // PRECONDITION: VFS must be valid
+        assert_positive!(
+            !vfs.namespace().as_str().is_empty(),
+            "VFS namespace must not be empty"
+        );
+
         // Create the isolate with default params - returns OwnedIsolate
         let mut isolate = v8::Isolate::new(Default::default());
+
+        // POSITIVE: Isolate was successfully created
+        assert_positive!(
+            isolate.get_heap_statistics().total_heap_size() > 0,
+            "isolate must have positive heap size after creation"
+        );
 
         // Enable WebAssembly code generation
         // This callback allows WebAssembly.compile() and WebAssembly.instantiate()
@@ -160,11 +222,20 @@ impl NanoIsolate {
 
         tracing::debug!("Created NanoIsolate with EPT fix sentinel and VFS");
 
+        // POSTCONDITION: Sentinel was successfully created
+        // Note: v8::Global doesn't have is_empty(), but successful creation
+        // is implied by reaching this point (v8::Global::new doesn't return Result)
+
+        let creation_thread_id = std::thread::current().id();
+
         Ok(Self {
             sentinel,
             isolate,
             _not_send_sync: PhantomData,
             vfs,
+            state: IsolateState::Creating,
+            creation_thread_id,
+            heap_limit_bytes: HEAP_SIZE_BYTES_PER_ISOLATE,
         })
     }
 
@@ -400,6 +471,9 @@ impl NanoIsolate {
             isolate,
             _not_send_sync: PhantomData,
             vfs,
+            state: IsolateState::Creating,
+            creation_thread_id: std::thread::current().id(),
+            heap_limit_bytes: HEAP_SIZE_BYTES_PER_ISOLATE,
         })
     }
 
@@ -485,6 +559,78 @@ impl NanoIsolate {
     fn sentinel(&self) -> &v8::Global<v8::Value> {
         &self.sentinel
     }
+
+    /// Get the current state of the isolate
+    pub fn state(&self) -> IsolateState {
+        self.state
+    }
+
+    /// Set the state of the isolate (for state machine transitions)
+    ///
+    /// # Panics
+    /// Panics if the state transition is invalid
+    pub fn set_state(&mut self, new_state: IsolateState) {
+        use crate::assert_state_transition;
+
+        let old_state = self.state;
+
+        // Valid state transitions per state machine design
+        match (old_state, new_state) {
+            // Creating can transition to Ready or Terminated (on error)
+            (IsolateState::Creating, IsolateState::Ready) => (),
+            (IsolateState::Creating, IsolateState::Terminated) => (),
+            // Ready can transition to Executing or Terminated
+            (IsolateState::Ready, IsolateState::Executing) => (),
+            (IsolateState::Ready, IsolateState::Terminated) => (),
+            // Executing can transition to Ready (reset), Resetting, or Terminated
+            (IsolateState::Executing, IsolateState::Ready) => (),
+            (IsolateState::Executing, IsolateState::Resetting) => (),
+            (IsolateState::Executing, IsolateState::Terminated) => (),
+            // Resetting can only transition to Ready
+            (IsolateState::Resetting, IsolateState::Ready) => (),
+            // Terminated is terminal state
+            (IsolateState::Terminated, _) => {
+                panic!("INVALID STATE TRANSITION: Terminated -> {:?} at {}:{}",
+                    new_state, file!(), line!());
+            }
+            // Any other transition is invalid
+            _ => {
+                panic!("INVALID STATE TRANSITION: {:?} -> {:?} at {}:{}",
+                    old_state, new_state, file!(), line!());
+            }
+        }
+
+        self.state = new_state;
+    }
+
+    /// Check thread affinity - asserts isolate is accessed from creation thread
+    ///
+    /// # Panics
+    /// Panics if called from a different thread than the one that created the isolate
+    pub fn assert_thread_affinity(&self) {
+        let current_thread = std::thread::current().id();
+        assert!(
+            current_thread == self.creation_thread_id,
+            "THREAD AFFINITY VIOLATION: isolate accessed from wrong thread. Expected {:?}, got {:?} at {}:{}",
+            self.creation_thread_id, current_thread, file!(), line!()
+        );
+    }
+
+    /// Get the thread ID that created this isolate
+    pub fn creation_thread_id(&self) -> std::thread::ThreadId {
+        self.creation_thread_id
+    }
+
+    /// Get the heap limit in bytes
+    pub fn heap_limit_bytes(&self) -> u32 {
+        self.heap_limit_bytes
+    }
+
+    /// Get current heap usage in bytes
+    pub fn heap_used_bytes(&mut self) -> u32 {
+        let stats = self.isolate.get_heap_statistics();
+        stats.used_heap_size() as u32
+    }
 }
 
 impl Drop for NanoIsolate {
@@ -501,12 +647,24 @@ impl Drop for NanoIsolate {
     /// VFS is ephemeral and per-isolate, so it should be cleaned up
     /// when the isolate is disposed.
     fn drop(&mut self) {
+        // NEGATIVE: Ensure we're not in the middle of execution when dropped
+        assert_negative!(
+            self.state == IsolateState::Executing,
+            "isolate must not be dropped while executing"
+        );
+
+        // State transition to Terminated before dropping
+        self.state = IsolateState::Terminated;
+
         tracing::debug!("Dropping NanoIsolate (EPT sentinel dropped before isolate)");
         // Fields are dropped in declaration order:
-        // 1. sentinel (v8::Global<Value>) - releases strong reference
-        // 2. isolate (v8::OwnedIsolate) - disposes the isolate
-        // 3. _not_send_sync (PhantomData) - no-op
-        // 4. vfs (IsolateVfs) - drops ephemeral filesystem
+        // 1. state (IsolateState) - simple enum
+        // 2. creation_thread_id (ThreadId) - simple ID
+        // 3. heap_limit_bytes (u32) - simple value
+        // 4. sentinel (v8::Global<Value>) - releases strong reference
+        // 5. isolate (v8::OwnedIsolate) - disposes the isolate
+        // 6. _not_send_sync (PhantomData) - no-op
+        // 7. vfs (IsolateVfs) - drops ephemeral filesystem
     }
 }
 
