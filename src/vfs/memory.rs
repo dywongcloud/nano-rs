@@ -75,10 +75,10 @@ impl MemoryBackend {
     /// Check if we can write a file of the given size
     fn check_write_limits(&self, _path: &VfsPath, content_len: usize, is_new: bool, old_size: usize) -> VfsResult<()> {
         // Check file size limit
-        if content_len > self.limits.max_file_size {
+        if content_len > self.limits.file_size_bytes_max {
             return Err(VfsError::QuotaExceeded {
                 resource: "file_size".to_string(),
-                limit: self.limits.max_file_size,
+                limit: self.limits.file_size_bytes_max,
                 current: content_len,
             });
         }
@@ -86,10 +86,10 @@ impl MemoryBackend {
         if is_new {
             // Check file count limit
             let current_count = self.file_count.load(Ordering::SeqCst);
-            if current_count >= self.limits.max_files {
+            if current_count >= self.limits.files_count_max {
                 return Err(VfsError::QuotaExceeded {
                     resource: "file_count".to_string(),
-                    limit: self.limits.max_files,
+                    limit: self.limits.files_count_max,
                     current: current_count,
                 });
             }
@@ -101,10 +101,10 @@ impl MemoryBackend {
         let new_total = (current_total + size_delta) as usize;
 
         // Check total storage limit
-        if new_total > self.limits.max_total_storage {
+        if new_total > self.limits.total_storage_bytes_max {
             return Err(VfsError::QuotaExceeded {
                 resource: "total_storage".to_string(),
-                limit: self.limits.max_total_storage,
+                limit: self.limits.total_storage_bytes_max,
                 current: current_total as usize,
             });
         }
@@ -366,7 +366,7 @@ mod tests {
     #[tokio::test]
     async fn test_memory_backend_quota_file_size() {
         let limits = ResourceLimits {
-            max_file_size: 100,
+            file_size_bytes_max: 100,
             ..Default::default()
         };
         let backend = MemoryBackend::with_limits(limits);
@@ -384,7 +384,7 @@ mod tests {
     #[tokio::test]
     async fn test_memory_backend_quota_file_count() {
         let limits = ResourceLimits {
-            max_files: 3,
+            files_count_max: 3,
             ..Default::default()
         };
         let backend = MemoryBackend::with_limits(limits);
@@ -404,9 +404,9 @@ mod tests {
     #[tokio::test]
     async fn test_memory_backend_quota_total_storage() {
         let limits = ResourceLimits {
-            max_total_storage: 200,
-            max_file_size: 100,
-            max_files: 10,
+            total_storage_bytes_max: 200,
+            file_size_bytes_max: 100,
+            files_count_max: 10,
         };
         let backend = MemoryBackend::with_limits(limits);
 

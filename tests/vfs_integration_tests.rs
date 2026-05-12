@@ -218,7 +218,7 @@ async fn test_traversal_with_namespace_prefix() {
 #[tokio::test]
 async fn test_quota_file_size() {
     let limits = ResourceLimits {
-        max_file_size: 100,
+        file_size_bytes_max: 100,
         ..Default::default()
     };
     let backend = create_backend_with_limits(limits);
@@ -238,8 +238,8 @@ async fn test_quota_file_size() {
 #[tokio::test]
 async fn test_quota_total_storage() {
     let limits = ResourceLimits {
-        max_total_storage: 200,
-        max_files: 10,
+        total_storage_bytes_max: 200,
+        files_count_max: 10,
         ..Default::default()
     };
     let backend = create_backend_with_limits(limits);
@@ -262,9 +262,9 @@ async fn test_quota_total_storage() {
 #[tokio::test]
 async fn test_quota_file_count() {
     let limits = ResourceLimits {
-        max_files: 3,
-        max_file_size: 1000,
-        max_total_storage: 10000,
+        files_count_max: 3,
+        file_size_bytes_max: 1000,
+        total_storage_bytes_max: 10000,
     };
     let backend = create_backend_with_limits(limits);
     let vfs = IsolateVfs::new(
@@ -286,7 +286,7 @@ async fn test_quota_file_count() {
 async fn test_quota_update_respected() {
     // Updating a file should respect quota (can't grow beyond limit)
     let limits = ResourceLimits {
-        max_total_storage: 100,
+        total_storage_bytes_max: 100,
         ..Default::default()
     };
     let backend = create_backend_with_limits(limits);
@@ -454,9 +454,9 @@ async fn test_deeply_nested_paths() {
 #[tokio::test]
 async fn test_large_file_content() {
     let limits = ResourceLimits {
-        max_file_size: 1024 * 1024, // 1MB
-        max_total_storage: 10 * 1024 * 1024,
-        max_files: 100,
+        file_size_bytes_max: 1024 * 1024, // 1MB
+        total_storage_bytes_max: 10 * 1024 * 1024,
+        files_count_max: 100,
     };
     let backend = create_backend_with_limits(limits);
     let vfs = IsolateVfs::new(

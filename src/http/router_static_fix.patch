@@ -1,0 +1,19 @@
+--- a/src/http/router.rs
++++ b/src/http/router.rs
+@@ -311,12 +311,12 @@ impl RouteTarget {
+                 // Serve a single static file from the filesystem
+                 tracing::debug!("Serving static file: {} (content-type: {})", path, content_type);
+                 
+-                match tokio::fs::read_to_string(path).await {
+-                    Ok(content) => NanoResponse::ok()
++                match tokio::fs::read(path).await {
++                    Ok(bytes) => NanoResponse::ok()
+                         .with_header("Content-Type", content_type)
+-                        .with_body(content),
++                        .with_body_bytes(bytes),
+                     Err(e) => {
+-                        tracing::warn!("Failed to read static file {}: {}", path, e);
++                        tracing::warn!("Failed to read static file {}: {:?}", path, e);
+                         NanoResponse::not_found()
+                     }
+                 }

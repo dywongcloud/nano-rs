@@ -260,10 +260,10 @@ impl DiskBackend {
     /// Check write limits
     fn check_write_limits(&self, content_len: usize, is_new: bool, old_size: usize) -> VfsResult<()> {
         // Check file size limit
-        if content_len > self.limits.max_file_size {
+        if content_len > self.limits.file_size_bytes_max {
             return Err(VfsError::QuotaExceeded {
                 resource: "file_size".to_string(),
-                limit: self.limits.max_file_size,
+                limit: self.limits.file_size_bytes_max,
                 current: content_len,
             });
         }
@@ -271,10 +271,10 @@ impl DiskBackend {
         if is_new {
             // Check file count limit
             let current_count = self.file_count.load(Ordering::SeqCst);
-            if current_count >= self.limits.max_files {
+            if current_count >= self.limits.files_count_max {
                 return Err(VfsError::QuotaExceeded {
                     resource: "file_count".to_string(),
-                    limit: self.limits.max_files,
+                    limit: self.limits.files_count_max,
                     current: current_count,
                 });
             }
@@ -286,10 +286,10 @@ impl DiskBackend {
         let new_total = (current_total + size_delta) as usize;
 
         // Check total storage limit
-        if new_total > self.limits.max_total_storage {
+        if new_total > self.limits.total_storage_bytes_max {
             return Err(VfsError::QuotaExceeded {
                 resource: "total_storage".to_string(),
-                limit: self.limits.max_total_storage,
+                limit: self.limits.total_storage_bytes_max,
                 current: current_total as usize,
             });
         }

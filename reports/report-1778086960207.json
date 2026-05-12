@@ -1,0 +1,251 @@
+{
+  "meta": {
+    "generatedAt": "2026-05-06T17:02:40.200Z",
+    "nanoVersion": "nano-rs 1.5.0 (v8-crate: 147.4.0)",
+    "duration": "16543ms",
+    "testHarness": "nano-rs-blackbox-test v1.0"
+  },
+  "summary": {
+    "total": 27,
+    "passed": 27,
+    "failed": 0,
+    "skipped": 0,
+    "overallScore": "100%"
+  },
+  "categories": {
+    "cli": {
+      "passed": 3,
+      "failed": 0,
+      "total": 3
+    },
+    "basic-http": {
+      "passed": 3,
+      "failed": 0,
+      "total": 3
+    },
+    "wintercg": {
+      "passed": 2,
+      "failed": 0,
+      "total": 2
+    },
+    "nodejs": {
+      "passed": 2,
+      "failed": 0,
+      "total": 2
+    },
+    "webcrypto": {
+      "passed": 2,
+      "failed": 0,
+      "total": 2
+    },
+    "crud": {
+      "passed": 6,
+      "failed": 0,
+      "total": 6
+    },
+    "http-verbs": {
+      "passed": 7,
+      "failed": 0,
+      "total": 7
+    },
+    "multi-tenancy": {
+      "passed": 2,
+      "failed": 0,
+      "total": 2
+    }
+  },
+  "testResults": [
+    {
+      "name": "nano-rs binary exists",
+      "category": "cli",
+      "status": "passed",
+      "duration": 0,
+      "error": null
+    },
+    {
+      "name": "nano-rs --version works",
+      "category": "cli",
+      "status": "passed",
+      "duration": 11,
+      "error": null,
+      "details": {
+        "version": "nano-rs 1.5.0 (v8-crate: 147.4.0)"
+      }
+    },
+    {
+      "name": "nano-rs --help works",
+      "category": "cli",
+      "status": "passed",
+      "duration": 6,
+      "error": null
+    },
+    {
+      "name": "Basic HTTP server starts",
+      "category": "basic-http",
+      "status": "passed",
+      "duration": 67,
+      "error": null
+    },
+    {
+      "name": "Basic HTTP GET request",
+      "category": "basic-http",
+      "status": "passed",
+      "duration": 51,
+      "error": null
+    },
+    {
+      "name": "HTTP POST with body",
+      "category": "basic-http",
+      "status": "passed",
+      "duration": 60,
+      "error": null
+    },
+    {
+      "name": "WinterCG: fetch() API available",
+      "category": "wintercg",
+      "status": "passed",
+      "duration": 217,
+      "error": null
+    },
+    {
+      "name": "WinterCG: Request/Response objects",
+      "category": "wintercg",
+      "status": "passed",
+      "duration": 55,
+      "error": null
+    },
+    {
+      "name": "Node.js: console methods",
+      "category": "nodejs",
+      "status": "passed",
+      "duration": 214,
+      "error": null
+    },
+    {
+      "name": "Node.js: Buffer",
+      "category": "nodejs",
+      "status": "passed",
+      "duration": 55,
+      "error": null
+    },
+    {
+      "name": "WebCrypto: crypto.subtle available",
+      "category": "webcrypto",
+      "status": "passed",
+      "duration": 215,
+      "error": null
+    },
+    {
+      "name": "WebCrypto: AES-GCM encryption",
+      "category": "webcrypto",
+      "status": "passed",
+      "duration": 55,
+      "error": null
+    },
+    {
+      "name": "CRUD: Server starts",
+      "category": "crud",
+      "status": "passed",
+      "duration": 160,
+      "error": null
+    },
+    {
+      "name": "CRUD: CREATE (POST)",
+      "category": "crud",
+      "status": "passed",
+      "duration": 56,
+      "error": null
+    },
+    {
+      "name": "CRUD: READ ALL (GET)",
+      "category": "crud",
+      "status": "passed",
+      "duration": 56,
+      "error": null
+    },
+    {
+      "name": "CRUD: READ ONE (GET)",
+      "category": "crud",
+      "status": "passed",
+      "duration": 54,
+      "error": null
+    },
+    {
+      "name": "CRUD: UPDATE (PUT)",
+      "category": "crud",
+      "status": "passed",
+      "duration": 56,
+      "error": null
+    },
+    {
+      "name": "CRUD: DELETE (DELETE)",
+      "category": "crud",
+      "status": "passed",
+      "duration": 54,
+      "error": null
+    },
+    {
+      "name": "HTTP: GET request",
+      "category": "http-verbs",
+      "status": "passed",
+      "duration": 215,
+      "error": null
+    },
+    {
+      "name": "HTTP: POST request",
+      "category": "http-verbs",
+      "status": "passed",
+      "duration": 109,
+      "error": null
+    },
+    {
+      "name": "HTTP: PUT request",
+      "category": "http-verbs",
+      "status": "passed",
+      "duration": 106,
+      "error": null
+    },
+    {
+      "name": "HTTP: PATCH request",
+      "category": "http-verbs",
+      "status": "passed",
+      "duration": 109,
+      "error": null
+    },
+    {
+      "name": "HTTP: DELETE request",
+      "category": "http-verbs",
+      "status": "passed",
+      "duration": 110,
+      "error": null
+    },
+    {
+      "name": "HTTP: HEAD request",
+      "category": "http-verbs",
+      "status": "passed",
+      "duration": 107,
+      "error": null
+    },
+    {
+      "name": "HTTP: OPTIONS request",
+      "category": "http-verbs",
+      "status": "passed",
+      "duration": 111,
+      "error": null
+    },
+    {
+      "name": "Multi-tenancy: Server with multiple apps starts",
+      "category": "multi-tenancy",
+      "status": "passed",
+      "duration": 103,
+      "error": null
+    },
+    {
+      "name": "Multi-tenancy: Routes to correct app by Host header",
+      "category": "multi-tenancy",
+      "status": "passed",
+      "duration": 116,
+      "error": null
+    }
+  ]
+}
