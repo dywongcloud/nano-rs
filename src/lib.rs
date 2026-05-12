@@ -20,6 +20,7 @@ pub mod vfs;
 pub mod sliver;
 pub mod wasm;
 pub mod limits;
+pub mod assertions;
 
 /// Library entry point for running the NANO runtime
 ///
