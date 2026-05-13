@@ -1,7 +1,7 @@
 # NANO Project State — v1.5 Milestone
 
 **Milestone:** v1.5 — True 100% Test Pass Rate + Cloudflare Workers Compatibility  
-**Date:** 2026-05-06  
+**Date:** 2026-05-12  
 **Status:** ✅ COMPLETE — V8 v147 migration done, compiler warnings cleaned, WebCrypto 100%, CRUD tests fixed, Cloudflare compatibility implemented
 
 ---
@@ -10,7 +10,7 @@
 
 **Repository:** nano-rs  
 **Core Value:** One OS process hosts many isolated JS apps with millisecond cold starts  
-**Current Version:** v1.5.4  
+**Current Version:** v1.6.1  
 **V8 Engine:** 14.7.173.20-rusty (v8 crate 147.4.0)
 
 **Key Achievements:**
@@ -25,9 +25,9 @@
 
 ## Current Position
 
-**Milestone:** v1.5 — COMPLETE  
-**Phase:** 38 — Sliver System Completion (Next)  
-**Phase Status:** 📋 Planned
+**Milestone:** v1.6 — TigerStyle Architecture  
+**Phase:** 37 — TigerStyle Architecture ✅ COMPLETE  
+**Phase Status:** ✅ Complete (control/data plane separation implemented)
 
 ### Phase 29: V8 v147 Migration ✅ COMPLETE
 
@@ -261,6 +261,32 @@ Edge Case Tests (10):
 
 ---
 
+### Phase 37: TigerStyle Architecture — Control/Data Plane Separation ✅ COMPLETE
+
+**Goal:** Implement TigerStyle control plane / data plane separation with batching, validation, and zero-assertion hot path
+**Status:** 3/3 tasks complete, compilation passes
+
+**Files Created:**
+- ✅ `src/control_plane.rs` — Request validation (48 assertions), tenant registry, batching
+- ✅ `src/data_plane.rs` — Zero-assertion execution path, V8 functions, lookup tables
+- ✅ `docs/ARCHITECTURE_CONTROL_DATA_PLANE.md` — Architecture documentation
+
+**Files Modified:**
+- ✅ `src/worker/pool.rs` — Refactored to use data_plane re-exports, type fixes
+- ✅ `src/worker/queue.rs` — Added ControlPlane integration
+- ✅ `src/http/router.rs` — Validates requests through control plane before dispatch
+- ✅ `src/http/types.rs` — Fixed set_worker_id signature
+- ✅ `src/worker/trait.rs` — Fixed worker_count return type
+- ✅ `src/v8/isolate.rs` — Fixed typo in set_heap_limits logging
+- ✅ `src/runtime/crypto/ecdsa.rs` — Fixed p256/p384 API compatibility
+
+**Key Metrics:**
+- Assertions in Control Plane: 48
+- Assertions in Data Plane: 0
+- Compilation: `cargo check --lib` passes (0 errors)
+
+---
+
 ## Next Steps
 
 ### Phase 38: Sliver System Completion ✅ COMPLETE
@@ -413,14 +439,14 @@ Implement WebSocket support:
 | v1.5.3 | 2026-05-06 | Phase 36.5: Cloudflare Workers compatibility |
 | v1.5.4 | 2026-05-06 | Phase 37: Missing tests created (+16 tests) |
 | v1.6.0 | 2026-05-06 | Phase 38: Sliver completion ✅ |
-| v1.6.1 | — | Phase 39: Router execution fix (CRITICAL) |
+| v1.6.1 | 2026-05-12 | Phase 37 TigerStyle: Control/Data Plane separation ✅ |
 | v2.0.0 | — | Phases 40-41: WebSocket, advanced features |
 
 ---
 
-**Last Updated:** 2026-05-06  
-**Version:** v1.6.0  
-**Status:** 🟡 **CONDITIONAL** — Sliver complete, CRITICAL issues found in audit
+**Last Updated:** 2026-05-12  
+**Version:** v1.6.1  
+**Status:** 🟡 **CONDITIONAL** — TigerStyle architecture complete, CRITICAL issues found in audit
 
 **Summary:**
 - ✅ V8 v147 migration: COMPLETE
@@ -430,6 +456,7 @@ Implement WebSocket support:
 - ✅ CRUD tests: 6/6 passing
 - ✅ Phase 37: Missing tests: 16/16 created and passing
 - ✅ Phase 38: Sliver system: COMPLETE (107 tests passing)
+- ✅ Phase 37 TigerStyle: Control/Data Plane separation COMPLETE (48 control assertions, 0 data assertions)
 - 🔴 **CRITICAL: Router WinterCG handler is placeholder** (returns text instead of executing JS)
 - 🔴 **CRITICAL: Module loader uses placeholder VFS** (imports don't resolve correctly)
 - 🟡 ECDH key derivation: NOT IMPLEMENTED (returns NotSupported)
@@ -440,4 +467,4 @@ Implement WebSocket support:
 Comprehensive audit reveals the HTTP router's WinterCG handler (`src/http/router.rs:206`) returns placeholder text "JS handler (Phase 3)" instead of actually executing JavaScript. This is a core advertised feature that is non-functional.
 
 **See:** `docs/COMPREHENSIVE_PLACEHOLDER_AUDIT.md` for full audit report
-- 📋 Next: Phase 37 — Create missing tests
+- 📋 Next: Phase 39 — Router execution fix (CRITICAL placeholder)
