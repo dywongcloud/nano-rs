@@ -21,6 +21,8 @@ pub mod sliver;
 pub mod wasm;
 pub mod limits;
 pub mod assertions;
+pub mod control_plane;
+pub mod data_plane;
 
 /// Library entry point for running the NANO runtime
 ///
