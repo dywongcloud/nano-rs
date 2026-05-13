@@ -123,9 +123,9 @@ pub async fn create_sliver_from_directory(
     packer.add_metadata(&metadata)?;
     
     // For directory-based slivers, we don't create a V8 heap snapshot
-    // Instead, we store a placeholder that indicates this is a "cold" sliver
+    // We store a cold sliver marker that indicates this is a "cold" sliver
     // The runtime will create the isolate on first request
-    let heap_data = create_placeholder_heap(&entrypoint);
+    let heap_data = create_cold_sliver_marker(&entrypoint);
     packer.add_heap(&heap_data)?;
     
     // Load all files from the directory into VFS entries
@@ -165,7 +165,7 @@ pub async fn create_sliver_from_directory(
 
 /// Create a cold sliver heap marker for directory-based slivers
 ///
-/// # Design Rationale (Intentional - Not a Placeholder)
+/// # Design Rationale (Intentional Cold Sliver Marker)
 ///
 /// Directory-based slivers ("cold slivers") are created from static files
 /// without executing the app. Since no V8 isolate was running, there is no
@@ -180,7 +180,7 @@ pub async fn create_sliver_from_directory(
 /// - Static site deployment (no JS execution needed during packaging)
 /// - Smaller sliver sizes for stateless apps (no heap overhead)
 /// - Faster sliver creation (no V8 initialization/execution required)
-fn create_placeholder_heap(entrypoint: &str) -> Vec<u8> {
+fn create_cold_sliver_marker(entrypoint: &str) -> Vec<u8> {
     // Create a magic header that indicates this is a directory-based sliver
     // Format: "NANO-DIR-v1\0" followed by entrypoint path
     let mut data = Vec::new();
@@ -336,8 +336,8 @@ mod tests {
     }
 
     #[test]
-    fn test_create_placeholder_heap() {
-        let heap = create_placeholder_heap("index.js");
+    fn test_create_cold_sliver_marker() {
+        let heap = create_cold_sliver_marker("index.js");
         
         // Should start with magic header
         assert!(heap.starts_with(b"NANO-DIR-v1\0"));

@@ -68,7 +68,7 @@ pub fn is_heap_snapshot_supported() -> bool {
 /// Modern slivers always contain real V8 heap snapshots created via
 /// `create_snapshot()`. This detection path exists only for backward
 /// compatibility with older sliver files.
-pub fn is_placeholder_snapshot(data: &[u8]) -> bool {
+pub fn is_legacy_cold_sliver_marker(data: &[u8]) -> bool {
     data == b"NANO_SNAPSHOT_PLACEHOLDER_V1"
 }
 
@@ -145,10 +145,10 @@ pub fn restore_from_snapshot(
     snapshot_data: &[u8],
     vfs: crate::vfs::IsolateVfs,
 ) -> SnapshotResult<crate::v8::isolate::NanoIsolate> {
-    // Check for legacy placeholder
-    if is_placeholder_snapshot(snapshot_data) {
+    // Check for legacy cold sliver marker
+    if is_legacy_cold_sliver_marker(snapshot_data) {
         return Err(SnapshotError::InvalidIsolateState(
-            "Cannot restore from placeholder snapshot (legacy sliver)".to_string()
+            "Cannot restore from legacy cold sliver marker - snapshot data missing".to_string()
         ));
     }
 
@@ -254,11 +254,11 @@ mod tests {
     }
     
     #[test]
-    fn test_is_placeholder_detection() {
-        assert!(is_placeholder_snapshot(b"NANO_SNAPSHOT_PLACEHOLDER_V1"));
-        assert!(!is_placeholder_snapshot(b"real data"));
-        assert!(!is_placeholder_snapshot(&[]));
-        assert!(!is_placeholder_snapshot(b"NANO_SNAPSHOT_PLACEHOLDER_V2"));
+    fn test_is_legacy_marker_detection() {
+        assert!(is_legacy_cold_sliver_marker(b"NANO_SNAPSHOT_PLACEHOLDER_V1"));
+        assert!(!is_legacy_cold_sliver_marker(b"real data"));
+        assert!(!is_legacy_cold_sliver_marker(&[]));
+        assert!(!is_legacy_cold_sliver_marker(b"NANO_SNAPSHOT_PLACEHOLDER_V2"));
     }
     
     #[test]
