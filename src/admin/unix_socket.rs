@@ -268,26 +268,9 @@ async fn mark_unix_socket_request(
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    // Check if this is a Unix socket connection
-    // Unix sockets don't have a proper SocketAddr, they're represented
-    // specially. We detect this by checking if the address looks like
-    // a Unix socket placeholder.
-    
-    // Since we control the server setup, we can use a simpler approach:
-    // The Unix socket server will add a custom header that the auth middleware
-    // can check. But actually, we need to think about this differently.
-    
-    // In axum, when using UnixListener, the ConnectInfo extension might not
-    // be populated the same way. Let me reconsider the approach.
-    
-    // Actually, the simplest approach is to use a different router entirely
-    // for Unix socket that doesn't have the auth middleware at all.
-    
-    // For now, let this pass through - we'll handle this differently
-    // by creating a separate router for Unix socket that doesn't include auth.
-    
-    // Just pass through - the create_unix_socket_router will be updated
-    // to not include auth middleware at all.
+    // Unix socket connections are identified by filesystem path, not TCP address.
+    // The separate Unix socket router (create_unix_socket_router_no_auth) handles
+    // all admin routes without authentication, as filesystem permissions control access.
     next.run(req).await
 }
 

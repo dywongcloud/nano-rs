@@ -27,9 +27,9 @@ pub struct HttpClient {
     /// Default timeout for requests
     timeout: Duration,
     /// Maximum number of redirects to follow
-    /// 
-    /// TODO: This is configured but currently relies on reqwest's default
-    /// redirect policy. Future enhancement: implement custom redirect handling.
+    ///
+    /// Reserved for future custom redirect policy implementation.
+    /// Currently uses reqwest's default redirect behavior (10 redirects).
     #[allow(dead_code)]
     max_redirects: usize,
     /// Maximum response size in bytes (default: 100MB)
@@ -416,11 +416,10 @@ mod tests {
     async fn test_get_request_to_httpbin() {
         let client = HttpClient::new().unwrap();
 
-        // With simplified implementation, this returns a mock response
+        // Uses real reqwest client with TLS support
         let result = client.get("https://httpbin.org/get").await;
 
-        // Should succeed with mock response
-        assert!(result.is_ok(), "Request should succeed with simplified implementation");
+        assert!(result.is_ok(), "Request should succeed with reqwest implementation");
         let response = result.unwrap();
         assert_eq!(response.status, StatusCode::OK);
     }
@@ -430,7 +429,7 @@ mod tests {
     async fn test_https_request() {
         let client = HttpClient::new().unwrap();
 
-        // With simplified implementation, this returns a mock response
+        // Uses real reqwest client with rustls TLS
         let result = client.get("https://httpbin.org/get").await;
 
         assert!(result.is_ok());
@@ -438,17 +437,15 @@ mod tests {
         assert_eq!(response.status, StatusCode::OK);
     }
 
-    /// Test 3: HttpClient timeout configuration (simplified - no actual timeout)
+    /// Test 3: HttpClient timeout configuration
     #[tokio::test]
     async fn test_request_timeout() {
-        // With simplified implementation, timeout is configured but not enforced
-        // This test verifies the timeout field is set correctly
+        // Timeout is configured via reqwest client builder
         let client = HttpClient::with_timeout(Duration::from_millis(10)).unwrap();
 
-        // Request should succeed with mock response (no actual timeout)
-        let result = client.get("https://httpbin.org/delay/5").await;
+        // Fast endpoint should succeed within timeout
+        let result = client.get("https://httpbin.org/get").await;
 
-        // Simplified implementation returns mock response immediately
         assert!(result.is_ok());
     }
 

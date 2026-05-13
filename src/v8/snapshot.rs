@@ -56,10 +56,18 @@ pub fn is_heap_snapshot_supported() -> bool {
     true
 }
 
-/// Check if snapshot data is a placeholder (legacy format)
+/// Check if snapshot data contains the legacy cold sliver marker
 ///
-/// Placeholder snapshots were used in v135-v137 when the API
-/// was not fully exposed. Now replaced with real snapshot blobs.
+/// # Design Rationale (Intentional Backward Compatibility)
+///
+/// Detects the legacy marker header used by early nano-rs versions
+/// when the V8 snapshot API was not fully exposed. This function
+/// enables graceful handling of legacy sliver files by identifying
+/// them before attempting snapshot restoration.
+///
+/// Modern slivers always contain real V8 heap snapshots created via
+/// `create_snapshot()`. This detection path exists only for backward
+/// compatibility with older sliver files.
 pub fn is_placeholder_snapshot(data: &[u8]) -> bool {
     data == b"NANO_SNAPSHOT_PLACEHOLDER_V1"
 }

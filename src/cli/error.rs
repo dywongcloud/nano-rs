@@ -129,38 +129,6 @@ pub enum CliError {
 }
 
 impl CliError {
-    // TODO: Re-enable helper constructors when CLI integration is complete
-    // These helpers are intentionally disabled to avoid unused code warnings.
-    // They will be restored when the full CLI validation flow is implemented.
-
-    /*
-    /// Create a sliver not found error with automatic path searching
-    pub fn sliver_not_found(name: impl Into<String>, search_paths: Vec<PathBuf>) -> Self {
-        let name = name.into();
-        CliError::SliverNotFound {
-            name,
-            searched_paths: search_paths,
-        }
-    }
-
-    /// Create a corrupted sliver error
-    pub fn corrupted_sliver(path: impl Into<PathBuf>, reason: impl Into<String>) -> Self {
-        CliError::CorruptedSliver {
-            path: path.into(),
-            reason: reason.into(),
-        }
-    }
-
-    /// Create an IO error with context
-    pub fn io_error(operation: impl Into<String>, path: impl Into<PathBuf>, source: io::Error) -> Self {
-        CliError::IoError {
-            operation: operation.into(),
-            path: path.into(),
-            source,
-        }
-    }
-    */
-
     /// Returns true if this error has a suggestion for the user
     pub fn has_suggestion(&self) -> bool {
         matches!(self,

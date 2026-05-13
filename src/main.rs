@@ -296,7 +296,7 @@ async fn run_from_sliver(
     // Create SliverWorkerPool with temp entrypoint for VFS-extracted JS
     let worker_pool = Arc::new(nano::worker::pool::SliverWorkerPool::with_temp_entrypoint(
         hostname.clone(),
-        workers,
+        workers as u32,
         0, // No memory limit for now
         unpacked,
         Some(temp_entrypoint.clone()),

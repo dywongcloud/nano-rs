@@ -92,10 +92,7 @@ impl OomMonitor {
 
     /// Get the app hostname from the limiter
     pub fn app_hostname(&self) -> &str {
-        let _ = self.limiter.limit_mb(); // Access via the limiter's internal hostname
-                                         // We need to expose hostname from limiter - add getter
-                                         // For now, return empty (will be fixed when we add limiter.hostname() getter)
-        ""
+        self.limiter.hostname()
     }
 
     /// Check heap for OOM condition
@@ -275,7 +272,7 @@ impl OomMonitor {
                 usage_pct = format!("{:.1}", usage_ratio * 100.0),
                 used_mb = stats.used_mb(),
                 limit_mb = self.limiter.limit_mb(),
-                hostname = %self.limiter.limit_mb(), // Placeholder - will be fixed with hostname getter
+                hostname = %self.limiter.hostname(),
                 request_id = %request_id,
                 isolate_id = %self.monitor_id,
                 "Memory usage approaching limit"

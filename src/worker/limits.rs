@@ -64,6 +64,13 @@ impl OomError {
     }
 }
 
+impl MemoryLimiter {
+    /// Get the app hostname associated with this limiter
+    pub fn hostname(&self) -> &str {
+        &self.app_hostname
+    }
+}
+
 /// V8 heap statistics snapshot
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HeapStatistics {

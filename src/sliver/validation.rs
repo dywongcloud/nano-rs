@@ -291,10 +291,11 @@ pub fn check_version_compatibility(
 }
 
 /// Get runtime V8 version
+///
+/// Returns the actual V8 engine version from the rusty_v8 crate.
+/// This is used for sliver compatibility checking.
 pub fn get_runtime_v8_version() -> String {
-    // In real implementation, this would come from v8 crate
-    // For now, return a placeholder
-    "135.0".to_string()
+    v8::V8::get_version().to_string()
 }
 
 /// Check if a sliver can be restored with fallback

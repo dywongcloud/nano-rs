@@ -609,12 +609,7 @@ impl TenantMetricsCollector {
         }
     }
     
-    /// Convert tenant metrics to Prometheus MetricFamily format
-    pub fn to_prometheus_families(&self) -> Vec<PrometheusMetricFamily> {
-        // This would integrate with the existing exporter
-        // For now, return empty - the to_prometheus() method is used directly
-        vec![]
-    }
+
 }
 
 impl Default for TenantMetricsCollector {
@@ -671,9 +666,7 @@ pub struct MetricsSnapshot {
     pub total_cpu_seconds: u64,
 }
 
-/// Prometheus metric family (placeholder for integration with existing exporter)
-#[derive(Debug)]
-pub struct PrometheusMetricFamily;
+
 
 #[cfg(test)]
 mod tests {

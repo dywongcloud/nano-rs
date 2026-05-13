@@ -98,67 +98,97 @@ impl Default for VfsCapture {
 /// ```
 pub async fn capture_vfs(vfs: &IsolateVfs) -> VfsResult<VfsCapture> {
     let mut capture = VfsCapture::new();
-    
-    // Get the backend from the VFS
-    // We need to downcast to capture the state
-    // For now, we support MemoryBackend directly
-    
-    // Since we can't easily downcast the Arc<dyn VfsBackend>,
-    // we'll try to use the backend's methods if available
-    // For MemoryBackend, we use snapshot_entries()
-    
-    // Try to capture from the backend
-    capture_memory_backend(vfs, &mut capture).await?;
-    
+
+    // Recursively capture all files starting from root
+    capture_all_files_recursive(vfs, &mut capture, "/").await?;
+
+    tracing::info!(
+        "VFS capture complete: {} files, {} bytes",
+        capture.file_count(),
+        capture.total_bytes()
+    );
+
     Ok(capture)
 }
 
-/// Attempt to capture from a MemoryBackend
-async fn capture_memory_backend(
-    _vfs: &IsolateVfs,
-    _capture: &mut VfsCapture,
+/// Capture all files from the VFS using backend-agnostic operations.
+///
+/// Uses `list_dir` and `read` to recursively discover and capture all files.
+/// Works with any backend that supports these operations (Memory, Disk, S3).
+async fn capture_all_files_recursive(
+    vfs: &IsolateVfs,
+    capture: &mut VfsCapture,
+    path: &str,
 ) -> VfsResult<()> {
-    // For now, we use the VFS read operations to collect files
-    // This works with any backend that supports read operations
-    
-    // In a full implementation, we'd use backend-specific snapshot methods
-    // For MemoryBackend: snapshot_entries()
-    // For DiskBackend: walk the directory tree
-    
-    // Placeholder: For this phase, we document the approach
-    // Full implementation would:
-    // 1. List all files in the VFS (requires list_dir() on backend)
-    // 2. Read each file's content
-    // 3. Add to capture
-    
-    // Since we don't have list_dir() yet, we return empty capture
-    // This is acceptable for the initial implementation
-    tracing::debug!("VFS capture: listing all files (requires backend list_dir support)");
-    
-    Ok(())
+    // Try to list directory entries
+    match vfs.list_dir(path).await {
+        Ok(entries) => {
+            for entry in entries {
+                let entry_path = entry.as_str();
+                // Recurse into each entry (may be file or subdirectory)
+                Box::pin(capture_all_files_recursive(vfs, capture, entry_path)).await?;
+            }
+            Ok(())
+        }
+        Err(_) => {
+            // Not a directory (or list_dir not supported) - try to read as file
+            match vfs.read(path).await {
+                Ok(content) => {
+                    let file = VfsFile::new(content);
+                    capture.add_file(VfsPath::new(path)?, file);
+                    Ok(())
+                }
+                Err(_) => {
+                    // Neither directory nor readable file - skip
+                    tracing::debug!("VFS capture: skipping unreadable path: {}", path);
+                    Ok(())
+                }
+            }
+        }
+    }
 }
 
 /// Walk a directory and capture all files recursively
 ///
 /// This is a utility function for backends that support
 /// directory listing (like DiskBackend).
+///
+/// Note: The backend-agnostic `capture_vfs()` is preferred for general use.
+/// This function is available for direct backend access when needed.
 pub async fn walk_and_capture<B>(
-    _backend: &B,
-    _path: &str,
-    _capture: &mut VfsCapture,
+    backend: &B,
+    path: &str,
+    capture: &mut VfsCapture,
 ) -> VfsResult<()>
 where
     B: VfsBackend,
 {
-    // Placeholder for directory walking
-    // Full implementation would:
-    // 1. List directory entries
-    // 2. For each entry:
-    //    - If file: read and add to capture
-    //    - If directory: recurse
-    
-    tracing::debug!("walk_and_capture: recursive directory walking not yet implemented");
-    Ok(())
+    let vfs_path = VfsPath::new(path)?;
+
+    match backend.list_dir(&vfs_path).await {
+        Ok(entries) => {
+            for entry in entries {
+                let entry_str = entry.as_str();
+                // Recurse - entry may be file or subdirectory
+                Box::pin(walk_and_capture(backend, entry_str, capture)).await?;
+            }
+            Ok(())
+        }
+        Err(_) => {
+            // Not a directory - try to read as file
+            match backend.read(&vfs_path).await {
+                Ok(content) => {
+                    let file = VfsFile::new(content);
+                    capture.add_file(vfs_path, file);
+                    Ok(())
+                }
+                Err(_) => {
+                    tracing::debug!("walk_and_capture: skipping unreadable path: {}", path);
+                    Ok(())
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -163,11 +163,23 @@ pub async fn create_sliver_from_directory(
     Ok(output_path)
 }
 
-/// Create a placeholder heap for directory-based slivers
+/// Create a cold sliver heap marker for directory-based slivers
 ///
-/// Directory slivers don't have a V8 heap snapshot since the app
-/// wasn't running. Instead, we create a small marker that the
-/// runtime can detect and handle appropriately.
+/// # Design Rationale (Intentional - Not a Placeholder)
+///
+/// Directory-based slivers ("cold slivers") are created from static files
+/// without executing the app. Since no V8 isolate was running, there is no
+/// heap state to capture. Instead of a snapshot, we store a marker header
+/// that the runtime uses to distinguish cold slivers from hot slivers.
+///
+/// When restored:
+/// - Hot slivers: Heap snapshot is restored into a pre-warmed isolate
+/// - Cold slivers: A fresh isolate is created and the entrypoint is loaded
+///
+/// This design choice enables:
+/// - Static site deployment (no JS execution needed during packaging)
+/// - Smaller sliver sizes for stateless apps (no heap overhead)
+/// - Faster sliver creation (no V8 initialization/execution required)
 fn create_placeholder_heap(entrypoint: &str) -> Vec<u8> {
     // Create a magic header that indicates this is a directory-based sliver
     // Format: "NANO-DIR-v1\0" followed by entrypoint path

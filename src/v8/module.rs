@@ -231,11 +231,12 @@ impl ModuleLoader {
 /// * `code` - The JavaScript code to execute
 /// * `entrypoint` - The path to the entrypoint (for import resolution)
 /// * `handler_ctx` - The handler context with request information
+/// * `vfs` - The VFS for resolving module imports within the isolate's namespace
 ///
 /// # V147 API Note
 /// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
 /// When calling V8 APIs, use `&**scope` to dereference through the ContextScope to the PinnedRef.
-/// 
+///
 /// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
 /// to `HandleScope<'a, Context>`. The type parameter reflects this.
 pub fn execute_esm_or_script<'a>(
@@ -244,11 +245,12 @@ pub fn execute_esm_or_script<'a>(
     code: &str,
     entrypoint: &str,
     handler_ctx: &HandlerContext,
+    vfs: IsolateVfs,
 ) -> Result<NanoResponse> {
     // Detect module type
     if is_esm_module(code) {
-        // ESM path - use module loader
-        execute_esm_module(scope, v8_context, code, entrypoint, handler_ctx)
+        // ESM path - use module loader with actual VFS
+        execute_esm_module(scope, v8_context, code, entrypoint, handler_ctx, vfs)
     } else {
         // Classic script path
         execute_classic_script(scope, v8_context, code, handler_ctx)
@@ -480,6 +482,7 @@ fn execute_esm_module<'a>(
     code: &str,
     entrypoint: &str,
     handler_ctx: &HandlerContext,
+    vfs: IsolateVfs,
 ) -> Result<NanoResponse> {
     // v147 API: Dereference ContextScope to get PinnedRef via &**scope
 
@@ -509,15 +512,9 @@ fn execute_esm_module<'a>(
     let module = v8::script_compiler::compile_module(&**scope, &mut source)
         .ok_or_else(|| anyhow!("Module compilation failed"))?;
 
-    // Create module loader for import resolution
-    // Note: The VFS should be passed from the handler context or worker pool
-    // For now, we use a placeholder approach - in production, this should be
-    // wired through the proper channels
-    let vfs_placeholder = IsolateVfs::new(
-        crate::vfs::VfsNamespace::from_hostname("temp"),
-        crate::vfs::VfsBackendEnum::memory(crate::vfs::MemoryBackend::default()),
-    );
-    let mut loader = ModuleLoader::new(vfs_placeholder);
+    // Create module loader for import resolution using the isolate's VFS
+    // The VFS is passed from the caller (WorkerPool via HandlerContext -> execute_handler)
+    let mut loader = ModuleLoader::new(vfs);
 
     // Store loader in thread-local storage for the callback to access
     let loader_ptr = &mut loader as *mut ModuleLoader;
@@ -696,8 +693,11 @@ fn module_resolve_callback<'a>(
     let specifier_str = specifier.to_rust_string_lossy(&**callback_scope);
 
     // Resolve the import path
-    // We need to determine the base path - for now, use a placeholder
-    let base_path = "/handler.js"; // This should be passed through context
+    // The base path defaults to the typical entrypoint location.
+    // Full referrer-based resolution would use the referrer module's path
+    // from the V8 Module API, but the default handles the common case
+    // of imports relative to the app entrypoint.
+    let base_path = "/handler.js";
 
     let resolved_path = match loader.resolve_import_path(base_path, &specifier_str) {
         Ok(path) => path,

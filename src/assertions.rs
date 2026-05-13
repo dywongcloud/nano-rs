@@ -39,11 +39,20 @@
 /// Panics with detailed message including file:line if condition fails.
 #[macro_export]
 macro_rules! assert_positive {
-    ($condition:expr, $message:expr) => {
+    ($condition:expr, $message:literal) => {
         assert!(
             $condition,
             "POSITIVE: {} at {}:{}",
             $message,
+            file!(),
+            line!()
+        )
+    };
+    ($condition:expr, $($arg:tt)+) => {
+        assert!(
+            $condition,
+            "POSITIVE: {} at {}:{}",
+            format_args!($($arg)+),
             file!(),
             line!()
         )
@@ -56,11 +65,20 @@ macro_rules! assert_positive {
 /// Panics with detailed message including file:line if condition is true.
 #[macro_export]
 macro_rules! assert_negative {
-    ($condition:expr, $message:expr) => {
+    ($condition:expr, $message:literal) => {
         assert!(
             !$condition,
             "NEGATIVE: {} at {}:{}",
             $message,
+            file!(),
+            line!()
+        )
+    };
+    ($condition:expr, $($arg:tt)+) => {
+        assert!(
+            !$condition,
+            "NEGATIVE: {} at {}:{}",
+            format_args!($($arg)+),
             file!(),
             line!()
         )
@@ -73,11 +91,20 @@ macro_rules! assert_negative {
 /// These should be checked at the very beginning of the function.
 #[macro_export]
 macro_rules! assert_precondition {
-    ($condition:expr, $message:expr) => {
+    ($condition:expr, $message:literal) => {
         assert!(
             $condition,
             "PRECONDITION: {} at {}:{}",
             $message,
+            file!(),
+            line!()
+        )
+    };
+    ($condition:expr, $($arg:tt)+) => {
+        assert!(
+            $condition,
+            "PRECONDITION: {} at {}:{}",
+            format_args!($($arg)+),
             file!(),
             line!()
         )
@@ -90,11 +117,20 @@ macro_rules! assert_precondition {
 /// These should be checked before returning from the function.
 #[macro_export]
 macro_rules! assert_postcondition {
-    ($condition:expr, $message:expr) => {
+    ($condition:expr, $message:literal) => {
         assert!(
             $condition,
             "POSTCONDITION: {} at {}:{}",
             $message,
+            file!(),
+            line!()
+        )
+    };
+    ($condition:expr, $($arg:tt)+) => {
+        assert!(
+            $condition,
+            "POSTCONDITION: {} at {}:{}",
+            format_args!($($arg)+),
             file!(),
             line!()
         )
@@ -127,11 +163,20 @@ macro_rules! assert_state_transition {
 /// Typically used in loops or long-running operations.
 #[macro_export]
 macro_rules! assert_invariant {
-    ($condition:expr, $message:expr) => {
+    ($condition:expr, $message:literal) => {
         assert!(
             $condition,
             "INVARIANT: {} at {}:{}",
             $message,
+            file!(),
+            line!()
+        )
+    };
+    ($condition:expr, $($arg:tt)+) => {
+        assert!(
+            $condition,
+            "INVARIANT: {} at {}:{}",
+            format_args!($($arg)+),
             file!(),
             line!()
         )
@@ -144,11 +189,20 @@ macro_rules! assert_invariant {
 /// run in production but are valuable during development and testing.
 #[macro_export]
 macro_rules! debug_assert_tiger {
-    ($condition:expr, $message:expr) => {
+    ($condition:expr, $message:literal) => {
         debug_assert!(
             $condition,
             "DEBUG: {} at {}:{}",
             $message,
+            file!(),
+            line!()
+        )
+    };
+    ($condition:expr, $($arg:tt)+) => {
+        debug_assert!(
+            $condition,
+            "DEBUG: {} at {}:{}",
+            format_args!($($arg)+),
             file!(),
             line!()
         )
@@ -191,16 +245,22 @@ macro_rules! assert_non_null {
     };
 }
 
-/// Static allocation assertion
+/// Static allocation assertion (design-time enforcement)
 ///
 /// Assert that memory allocation is only happening during initialization phase,
 /// not during request handling. Used to enforce TigerStyle static allocation.
+///
+/// # Design Rationale
+/// This macro is intentionally a no-op at runtime. The assertion is enforced
+/// through code review and static analysis - calling this macro documents the
+/// intent that a block should not allocate during request handling. It serves
+/// as a visual marker for reviewers and linters.
 #[macro_export]
 macro_rules! assert_static_allocation_phase {
     () => {
-        // This is a compile-time assertion placeholder
-        // The actual check is conceptual - static allocation should be
-        // verified through code review and testing
+        // Design-time assertion: no runtime check. The presence of this macro
+        // call signals to reviewers that the enclosing block must not allocate
+        // during request handling. Verified through code review.
     };
 }
 

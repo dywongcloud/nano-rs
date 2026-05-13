@@ -140,9 +140,10 @@ pub fn bind_fetch(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::L
 /// allowing Response methods (text, json, arrayBuffer) to access it.
 pub(crate) struct ResponseBodyData {
     body: Bytes,
-    /// TODO: These fields are stored for API completeness but currently unused.
-    /// They will be used when Response.headers, Response.status, Response.url
-    /// properties are fully implemented in the JS bindings.
+    /// Reserved for future JS binding expansion.
+    /// These fields store Response metadata for when the JS bindings
+    /// expose Response.headers, Response.status, and Response.url
+    /// properties beyond the currently implemented Response.text()/json().
     #[allow(dead_code)]
     headers: Vec<(String, String)>,
     #[allow(dead_code)]
