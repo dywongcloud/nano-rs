@@ -125,7 +125,7 @@ pub struct NanoResponse {
     headers: NanoHeaders,
     body: Option<Bytes>,
     /// Worker ID that processed this request (for logging/debugging)
-    worker_id: Option<usize>,
+    worker_id: Option<u32>,
     /// Isolate ID that processed this request (for logging/debugging)
     isolate_id: Option<String>,
 }
@@ -148,12 +148,12 @@ impl NanoResponse {
     }
 
     /// Get the worker ID that processed this request
-    pub fn worker_id(&self) -> Option<usize> {
+    pub fn worker_id(&self) -> Option<u32> {
         self.worker_id
     }
 
     /// Set the worker ID that processed this request
-    pub fn set_worker_id(&mut self, worker_id: usize) {
+    pub fn set_worker_id(&mut self, worker_id: u32) {
         self.worker_id = Some(worker_id);
     }
 

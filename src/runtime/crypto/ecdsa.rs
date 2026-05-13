@@ -5,13 +5,18 @@
 use p256::{
     ecdsa::{SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey, Signature as P256Signature},
     SecretKey as P256SecretKey,
+    PublicKey as P256PublicKey,
+    pkcs8::DecodePublicKey as _,
 };
 use p384::{
     ecdsa::{SigningKey as P384SigningKey, VerifyingKey as P384VerifyingKey, Signature as P384Signature},
     SecretKey as P384SecretKey,
+    PublicKey as P384PublicKey,
+    pkcs8::DecodePublicKey as _,
 };
 use signature::{Signer, Verifier};
 use crate::runtime::crypto::{CryptoKey, CryptoError, KeyUsage, HashAlgorithm};
+use crate::runtime::crypto::crypto_key::CryptoKeyHandle;
 
 /// ECDSA algorithm parameters
 #[derive(Debug, Clone)]
@@ -266,14 +271,67 @@ pub fn verify(
 /// Perform ECDH key agreement
 ///
 /// WebCrypto: deriveKey with algorithm "ECDH"
+///
+/// Uses the elliptic curve Diffie-Hellman primitive to derive shared secret
+/// bytes from an ECDH/ECDSA private key and the other party's public key.
+/// Supports P-256 and P-384 curves.
 pub fn derive_bits(
     private_key: &CryptoKey,
     public_key: &CryptoKey,
     length: Option<usize>,
 ) -> Result<Vec<u8>, CryptoError> {
-    // ECDH implementation using p256/p384 ECDH
-    // This is a simplified placeholder - full ECDH requires proper coordinate extraction
-    Err(CryptoError::NotSupported)
+    // Verify key types
+    let priv_bytes = match private_key.handle.as_ref() {
+        CryptoKeyHandle::EcdsaPrivateKey(bytes) => bytes,
+        _ => return Err(CryptoError::InvalidKey),
+    };
+    let pub_bytes = match public_key.handle.as_ref() {
+        CryptoKeyHandle::EcdsaPublicKey(bytes) => bytes,
+        _ => return Err(CryptoError::InvalidKey),
+    };
+
+    // Extract named curve from algorithm
+    let named_curve = match &private_key.algorithm {
+        crate::runtime::crypto::AlgorithmIdentifier::Ecdh { named_curve } => named_curve.clone(),
+        crate::runtime::crypto::AlgorithmIdentifier::Ecdsa { named_curve, .. } => named_curve.clone(),
+        _ => return Err(CryptoError::InvalidAlgorithm("ECDH key required".to_string())),
+    };
+
+    // Perform ECDH based on curve
+    let shared_secret = match named_curve.as_str() {
+        "P-256" => {
+            let secret_key = P256SecretKey::from_sec1_der(priv_bytes)
+                .map_err(|_| CryptoError::DataError("Invalid P-256 private key".to_string()))?;
+            let public_key = P256PublicKey::from_public_key_der(pub_bytes)
+                .map_err(|_| CryptoError::DataError("Invalid P-256 public key".to_string()))?;
+            let shared = p256::ecdh::diffie_hellman(
+                secret_key.to_nonzero_scalar(),
+                public_key.as_affine()
+            );
+            shared.raw_secret_bytes().as_slice().to_vec()
+        }
+        "P-384" => {
+            let secret_key = P384SecretKey::from_sec1_der(priv_bytes)
+                .map_err(|_| CryptoError::DataError("Invalid P-384 private key".to_string()))?;
+            let public_key = P384PublicKey::from_public_key_der(pub_bytes)
+                .map_err(|_| CryptoError::DataError("Invalid P-384 public key".to_string()))?;
+            let shared = p384::ecdh::diffie_hellman(
+                secret_key.to_nonzero_scalar(),
+                public_key.as_affine()
+            );
+            shared.raw_secret_bytes().as_slice().to_vec()
+        }
+        _ => return Err(CryptoError::InvalidAlgorithm(format!("Unsupported curve for ECDH: {}", named_curve))),
+    };
+
+    // Truncate to requested length if specified
+    match length {
+        Some(len) if len > 0 && len < shared_secret.len() * 8 => {
+            let byte_len = (len + 7) / 8;
+            Ok(shared_secret[..byte_len].to_vec())
+        }
+        _ => Ok(shared_secret),
+    }
 }
 
 #[cfg(test)]

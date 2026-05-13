@@ -82,7 +82,7 @@ pub trait WorkerPool: Send + Sync {
     ///
     /// This is a snapshot value. The actual number of active workers
     /// may differ if workers have panicked or been restarted.
-    fn worker_count(&self) -> usize;
+    fn worker_count(&self) -> u32;
 
     /// Get the hostname this pool serves
     ///
@@ -100,7 +100,7 @@ pub struct WorkerPoolConfig {
     /// Hostname this pool serves (tenant identifier)
     pub hostname: String,
     /// Number of worker threads to create
-    pub worker_count: usize,
+    pub worker_count: u32,
     /// Memory limit per isolate in MB
     pub memory_limit_mb: u32,
     /// Optional custom VFS backend (None = use default MemoryBackend)
@@ -125,7 +125,7 @@ impl WorkerPoolConfig {
     ///
     /// * `hostname` - The hostname this pool will serve
     /// * `worker_count` - Number of worker threads
-    pub fn new(hostname: impl Into<String>, worker_count: usize) -> Self {
+    pub fn new(hostname: impl Into<String>, worker_count: u32) -> Self {
         Self {
             hostname: hostname.into(),
             worker_count,
@@ -182,11 +182,11 @@ mod tests {
     #[test]
     fn test_worker_pool_config_with_options() {
         use crate::vfs::MemoryBackend;
-        
+
         let config = WorkerPoolConfig::new("test.example.com", 4)
             .with_memory_limit(256)
             .with_vfs_backend(crate::vfs::VfsBackendEnum::memory(MemoryBackend::new()));
-        
+
         assert_eq!(config.memory_limit_mb, 256);
         assert!(config.vfs_backend.is_some());
     }

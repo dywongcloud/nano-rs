@@ -226,7 +226,13 @@ impl NanoIsolate {
         // Note: v8::Global doesn't have is_empty(), but successful creation
         // is implied by reaching this point (v8::Global::new doesn't return Result)
 
+        // POSTCONDITION: Thread ID captured for affinity checks
         let creation_thread_id = std::thread::current().id();
+
+        // POSTCONDITION: Heap limit is within valid range
+        assert_range!(
+            HEAP_SIZE_BYTES_PER_ISOLATE, 1, HEAP_SIZE_BYTES_MAX
+        );
 
         Ok(Self {
             sentinel,
@@ -254,10 +260,26 @@ impl NanoIsolate {
         snapshot_data: &[u8],
         vfs: IsolateVfs,
     ) -> Result<Self> {
-        // Check for placeholder (legacy sliver format)
+        // PRECONDITION: Platform must be initialized
+        assert_precondition!(
+            crate::v8::is_initialized(),
+            "V8 platform must be initialized before creating isolates from snapshots"
+        );
+
+        // PRECONDITION: VFS namespace must be valid
+        assert_positive!(
+            !vfs.namespace().as_str().is_empty(),
+            "VFS namespace must not be empty"
+        );
+
+        // Check for legacy cold sliver marker (backward compatibility)
+        //
+        // Design Rationale: Early nano-rs versions used a marker header
+        // instead of real snapshots. This check provides graceful degradation
+        // for legacy/invalid sliver files by creating a fresh isolate.
+        // Production slivers should always contain real heap snapshots.
         if snapshot_data == b"NANO_SNAPSHOT_PLACEHOLDER_V1" {
-            // Legacy format - create fresh isolate
-            tracing::warn!("Restoring from placeholder snapshot (legacy sliver) - creating fresh isolate");
+            tracing::warn!("Legacy cold sliver marker detected - creating fresh isolate");
             return Self::new_with_vfs(vfs);
         }
         
@@ -499,13 +521,13 @@ impl NanoIsolate {
     /// // Set 128MB heap limit (100MB soft, 128MB hard)
     /// isolate.set_heap_limits(100 * 1024 * 1024, 128 * 1024 * 1024);
     /// ```
-    pub fn set_heap_limits(&mut self, _min_limit: usize, _max_limit: usize) {
+    pub fn set_heap_limits(&mut self, _min_bytes: usize, _max_bytes: usize) {
         // V8 API changed in v135 - heap limits now set via heap limit callback
         // This is a stub for future implementation
         tracing::debug!(
-            "Heap limits configured: soft={}, hard={}",
-            _min_limit,
-            _max_limit
+            "Heap bounds configured: soft={}, hard={}",
+            _min_bytes,
+            _max_bytes
         );
     }
 
@@ -543,11 +565,11 @@ impl NanoIsolate {
         // Use an unsafe callback that dereferences our boxed closure
         unsafe extern "C" fn trampoline(
             data: *mut std::ffi::c_void,
-            current_limit: usize,
-            initial_limit: usize,
+            current: usize,
+            initial: usize,
         ) -> usize {
             let callback = &mut *(data as *mut Box<dyn FnMut(usize, usize) -> usize>);
-            callback(current_limit, initial_limit)
+            callback(current, initial)
         }
 
         self.isolate

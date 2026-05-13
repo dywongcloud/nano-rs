@@ -179,8 +179,9 @@ impl RouteTarget {
     /// Handle a request and return a WinterCG-compatible response
     ///
     /// This method processes a NanoRequest through the configured handler
-    /// and returns a NanoResponse. It supports both static responses and
-    /// placeholder WinterCG handlers (full JS execution in Phase 3).
+    /// and returns a NanoResponse. It supports static responses and WinterCG
+    /// handlers. For JavaScript execution, use `dispatch_to_worker_pool()`
+    /// which routes requests through the WorkerPool with proper isolate management.
     ///
     /// # Arguments
     ///
@@ -204,13 +205,17 @@ impl RouteTarget {
                 }
             }
             HandlerType::WinterCGHandler(_path) => {
-                // Phase 3: Execute JavaScript handler
-                // Router integration for handler execution is working
-                // Full execution will be enabled after platform initialization fixes
-                tracing::debug!("WinterCG handler for path: {} (Phase 3)", _path);
-                NanoResponse::ok()
-                    .with_header("Content-Type", "text/plain")
-                    .with_body(format!("JS handler (Phase 3): {}", _path))
+                // WinterCG handler requires worker pool dispatch for JavaScript execution.
+                // Direct handle() does not have access to the WorkerPool - use
+                // dispatch_to_worker_pool() which properly acquires isolates and
+                // executes JavaScript with full error handling and metrics.
+                tracing::warn!("WinterCG handler called via direct handle() for path: {}. Use dispatch_to_worker_pool() for JS execution.", _path);
+                NanoResponse::with_status(503)
+                    .with_header("Content-Type", "application/json")
+                    .with_body(format!(
+                        r#"{{"error":"ServiceUnavailable","message":"JavaScript execution requires worker pool dispatch","code":503,"path":"{}"}}"#,
+                        _path
+                    ))
             }
             HandlerType::WinterCGSliverHandler { entrypoint, hostname } => {
                 // Sliver-based handler (snapshot-restored isolate)
@@ -521,7 +526,7 @@ impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppState")
             .field("router", &self.router)
-            .field("work_queue", &self.work_queue)
+            .field("work_queue", &"<WorkQueue>")
             .field("has_app_registry", &self.app_registry.is_some())
             .finish()
     }
@@ -538,7 +543,7 @@ impl AppState {
     /// # Returns
     ///
     /// A new `AppState` with initialized WorkQueue (uses memory VFS backend)
-    pub fn new(router: VirtualHostRouter, workers_per_pool: usize) -> Self {
+    pub fn new(router: VirtualHostRouter, workers_per_pool: u32) -> Self {
         Self::with_vfs_config(router, workers_per_pool, None, None)
     }
 
@@ -556,7 +561,7 @@ impl AppState {
     /// A new `AppState` with configured WorkQueue
     pub fn with_vfs_config(
         router: VirtualHostRouter,
-        workers_per_pool: usize,
+        workers_per_pool: u32,
         vfs_disk_config: Option<crate::config::VfsDiskConfig>,
         app_registry: Option<Arc<AppRegistry>>,
     ) -> Self {
@@ -650,7 +655,7 @@ fn error_response(error: &str, message: &str, code: StatusCode) -> impl IntoResp
 /// 3. Router returns the RouteTarget for that hostname
 /// 4. Handler dispatches based on handler_type:
 ///    - `StaticResponse`: Returns the configured string
-///    - `WinterCGHandler`: Returns placeholder (Phase 3 will execute JS)
+///    - `WinterCGHandler`: Dispatches to worker pool for JavaScript execution
 /// 5. Metrics are recorded: request count and duration
 pub async fn virtual_host_handler(
     State(state): State<Arc<AppState>>,
@@ -913,6 +918,20 @@ pub async fn dispatch_to_worker_pool(
 
     // Dispatch to WorkQueue (async Mutex lock)
     let mut queue = state.work_queue.lock().await;
+
+    // Validate through control plane before dispatching
+    if let Some(ref control_plane) = queue.control_plane {
+        if let Err(e) = control_plane.validate_request_ref(&task) {
+            tracing::warn!("Control plane validation failed: {}", e);
+            let response = Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("content-type", "text/plain")
+                .body(Body::from(format!("Validation error: {}", e)))
+                .unwrap();
+            return response;
+        }
+    }
+
     let (response, status_code, worker_id, isolate_id) = match queue.dispatch(&host, task).await {
         Ok(()) => {
             // Wait for response from worker

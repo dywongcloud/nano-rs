@@ -18,13 +18,14 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::vfs::{BackendFactory, MemoryBackend};
 use crate::config::{VfsBackendType, VfsDiskConfig};
 use crate::worker::HandlerTask;
 use crate::app::registry::AppRegistry;
+use crate::control_plane::{ControlPlane, ControlError};
 
 /// Error types for queue operations
 #[derive(Debug, Clone, PartialEq)]
@@ -65,9 +66,9 @@ pub struct QueueStats {
     /// Tasks dropped due to channel full
     pub tasks_dropped: AtomicU64,
     /// Number of active pools
-    pub active_pools: AtomicUsize,
+    pub active_pools: AtomicU32,
     /// Number of active workers
-    pub active_workers: AtomicUsize,
+    pub active_workers: AtomicU32,
 }
 
 impl Default for QueueStats {
@@ -76,8 +77,8 @@ impl Default for QueueStats {
             tasks_submitted: AtomicU64::new(0),
             tasks_completed: AtomicU64::new(0),
             tasks_dropped: AtomicU64::new(0),
-            active_pools: AtomicUsize::new(0),
-            active_workers: AtomicUsize::new(0),
+            active_pools: AtomicU32::new(0),
+            active_workers: AtomicU32::new(0),
         }
     }
 }
@@ -106,8 +107,8 @@ pub struct StatsSnapshot {
     pub tasks_submitted: u64,
     pub tasks_completed: u64,
     pub tasks_dropped: u64,
-    pub active_pools: usize,
-    pub active_workers: usize,
+    pub active_pools: u32,
+    pub active_workers: u32,
 }
 
 /// A pool of worker threads for a specific hostname
@@ -145,7 +146,7 @@ pub struct EntrypointWorkerPool {
     /// Hostname this pool serves (cached for quick access)
     hostname: String,
     /// Number of workers (cached for quick access)
-    worker_count: usize,
+    worker_count: u32,
 }
 
 impl EntrypointWorkerPool {
@@ -167,7 +168,7 @@ impl EntrypointWorkerPool {
     ///
     /// This method delegates to `WorkerPool::with_source()`. For new code,
     /// use `WorkerPool::with_source(hostname, worker_count, 0, AppSource::entrypoint(path))`.
-    pub fn new(hostname: &str, worker_count: usize) -> Self {
+    pub fn new(hostname: &str, worker_count: u32) -> Self {
         Self::with_backend(hostname, worker_count, crate::vfs::VfsBackendEnum::memory(MemoryBackend::new()))
     }
 
@@ -187,10 +188,13 @@ impl EntrypointWorkerPool {
     ///
     /// This method delegates to `WorkerPool::with_source_and_backend()`. For new code,
     /// use the unified constructor directly.
-    pub fn with_backend(hostname: &str, worker_count: usize, vfs_backend: crate::vfs::VfsBackendEnum) -> Self {
+    pub fn with_backend(hostname: &str, worker_count: u32, vfs_backend: crate::vfs::VfsBackendEnum) -> Self {
         use crate::worker::AppSource;
         
-        let source = AppSource::entrypoint("index.js"); // Placeholder, actual entrypoint from task
+        // Default entrypoint for backward-compatible WorkerPool creation.
+        // The actual entrypoint is resolved per-request via the app registry
+        // or overridden when using WorkerPool::with_source_and_backend().
+        let source = AppSource::entrypoint("index.js");
         let inner = crate::worker::pool::WorkerPool::with_source_and_backend(
             hostname.to_string(),
             worker_count,
@@ -246,7 +250,7 @@ impl EntrypointWorkerPool {
     /// Get the number of workers in this pool
     ///
     /// Provided for backward compatibility with code that accessed the field directly.
-    pub fn worker_count(&self) -> usize {
+    pub fn worker_count(&self) -> u32 {
         self.worker_count
     }
     
@@ -270,7 +274,7 @@ impl crate::worker::r#trait::WorkerPool for EntrypointWorkerPool {
         self.inner.shutdown()
     }
 
-    fn worker_count(&self) -> usize {
+    fn worker_count(&self) -> u32 {
         self.worker_count
     }
 
@@ -282,16 +286,15 @@ impl crate::worker::r#trait::WorkerPool for EntrypointWorkerPool {
 /// WorkQueue with bounded MPSC channels and affine dispatch
 ///
 /// Manages per-hostname worker pools and routes requests consistently.
-#[derive(Debug)]
 pub struct WorkQueue {
     /// Map of hostname hash to worker pool
     pools: HashMap<u64, EntrypointWorkerPool>,
     /// Default number of workers per pool
-    workers_per_pool: usize,
+    workers_per_pool: u32,
     /// Bounded channel capacity (256 slots per POOL-02)
-    /// 
-    /// TODO: Currently used only during initialization. Future enhancement:
-    /// expose this via queue.stats or admin API for monitoring purposes.
+    ///
+    /// Channel capacity per worker pool (256 slots per POOL-02).
+    /// Stored for configuration consistency and future admin API exposure.
     #[allow(dead_code)]
     channel_capacity: usize,
     /// Statistics for monitoring
@@ -300,6 +303,8 @@ pub struct WorkQueue {
     vfs_disk_config: Option<VfsDiskConfig>,
     /// AppRegistry for per-app configuration lookup (optional)
     app_registry: Option<Arc<AppRegistry>>,
+    /// Control plane for request validation and batching
+    pub control_plane: Option<ControlPlane>,
 }
 
 impl WorkQueue {
@@ -312,7 +317,7 @@ impl WorkQueue {
     /// # Returns
     ///
     /// A new `WorkQueue` with empty pools HashMap
-    pub fn new(workers_per_pool: usize) -> Self {
+    pub fn new(workers_per_pool: u32) -> Self {
         Self::with_vfs_config(workers_per_pool, None, None)
     }
 
@@ -328,7 +333,7 @@ impl WorkQueue {
     ///
     /// A new `WorkQueue` configured with the specified VFS backend
     pub fn with_vfs_config(
-        workers_per_pool: usize,
+        workers_per_pool: u32,
         vfs_disk_config: Option<VfsDiskConfig>,
         app_registry: Option<Arc<AppRegistry>>,
     ) -> Self {
@@ -339,6 +344,7 @@ impl WorkQueue {
             stats: QueueStats::new(),
             vfs_disk_config,
             app_registry,
+            control_plane: Some(ControlPlane::new()),
         }
     }
 
