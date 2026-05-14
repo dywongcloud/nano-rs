@@ -10,9 +10,9 @@
 //! - **D-04:** Fallback to default handler when no hostname matches
 //! - Hostname lookup is case-insensitive per HTTP spec
 //!
-//! # WinterCG Integration
+//! # WinterTC Integration
 //!
-//! This module integrates with WinterCG types (NanoRequest/NanoResponse)
+//! This module integrates with WinterTC types (NanoRequest/NanoResponse)
 //! to enable JavaScript handler execution.
 //!
 //! # Static File Serving
@@ -114,18 +114,18 @@ pub fn detect_entrypoint_type(path: &str) -> EntrypointType {
 /// Handler type for routed requests
 ///
 /// Defines how a request should be processed based on the route configuration.
-/// Supports static responses for testing, WinterCG handlers for JS execution,
+/// Supports static responses for testing, WinterTC handlers for JS execution,
 /// and static file serving for HTML/CSS/assets.
 #[derive(Debug, Clone)]
 pub enum HandlerType {
     /// Returns a fixed response string (for testing)
     StaticResponse(String),
-    /// WinterCG handler that uses NanoRequest/NanoResponse
-    WinterCGHandler(String),
-    /// WinterCG handler for sliver-based (snapshot-restored) apps
+    /// WinterTC handler that uses NanoRequest/NanoResponse
+    WinterTCHandler(String),
+    /// WinterTC handler for sliver-based (snapshot-restored) apps
     ///
     /// Contains the entrypoint path and optional sliver data reference
-    WinterCGSliverHandler {
+    WinterTCSliverHandler {
         /// Path to the JavaScript entrypoint
         entrypoint: String,
         /// Reference to hostname for looking up sliver data in registry
@@ -214,15 +214,15 @@ async fn execute_js_standalone(entrypoint: String, request: NanoRequest) -> Nano
 }
 
 impl RouteTarget {
-    /// Handle a request and return a WinterCG-compatible response
+    /// Handle a request and return a WinterTC-compatible response
     ///
     /// This method processes a NanoRequest through the configured handler
-    /// and returns a NanoResponse. It supports static responses and WinterCG
+    /// and returns a NanoResponse. It supports static responses and WinterTC
     /// handlers with standalone JavaScript execution.
     ///
     /// # Arguments
     ///
-    /// * `request` - The WinterCG Request to process
+    /// * `request` - The WinterTC Request to process
     ///
     /// # Returns
     ///
@@ -241,10 +241,10 @@ impl RouteTarget {
                         .with_body(response.clone())
                 }
             }
-            HandlerType::WinterCGHandler(_path) => {
+            HandlerType::WinterTCHandler(_path) => {
                 execute_js_standalone(_path.clone(), _request.clone()).await
             }
-            HandlerType::WinterCGSliverHandler { entrypoint, .. } => {
+            HandlerType::WinterTCSliverHandler { entrypoint, .. } => {
                 // Note: True snapshot restoration requires AppRegistry access.
                 // In standalone mode we create a fresh isolate and execute the entrypoint.
                 execute_js_standalone(entrypoint.clone(), _request.clone()).await
@@ -676,7 +676,7 @@ fn error_response(error: &str, message: &str, code: StatusCode) -> impl IntoResp
 /// 3. Router returns the RouteTarget for that hostname
 /// 4. Handler dispatches based on handler_type:
 ///    - `StaticResponse`: Returns the configured string
-    ///    - `WinterCGHandler`: Executes JavaScript standalone in a V8 isolate
+    ///    - `WinterTCHandler`: Executes JavaScript standalone in a V8 isolate
 /// 5. Metrics are recorded: request count and duration
 pub async fn virtual_host_handler(
     State(state): State<Arc<AppState>>,
@@ -702,7 +702,7 @@ pub async fn virtual_host_handler(
 
     tracing::debug!("Request received for host: {}", host);
 
-    // Convert axum request to NanoRequest (WinterCG compatible)
+    // Convert axum request to NanoRequest (WinterTC compatible)
     let method = request.method().clone();
     let uri = request.uri().clone();
     let headers = request.headers().clone();
@@ -765,7 +765,7 @@ pub async fn virtual_host_handler(
 
     let target = state.router.resolve(&host);
 
-    // Handle the request using the WinterCG-compatible handler
+    // Handle the request using the WinterTC-compatible handler
     let nano_response = target.handle(nano_request).await;
 
     // Calculate request duration
@@ -903,8 +903,8 @@ pub async fn dispatch_to_worker_pool(
 
     // Extract entrypoint from target or handle directly
     let entrypoint = match &target.handler_type {
-        HandlerType::WinterCGHandler(path) => path.clone(),
-        HandlerType::WinterCGSliverHandler { entrypoint: path, .. } => path.clone(),
+        HandlerType::WinterTCHandler(path) => path.clone(),
+        HandlerType::WinterTCSliverHandler { entrypoint: path, .. } => path.clone(),
         HandlerType::StaticResponse(_) 
         | HandlerType::VfsStaticFiles { .. }
         | HandlerType::StaticFile { .. }
@@ -1201,13 +1201,13 @@ mod tests {
             "js.example.com".to_string(),
             RouteTarget {
                 hostname: "js.example.com".to_string(),
-                handler_type: HandlerType::WinterCGHandler("/app/index.js".to_string()),
+                handler_type: HandlerType::WinterTCHandler("/app/index.js".to_string()),
             },
         );
 
         let resolved = router.resolve("js.example.com");
         assert!(
-            matches!(resolved.handler_type, HandlerType::WinterCGHandler(ref s) if s == "/app/index.js")
+            matches!(resolved.handler_type, HandlerType::WinterTCHandler(ref s) if s == "/app/index.js")
         );
     }
 
@@ -1223,7 +1223,7 @@ mod tests {
             "sliver.example.com".to_string(),
             RouteTarget {
                 hostname: "sliver.example.com".to_string(),
-                handler_type: HandlerType::WinterCGSliverHandler {
+                handler_type: HandlerType::WinterTCSliverHandler {
                     entrypoint: "/app/index.js".to_string(),
                     hostname: "sliver.example.com".to_string(),
                 },
@@ -1232,31 +1232,34 @@ mod tests {
 
         let resolved = router.resolve("sliver.example.com");
         match &resolved.handler_type {
-            HandlerType::WinterCGSliverHandler { entrypoint, hostname } => {
+            HandlerType::WinterTCSliverHandler { entrypoint, hostname } => {
                 assert_eq!(entrypoint, "/app/index.js");
                 assert_eq!(hostname, "sliver.example.com");
             }
-            _ => panic!("Expected WinterCGSliverHandler"),
+            _ => panic!("Expected WinterTCSliverHandler"),
         }
     }
 
     #[tokio::test]
-    async fn test_wintercg_handler_response() {
+    async fn test_wintertc_handler_response() {
         crate::v8::platform::initialize_platform().expect("Failed to initialize V8 platform");
+        
+        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
         
         let temp_dir = tempfile::tempdir().unwrap();
         let js_path = temp_dir.path().join("index.js");
-        std::fs::write(&js_path, r#"
-export default {
-    fetch() {
-        return { status: 200, headers: { "Content-Type": "text/plain" }, body: "Hello from WinterCG handler" };
-    }
-};
-"#).unwrap();
+        let js_code = format!(r#"
+export default {{
+    fetch() {{
+        return {{ status: 200, headers: {{ "Content-Type": "text/plain" }}, body: "ECHO:{}" }};
+    }}
+}};
+"#, dynamic_token);
+        std::fs::write(&js_path, js_code).unwrap();
 
         let target = RouteTarget {
             hostname: "js.example.com".to_string(),
-            handler_type: HandlerType::WinterCGHandler(js_path.to_str().unwrap().to_string()),
+            handler_type: HandlerType::WinterTCHandler(js_path.to_str().unwrap().to_string()),
         };
 
         let request = NanoRequest::new(
@@ -1270,26 +1273,30 @@ export default {
         assert_eq!(response.status(), 200);
         assert!(response.body().is_some());
         let body = String::from_utf8_lossy(response.body().as_ref().unwrap());
-        assert!(body.contains("Hello from WinterCG handler"));
+        assert!(body.contains(&format!("ECHO:{}", dynamic_token)), 
+            "Response must contain dynamic token from JS execution, got: {}", body);
     }
 
     #[tokio::test]
     async fn test_sliver_handler_response() {
         crate::v8::platform::initialize_platform().expect("Failed to initialize V8 platform");
         
+        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
+        
         let temp_dir = tempfile::tempdir().unwrap();
         let js_path = temp_dir.path().join("index.js");
-        std::fs::write(&js_path, r#"
-export default {
-    fetch() {
-        return { status: 200, headers: { "Content-Type": "text/plain" }, body: "Hello from sliver handler" };
-    }
-};
-"#).unwrap();
+        let js_code = format!(r#"
+export default {{
+    fetch() {{
+        return {{ status: 200, headers: {{ "Content-Type": "text/plain" }}, body: "SLIVER:{}" }};
+    }}
+}};
+"#, dynamic_token);
+        std::fs::write(&js_path, js_code).unwrap();
 
         let target = RouteTarget {
             hostname: "sliver.example.com".to_string(),
-            handler_type: HandlerType::WinterCGSliverHandler {
+            handler_type: HandlerType::WinterTCSliverHandler {
                 entrypoint: js_path.to_str().unwrap().to_string(),
                 hostname: "sliver.example.com".to_string(),
             },
@@ -1306,6 +1313,7 @@ export default {
         assert_eq!(response.status(), 200);
         assert!(response.body().is_some());
         let body = String::from_utf8_lossy(response.body().as_ref().unwrap());
-        assert!(body.contains("Hello from sliver handler"));
+        assert!(body.contains(&format!("SLIVER:{}", dynamic_token)), 
+            "Response must contain dynamic sliver token from JS execution, got: {}", body);
     }
 }
