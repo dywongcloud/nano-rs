@@ -270,7 +270,7 @@ pub fn check_version_compatibility(
     runtime_version: &str,
 ) -> SliverResult<()> {
     // Parse major versions from nano_version
-    let snapshot_major = metadata.nano_version.split('.').next()
+    let sliver_major = metadata.nano_version.split('.').next()
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(0);
     
@@ -279,7 +279,7 @@ pub fn check_version_compatibility(
         .unwrap_or(0);
 
     // Major version differences may indicate incompatibility
-    if runtime_major != snapshot_major && runtime_major > 0 && snapshot_major > 0 {
+    if runtime_major != sliver_major && runtime_major > 0 && sliver_major > 0 {
         // For now, just warn - in production might want to be stricter
         eprintln!(
             "Warning: NANO version mismatch: runtime={}, sliver={}. Some features may differ.",
@@ -301,7 +301,7 @@ pub fn get_runtime_v8_version() -> String {
 /// Check if a sliver can be restored with fallback
 pub fn can_restore_with_fallback(_metadata: &SliverMetadata) -> bool {
     // Can restore with fallback if we have an entrypoint
-    // or if the snapshot fails but we can create fresh
+    // or if the V8 snapshot restoration fails but we can create fresh
     true // Simplified - actual logic depends on context
 }
 

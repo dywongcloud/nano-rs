@@ -1,6 +1,6 @@
 //! Sliver Format Module
 //!
-//! Provides tar-based snapshot format for JavaScript isolates.
+//! Provides tar-based sliver format for JavaScript isolates.
 //!
 //! A sliver is a container-image-like format for V8 isolates that includes:
 //! - **Metadata**: JSON file with hostname, timestamps, version info
@@ -46,6 +46,7 @@
 //! - **Evolvable**: Format allows future deltas and compression
 
 // Submodules
+pub mod auto_cache;
 pub mod benchmark;
 mod error;
 pub mod extractor;
@@ -78,7 +79,7 @@ pub use unpacker::unpack_sliver as _unpack_sliver_doc;
 ///
 /// This is a helper function that walks the file system and returns
 /// a vector of (path, file) tuples suitable for pack_sliver().
-pub async fn walk_vfs_for_snapshot<B>(backend: &B) -> crate::vfs::VfsResult<Vec<(crate::vfs::VfsPath, crate::vfs::VfsFile)>>
+pub async fn walk_vfs_for_sliver<B>(backend: &B) -> crate::vfs::VfsResult<Vec<(crate::vfs::VfsPath, crate::vfs::VfsFile)>>
 where
     B: crate::vfs::VfsBackend,
 {

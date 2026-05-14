@@ -1,6 +1,6 @@
 //! Sliver Unpacker
 //!
-//! Implements tar archive extraction for sliver snapshots.
+//! Implements tar archive extraction for slivers.
 //! Extracts metadata, heap blob, and VFS contents from an archive.
 
 use tar::Archive;

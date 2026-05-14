@@ -34,11 +34,15 @@ pub enum SnapshotError {
     /// The isolate is not in a valid state for snapshotting
     #[error("Invalid isolate state for snapshot: {0}")]
     InvalidIsolateState(String),
-    
-    /// Snapshot operation not supported in current V8 version
+
+    /// Snapshot operation not supported — kept for backward compatibility
+    ///
+    /// Since V8 v139+, heap snapshots are fully supported. This variant
+    /// is retained for backward compatibility with older error handling code.
     #[error("Snapshot operation requires V8 features not available in this version")]
+    #[deprecated(since = "0.1.0", note = "V8 snapshots are always supported since v139+")]
     NotSupported,
-    
+
     /// The isolate was not created with snapshot_creator()
     #[error("Isolate was not created with snapshot_creator() - cannot create blob")]
     NotSnapshotCreatorIsolate,
@@ -49,8 +53,8 @@ pub type SnapshotResult<T> = std::result::Result<T, SnapshotError>;
 
 /// Check if full heap snapshotting is supported
 ///
-/// Returns true if the current V8 version supports capturing
-/// a running isolate's heap state.
+/// Since V8 v139+, heap snapshots are always supported via the
+/// `snapshot_creator()` API. This function is kept for API compatibility.
 pub fn is_heap_snapshot_supported() -> bool {
     // v8 139+ exposes the snapshot_creator API
     true
@@ -239,10 +243,11 @@ mod tests {
         
         let err = SnapshotError::InvalidIsolateState("no context".to_string());
         assert_eq!(format!("{}", err), "Invalid isolate state for snapshot: no context");
-        
+
+        #[allow(deprecated)]
         let err = SnapshotError::NotSupported;
         assert_eq!(format!("{}", err), "Snapshot operation requires V8 features not available in this version");
-        
+
         let err = SnapshotError::NotSnapshotCreatorIsolate;
         assert_eq!(format!("{}", err), "Isolate was not created with snapshot_creator() - cannot create blob");
     }

@@ -1,6 +1,6 @@
 //! Sliver Metadata Structure
 //!
-//! Defines the metadata for a sliver snapshot including
+//! Defines the metadata for a sliver including
 //! hostname, timestamps, versioning, and optional description.
 
 use chrono::{DateTime, Utc};
@@ -9,11 +9,11 @@ use std::collections::HashMap;
 
 use crate::sliver::format::FORMAT_VERSION;
 
-/// Metadata for a sliver snapshot
+/// Metadata for a sliver
 ///
 /// This structure is serialized to JSON and stored as meta.json
 /// in the sliver archive. It provides identifying information and
-/// context about the snapshot.
+/// context about the sliver.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SliverMetadata {
     /// Name of the sliver for management purposes
@@ -24,13 +24,13 @@ pub struct SliverMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     
-    /// Hostname of the app this snapshot represents
+    /// Hostname of the app this sliver represents
     ///
     /// This corresponds to the virtual host configured in NANO
     /// and is used for routing requests to the correct isolate.
     pub hostname: String,
 
-    /// UTC timestamp when the snapshot was created
+    /// UTC timestamp when the sliver was created
     ///
     /// Format: ISO 8601 (e.g., "2026-04-20T12:34:56Z")
     pub created_at: DateTime<Utc>,
@@ -41,9 +41,9 @@ pub struct SliverMetadata {
     /// Current version is "1.0".
     pub format_version: String,
 
-    /// NANO runtime version that created this snapshot
+    /// NANO runtime version that created this sliver
     ///
-    /// The runtime version can affect snapshot compatibility due to
+    /// The runtime version can affect sliver compatibility due to
     /// V8 version differences, though heap.bin is treated as opaque.
     pub nano_version: String,
 
@@ -168,8 +168,8 @@ mod tests {
 
     #[test]
     fn test_metadata_with_description() {
-        let meta = SliverMetadata::with_description("app.example.com", "1.1.0", "Test snapshot");
-        assert_eq!(meta.description, Some("Test snapshot".to_string()));
+        let meta = SliverMetadata::with_description("app.example.com", "1.1.0", "Test sliver");
+        assert_eq!(meta.description, Some("Test sliver".to_string()));
     }
 
     #[test]
@@ -201,13 +201,13 @@ mod tests {
 
     #[test]
     fn test_metadata_summary() {
-        let meta = SliverMetadata::with_description("app.example.com", "1.1.0", "Test snapshot")
+        let meta = SliverMetadata::with_description("app.example.com", "1.1.0", "Test sliver")
             .with_custom("env", "staging");
 
         let summary = meta.summary();
         assert!(summary.contains("Hostname: app.example.com"));
         assert!(summary.contains("NANO Version: 1.1.0"));
-        assert!(summary.contains("Description: Test snapshot"));
+        assert!(summary.contains("Description: Test sliver"));
         assert!(summary.contains("env: staging"));
     }
 

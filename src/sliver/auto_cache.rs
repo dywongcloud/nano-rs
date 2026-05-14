@@ -1,6 +1,6 @@
 //! Auto-sliver cache for transparent optimization
 //!
-//! Provides automatic generation and caching of sliver snapshots
+//! Provides automatic generation and caching of slivers
 //! to optimize cold start times. This is a transparent optimization -
 //! users don't need to know about slivers, they just get faster starts.
 //!
@@ -53,7 +53,42 @@ use tracing::{debug, info, warn};
 use crate::sliver::{pack_sliver, unpack_sliver, SliverMetadata, UnpackedSliver};
 use crate::sliver::vfs_capture::VfsCapture;
 use crate::vfs::{VfsFile, VfsPath};
-use crate::http::router::JsHandlerSource;
+
+/// Source of JavaScript handler execution
+///
+/// Indicates whether to execute from source files or from a sliver.
+#[derive(Debug, Clone)]
+pub enum JsHandlerSource {
+    /// Execute from JavaScript source files
+    Source {
+        /// Path to the JavaScript entrypoint
+        entrypoint: String,
+    },
+    /// Execute from sliver
+    Sliver {
+        /// Path to the JavaScript entrypoint
+        entrypoint: String,
+        /// V8 snapshot data for fast restoration
+        snapshot: Vec<u8>,
+    /// Hostname for the app
+    hostname: String,
+    },
+}
+
+impl JsHandlerSource {
+    /// Check if this source is a sliver
+    pub fn is_sliver(&self) -> bool {
+        matches!(self, Self::Sliver { .. })
+    }
+    
+    /// Get the entrypoint path
+    pub fn entrypoint(&self) -> &str {
+        match self {
+            Self::Source { entrypoint } => entrypoint.as_str(),
+            Self::Sliver { entrypoint, .. } => entrypoint.as_str(),
+        }
+    }
+}
 
 /// Auto-sliver cache manager
 #[derive(Debug, Clone)]
@@ -220,6 +255,56 @@ impl SliverCache {
         Ok(())
     }
     
+    /// Try to acquire a generation lock for sliver creation
+    ///
+    /// Returns true if lock was acquired, false if another process already holds it.
+    pub fn try_acquire_generation_lock(&self, hostname: &str, entrypoint: &str) -> bool {
+        let lock_path = self.generation_lock_path(hostname, entrypoint);
+        
+        // Ensure parent directory exists
+        if let Some(parent) = lock_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        
+        // Try to create lock file exclusively
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path) {
+            Ok(file) => {
+                // Write PID for debugging
+                use std::io::Write;
+                let _ = writeln!(&file, "{}", std::process::id());
+                true
+            }
+            Err(_) => false,
+        }
+    }
+    
+    /// Release a generation lock
+    ///
+    /// Returns true if lock was released, false if it didn't exist.
+    pub fn release_generation_lock(&self, hostname: &str, entrypoint: &str) -> bool {
+        let lock_path = self.generation_lock_path(hostname, entrypoint);
+        
+        match std::fs::remove_file(&lock_path) {
+            Ok(_) => {
+                debug!("Released generation lock for {}:{}", hostname, entrypoint);
+                true
+            }
+            Err(e) => {
+                debug!("Failed to release generation lock for {}:{}: {}", hostname, entrypoint, e);
+                false
+            }
+        }
+    }
+    
+    /// Check if a sliver generation is in progress
+    pub fn is_generation_in_progress(&self, hostname: &str, entrypoint: &str) -> bool {
+        let lock_path = self.generation_lock_path(hostname, entrypoint);
+        lock_path.exists()
+    }
+    
     /// Create a sliver from heap snapshot and VFS
     pub fn create_sliver(
         &self,
@@ -329,15 +414,6 @@ impl SliverCache {
     pub fn sliver_modified_time(&self, hostname: &str, entrypoint: &str) -> Option<SystemTime> {
         let cache_path = self.cache_path(hostname, entrypoint);
         std::fs::metadata(&cache_path).ok()?.modified().ok()
-    }
-
-    /// Check if a sliver generation is in progress for this entrypoint
-    ///
-    /// This checks for the presence of a lock file that indicates another
-    /// process is currently generating a sliver for this entrypoint.
-    pub fn is_generation_in_progress(&self, hostname: &str, entrypoint: &str) -> bool {
-        let lock_path = self.generation_lock_path(hostname, entrypoint);
-        lock_path.exists()
     }
 
     /// Load and unpack a sliver if it exists and is valid

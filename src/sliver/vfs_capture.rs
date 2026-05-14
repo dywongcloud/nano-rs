@@ -1,7 +1,7 @@
 //! VFS State Capture Module
 //!
 //! This module provides functionality to capture all files from a VFS
-//! for inclusion in a sliver snapshot.
+//! for inclusion in a sliver.
 
 use crate::vfs::{IsolateVfs, VfsBackend, VfsFile, VfsPath, VfsResult};
 use std::collections::HashMap;

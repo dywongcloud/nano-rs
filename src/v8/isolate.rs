@@ -26,10 +26,9 @@ use crate::{
     assert_precondition, assert_positive, assert_negative, assert_range
 };
 
-/// V8 snapshot format magic number (for future validation)
+/// V8 snapshot format magic number for validation
 // V8 snapshots start with a 4-byte magic sequence: &[0xD7, 0x3C, 0xD7, 0x3C]
-// When rusty_v8 exposes snapshot validation APIs, this can be used
-// for format verification before attempting to load.
+// Used to validate snapshot format before attempting to load.
 // See: https://v8.dev/docs/snapshot-format
 
 /// Minimum valid snapshot size (header + at least some data)
@@ -243,7 +242,7 @@ impl NanoIsolate {
     /// Create a new V8 isolate from a snapshot blob
     ///
     /// This is the primary constructor for restoring isolates from
-    /// sliver snapshots. The snapshot contains the serialized V8 heap state.
+    /// slivers. The snapshot contains the serialized V8 heap state.
     ///
     /// # Arguments
     /// * `snapshot_data` - The V8 heap snapshot blob
@@ -292,10 +291,10 @@ impl NanoIsolate {
         // - Version info follows magic number
         // - Must match V8 runtime version to be usable
         //
-        // NOTE: rusty_v8's StartupData can only be created via SnapshotCreator::create_blob(),
-        // not from external byte slices. We validate the magic number to detect corrupted
-        // snapshots, but the actual snapshot restoration requires rusty_v8 API support
-        // for external snapshot data (not currently exposed).
+        // V8 snapshot validation before loading:
+        // - Magic number validates format
+        // - StartupData::from() converts bytes for CreateParams::snapshot_blob()
+        // - rusty_v8 handles version compatibility internally
 
         // Validate V8 snapshot magic number
         const V8_SNAPSHOT_MAGIC: [u8; 4] = [0xD7, 0x3C, 0xD7, 0x3C];
@@ -315,26 +314,51 @@ impl NanoIsolate {
         // V8 snapshot version info is at bytes 4-7 (varies by V8 version)
         // rusty_v8 handles version compatibility internally when snapshot API is used
 
-        // SNAPSHOT LOADING LIMITATION:
-        // rusty_v8's StartupData type has private fields and can only be created via
-        // SnapshotCreator::create_blob(). There is no public API to create StartupData
-        // from external bytes. Therefore, we cannot actually load external V8 snapshots
-        // in this version of rusty_v8.
-        //
-        // MAGIC NUMBER VALIDATION IS STILL VALUABLE:
-        // - Detects corrupted or non-snapshot data
-        // - Provides clear error messages vs cryptic V8 crashes
-        // - Documents the snapshot format for future reference
-        //
-        // See: docs/TECHNICAL_DEBT.md SNAP-01
-        tracing::info!(
-            "External V8 snapshot detected ({} bytes, magic validated). Loading from external snapshots not supported in current rusty_v8 - creating fresh isolate with VFS",
-            snapshot_data.len()
-        );
-
-        // Graceful fallback: create fresh isolate rather than attempting to use
-        // unsupported external snapshot loading APIs
-        Self::new_with_vfs(vfs)
+        // Load the snapshot into V8
+        // rusty_v8's StartupData supports From<Vec<u8>> via Cow<'static, [u8]>
+        let startup_data = v8::StartupData::from(snapshot_data.to_vec());
+        
+        // Validate the snapshot data is usable
+        if !startup_data.is_valid() {
+            tracing::warn!("V8 snapshot data failed validation ({} bytes, magic validated) - creating fresh isolate", snapshot_data.len());
+            return Self::new_with_vfs(vfs);
+        }
+        
+        tracing::info!("V8 snapshot validated ({} bytes), restoring isolate from snapshot", snapshot_data.len());
+        
+        // Create isolate params with snapshot blob
+        let params = v8::CreateParams::default()
+            .snapshot_blob(startup_data);
+        
+        // Create isolate from snapshot
+        let mut isolate = v8::Isolate::new(params);
+        
+        // Enable WebAssembly code generation
+        isolate.set_allow_wasm_code_generation_callback(allow_wasm_code_generation);
+        
+        // Create EPT fix sentinel
+        let sentinel = {
+            let scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+            let scope = scope.init();
+            let undefined = v8::undefined(&scope);
+            let value: v8::Local<v8::Value> = undefined.into();
+            v8::Global::new(&*scope, value)
+        };
+        
+        // Thread ID for affinity checks
+        let creation_thread_id = std::thread::current().id();
+        
+        tracing::debug!("Restored NanoIsolate from snapshot with EPT fix sentinel and VFS");
+        
+        Ok(Self {
+            sentinel,
+            isolate,
+            _not_send_sync: PhantomData,
+            vfs,
+            state: IsolateState::Ready,
+            creation_thread_id,
+            heap_limit_bytes: HEAP_SIZE_BYTES_PER_ISOLATE,
+        })
     }
 
     /// Get a reference to the VFS
@@ -413,7 +437,7 @@ impl NanoIsolate {
     /// Create a NanoIsolate using the snapshot creator workflow
     ///
     /// This creates an isolate that can later be serialized to a snapshot blob.
-    /// Use this constructor when you intend to create a sliver snapshot.
+    /// Use this constructor when you intend to create a sliver.
     ///
     /// The isolate will have a default context automatically set up for snapshotting.
     ///
@@ -442,7 +466,7 @@ impl NanoIsolate {
     
     /// Create a NanoIsolate using snapshot creator with specific VFS
     ///
-    /// This is the primary constructor for creating sliver snapshots.
+    /// This is the primary constructor for creating slivers.
     /// The resulting isolate can be serialized via `create_blob()`.
     /// A default context is automatically set up for snapshotting.
     ///

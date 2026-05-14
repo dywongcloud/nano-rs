@@ -22,7 +22,7 @@ pub const HEAP_FILENAME: &str = "heap.bin";
 
 /// Filename for JSON metadata
 ///
-/// Contains structured information about the snapshot including
+/// Contains structured information about the sliver including
 /// hostname, creation time, format version, and description.
 pub const METADATA_FILENAME: &str = "meta.json";
 
