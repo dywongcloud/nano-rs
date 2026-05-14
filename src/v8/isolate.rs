@@ -27,14 +27,10 @@ use crate::{
 };
 
 /// V8 snapshot format magic number (for future validation)
-///
-/// V8 snapshots start with this 4-byte magic sequence.
-/// When rusty_v8 exposes snapshot validation APIs, this can be used
-/// for format verification before attempting to load.
-///
-/// See: https://v8.dev/docs/snapshot-format
-#[allow(dead_code)]
-const V8_SNAPSHOT_MAGIC: &[u8] = &[0xD7, 0x3C, 0xD7, 0x3C];
+// V8 snapshots start with a 4-byte magic sequence: &[0xD7, 0x3C, 0xD7, 0x3C]
+// When rusty_v8 exposes snapshot validation APIs, this can be used
+// for format verification before attempting to load.
+// See: https://v8.dev/docs/snapshot-format
 
 /// Minimum valid snapshot size (header + at least some data)
 const MIN_SNAPSHOT_SIZE: usize = 8;

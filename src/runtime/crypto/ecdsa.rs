@@ -18,7 +18,6 @@ use crate::runtime::crypto::{CryptoKey, CryptoError, KeyUsage, HashAlgorithm};
 use crate::runtime::crypto::crypto_key::CryptoKeyHandle;
 
 /// Base64url decode without padding
-#[allow(dead_code)]
 fn base64_decode_url_safe(input: &str) -> Result<Vec<u8>, CryptoError> {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     URL_SAFE_NO_PAD.decode(input)

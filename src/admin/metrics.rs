@@ -27,7 +27,6 @@ use axum::{
     http::{header, StatusCode},
     response::{IntoResponse, Response},
 };
-use serde::Serialize;
 use std::sync::Arc;
 
 use crate::http::server::AppStateWithShutdown;
@@ -35,17 +34,6 @@ use crate::metrics::exporter::prometheus_content_type;
 use crate::metrics::{MetricsRegistry, PrometheusExporter, METRICS};
 
 /// Error response for metrics endpoint failures
-/// 
-/// Note: This struct is defined for API completeness but currently unused
-/// since the metrics endpoint doesn't fail in ways that require error responses.
-/// Kept for future error handling scenarios.
-#[derive(Debug, Serialize)]
-#[allow(dead_code)]
-struct MetricsError {
-    error: String,
-    message: String,
-}
-
 /// Prometheus metrics handler
 ///
 /// Returns all collected metrics in Prometheus text exposition format.

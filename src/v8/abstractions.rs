@@ -25,10 +25,7 @@ pub type PinnedHandleScope<'a, 'b> = v8::PinnedRef<'a, v8::HandleScope<'b, ()>>;
 
 // NOTE: Functions that create HandleScope and return PinnedRef cannot work
 // because pin! creates a stack value that gets dropped at end of function.
-// Use the inline pin! + init() pattern instead:
-//
-// let scope_storage = std::pin::pin!(v8::HandleScope::new(isolate));
-// let mut scope = scope_storage.init();
+// Use the inline pin! + init() pattern instead.
 
 /// Helper to create a context from a pinned scope
 ///

@@ -66,13 +66,6 @@ impl ContextManager {
         &self.isolate_id
     }
 
-    /// Generate a new isolate_id (call this when replacing the isolate, e.g., after OOM)
-    #[allow(dead_code)]
-    fn regenerate_isolate_id(&mut self) {
-        self.isolate_id = IsolateId::generate();
-        tracing::debug!("Isolate ID regenerated after replacement: {}", self.isolate_id);
-    }
-
     /// Create the initial context for this isolate
     pub fn create_initial_context(&mut self) -> Result<()> {
         // v147 API: HandleScope requires pin! + init

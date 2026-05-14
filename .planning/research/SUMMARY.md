@@ -29,7 +29,7 @@ The 2025 standard stack for V8-based edge runtimes centers on mature, production
 - **axum (^0.8)** — HTTP server and routing — Ergonomic router; Tower middleware; WebSocket support via tokio-tungstenite
 - **ring (^0.17) + p256 + rsa** — WebCrypto implementation — BoringSSL pedigree; avoids V8 crypto complexity
 - **virtual-fs (^0.2)** — Virtual filesystem per isolate — SandboxedPhysicalFS for security; std::fs patterns
-- **flate2 (^1.1)** — WinterCG CompressionStream — zlib-rs backend; pure Rust; 321M+ downloads
+- **flate2 (^1.1)** — WinterTC CompressionStream — zlib-rs backend; pure Rust; 321M+ downloads
 - **tokio-tungstenite (^0.29)** — WebSocket protocol — RFC 6455 compliant; native axum integration
 
 ### Expected Features
@@ -67,7 +67,7 @@ The recommended pattern is **WorkerPool + Isolate-per-Thread** with context rese
 1. **HTTP Server (axum)** — Accept connections, parse requests, virtual host routing by Host header
 2. **WorkQueue (tokio mpsc)** — Per-app bounded channels for request dispatch with backpressure
 3. **WorkerPool** — Spawn/manage worker threads per app; one thread owns one isolate
-4. **V8 Isolate Layer** — Sandboxed JS execution; context per request; extensions bind WinterCG APIs
+4. **V8 Isolate Layer** — Sandboxed JS execution; context per request; extensions bind WinterTC APIs
 5. **Extension/Ops Layer** — Rust functions callable from JS; resource table tracks open resources
 
 ### Critical Pitfalls
@@ -105,12 +105,12 @@ Based on research, suggested phase structure:
 **Avoids:** Context reset vs isolate disposal cost miscalculation, External reference table leaks
 **Research Flag:** MEDIUM — Multi-isolate memory management needs validation
 
-### Phase 3: Basic WinterCG APIs
+### Phase 3: Basic WinterTC APIs
 **Rationale:** Core web APIs are table stakes. Fetch is the primary interface—everything else extends from it.
 **Delivers:** Request/Response/URL/Headers, console API, TextEncoder/Decoder, crypto.getRandomValues, timers, AbortController
 **Addresses:** Table stakes features (Fetch, Encoding, Console, Timers from FEATURES.md)
 **Avoids:** Blocking V8 callbacks, Promise resolution without microtask checkpoint
-**Research Flag:** LOW — Well-documented WinterCG patterns
+**Research Flag:** LOW — Well-documented WinterTC patterns
 
 ### Phase 4: I/O and Networking
 **Rationale:** Outbound fetch() requires careful async integration with tokio. This is where most threading issues manifest.
@@ -154,7 +154,7 @@ Based on research, suggested phase structure:
 
 - **Foundation before features:** V8 integration and runtime core must be stable before adding APIs
 - **Async I/O before multi-tenancy:** Single-tenant async patterns must work before scaling to multi-tenant
-- **Core APIs before differentiators:** WinterCG table stakes are prerequisites for WebSocket, Streams
+- **Core APIs before differentiators:** WinterTC table stakes are prerequisites for WebSocket, Streams
 - **Crypto in phases:** Basic getRandomValues early, full subtle later due to algorithm complexity
 - **WebSocket requires Streams:** Full duplex streaming prerequisite for WebSocket implementation
 
@@ -169,7 +169,7 @@ Phases likely needing deeper research during planning:
 
 Phases with standard patterns (skip research-phase):
 - **Phase 1 (Foundation):** V8 integration well-documented, EPT fix already identified
-- **Phase 3 (Basic APIs):** WinterCG standard clear, fetch implementation patterns established
+- **Phase 3 (Basic APIs):** WinterTC standard clear, fetch implementation patterns established
 - **Phase 5 (Multi-tenancy):** HTTP routing, virtual host patterns are standard
 
 ---

@@ -294,8 +294,6 @@ pub struct WorkQueue {
     /// Bounded channel capacity (256 slots per POOL-02)
     ///
     /// Channel capacity per worker pool (256 slots per POOL-02).
-    /// Stored for configuration consistency and future admin API exposure.
-    #[allow(dead_code)]
     channel_capacity: usize,
     /// Statistics for monitoring
     pub stats: QueueStats,
@@ -346,6 +344,11 @@ impl WorkQueue {
             app_registry,
             control_plane: Some(ControlPlane::new()),
         }
+    }
+
+    /// Get the channel capacity for this queue
+    pub fn channel_capacity(&self) -> usize {
+        self.channel_capacity
     }
 
     /// Set the AppRegistry for per-app configuration lookup

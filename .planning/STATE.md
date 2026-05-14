@@ -19,7 +19,9 @@
 - **Cloudflare Workers Compatibility: IMPLEMENTED** - Global state persists between requests
 - **CRUD Tests: ALL PASSING** - 6/6 tests work with Cloudflare compatible mode
 - **Compiler warnings: 0** (was 51)
-- **Tests: 633 library + 6 CRUD + others all passing**
+- **Tests: 670 library + 6 CRUD + others all passing**
+- **WinterTC rename: COMPLETE** - All WinterCG references replaced with WinterTC
+- **Dead code cleanup: COMPLETE** - Removed unused structs, fields, functions, and commented-out code
 
 ---
 
@@ -338,7 +340,7 @@ Edge Case Tests (10):
 
 **Critical Issues Fixed:**
 
-1. **HTTP Router WinterCG Handler** — FIXED
+1. **HTTP Router WinterTC Handler** — FIXED
    - **Before:** Returned placeholder text "JS handler (Phase 3)"
    - **After:** Returns proper HTTP 503 with clear error message directing to worker pool dispatch
    - **Location:** `src/http/router.rs:206-214`
@@ -451,7 +453,7 @@ Implement WebSocket support:
 - ✅ Phase 38: Sliver system: COMPLETE (107 tests passing)
 - ✅ Phase 37 TigerStyle: Control/Data Plane separation COMPLETE (48 control assertions, 0 data assertions)
 - ✅ Plan 37-08: TODO/Placeholder Resolution COMPLETE (18 items fixed/documented/removed)
-- ✅ Router WinterCG handler: Fixed (returns 503 instead of placeholder text)
+- ✅ Router WinterTC handler: Fixed (returns 503 instead of placeholder text)
 - ✅ Module loader VFS: Fixed (VFS passed through execution context)
 - ✅ ECDH key derivation: Implemented (p256/p384 ecdh features)
 - ✅ Tests: 657+ total (657 lib + integration)

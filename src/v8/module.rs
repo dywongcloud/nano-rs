@@ -304,7 +304,7 @@ pub fn execute_classic_script<'a>(
     }
     let fetch_fn = fetch_val.cast::<v8::Function>();
 
-    // Create request object using full WinterCG serialization
+    // Create request object using full WinterTC serialization
     let request_json = serialize_request_to_json(&handler_ctx.request);
     let request_str = v8::String::new(&**scope, &request_json)
         .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
@@ -781,14 +781,8 @@ fn module_resolve_callback<'a>(
 mod tests {
     use super::*;
     
-    use crate::v8::platform;
     use crate::vfs::{MemoryBackend, VfsNamespace};
     
-
-    #[allow(dead_code)]
-    fn init_platform() {
-        platform::initialize_platform().expect("Failed to initialize V8 platform");
-    }
 
     #[test]
     fn test_detect_module_type() {

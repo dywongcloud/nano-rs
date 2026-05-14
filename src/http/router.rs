@@ -31,9 +31,7 @@ use axum::{
     extract::State,
     http::{header, Request, Response, StatusCode},
     response::IntoResponse,
-    Json,
 };
-use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::http::{NanoRequest, NanoResponse, NanoHeaders, NanoUrl, content_type_from_ext};
@@ -623,35 +621,6 @@ impl AppState {
 
 /// JSON error response structure (per D-11)
 ///
-/// Standard error format for routing errors and other failures.
-/// 
-/// Note: Defined for API completeness but currently unused. Will be used when
-/// structured error responses are implemented for the virtual host router.
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-struct ErrorResponse {
-    error: String,
-    message: String,
-    code: u16,
-}
-
-/// Creates a JSON error response (per D-11)
-///
-/// Returns a structured JSON error response with the format:
-/// `{"error": "...", "message": "...", "code": N}`
-///
-/// Note: Currently unused but kept for future error response standardization.
-#[allow(dead_code)]
-fn error_response(error: &str, message: &str, code: StatusCode) -> impl IntoResponse {
-    (
-        code,
-        Json(ErrorResponse {
-            error: error.to_string(),
-            message: message.to_string(),
-            code: code.as_u16(),
-        }),
-    )
-}
 
 /// Main virtual host request handler
 ///

@@ -26,12 +26,6 @@ pub struct HttpClient {
     client: reqwest::Client,
     /// Default timeout for requests
     timeout: Duration,
-    /// Maximum number of redirects to follow
-    ///
-    /// Reserved for future custom redirect policy implementation.
-    /// Currently uses reqwest's default redirect behavior (10 redirects).
-    #[allow(dead_code)]
-    max_redirects: usize,
     /// Maximum response size in bytes (default: 100MB)
     max_response_size: usize,
 }
@@ -171,7 +165,6 @@ impl HttpClient {
         Ok(Self {
             client,
             timeout: Duration::from_secs(30),
-            max_redirects: 10,
             max_response_size: 100 * 1024 * 1024, // 100MB
         })
     }

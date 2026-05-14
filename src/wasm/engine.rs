@@ -265,8 +265,5 @@ mod tests {
         
         // Store and retrieve would require a real CompiledWasmModule
         // which we can only get from V8 compilation
-        // When available, it would be wrapped in Arc:
-        // let compiled = Arc::new(module.get_compiled_module());
-        // cache.store("hash", compiled);
     }
 }

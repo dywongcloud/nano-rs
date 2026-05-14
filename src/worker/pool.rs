@@ -2188,7 +2188,7 @@ function fetch(request) {
         let resp = response.unwrap();
         assert_eq!(resp.status(), 200);
         
-        let body_text = String::from_utf8_lossy(resp.body().unwrap_or_default());
+        let body_text = String::from_utf8_lossy(resp.body().map(|b| &b[..]).unwrap_or(&[]));
         assert!(
             body_text.contains(&dynamic_token),
             "Sliver response must contain dynamic token '{}', got: {}",

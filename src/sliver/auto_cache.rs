@@ -496,13 +496,3 @@ pub fn store_generated_sliver(
     cache.store(hostname, entrypoint, &sliver_data)?;
     Ok(())
 }
-
-// Tests temporarily disabled due to test framework conflicts
-// These tests require V8 platform initialization which conflicts with other tests
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use tempfile::TempDir;
-//     
-//     // ... tests would go here
-// }
