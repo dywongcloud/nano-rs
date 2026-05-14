@@ -1,4 +1,4 @@
-//! V8 Bridge for WinterCG types
+//! V8 Bridge for WinterTC types
 //!
 //! This module provides serialization for Request/Response objects used
 //! with V8 JavaScript contexts.
@@ -9,7 +9,7 @@ use crate::http::{NanoRequest, NanoResponse};
 
 /// Serialize a NanoRequest to JSON string
 ///
-/// Creates a JSON representation matching the WinterCG Request interface.
+/// Creates a JSON representation matching the WinterTC Request interface.
 /// This JSON can be parsed in V8 using JSON.parse() per D-06.
 ///
 /// # Arguments
@@ -37,7 +37,7 @@ use crate::http::{NanoRequest, NanoResponse};
 /// assert!(json.contains("\"method\":\"GET\""));
 /// ```
 pub fn serialize_request_to_json(request: &NanoRequest) -> String {
-    // Build JSON manually to ensure correct WinterCG structure
+    // Build JSON manually to ensure correct WinterTC structure
     let mut json = String::from("{");
 
     // method
@@ -82,7 +82,7 @@ pub fn serialize_request_to_json(request: &NanoRequest) -> String {
 
 /// Serialize a NanoResponse to JSON string
 ///
-/// Creates a JSON representation matching the WinterCG Response interface.
+/// Creates a JSON representation matching the WinterTC Response interface.
 ///
 /// # Arguments
 ///
@@ -227,30 +227,42 @@ mod tests {
 
     #[test]
     fn test_escape_json() {
+        let token_a = format!("nano-{}", uuid::Uuid::new_v4());
+        let token_b = format!("nano-{}", uuid::Uuid::new_v4());
+
         // Test escaping quotes
-        let result = escape_json("hello\"world");
-        assert!(result.contains("hello"));
-        assert!(result.contains("\\\""));
-        assert!(result.contains("world"));
+        let input = format!("{}\"{}", token_a, token_b);
+        let result = escape_json(&input);
+        assert!(result.contains(&token_a), "Escaped output missing token_a: {}", result);
+        assert!(result.contains("\\\""), "Escaped output missing escaped quote: {}", result);
+        assert!(result.contains(&token_b), "Escaped output missing token_b: {}", result);
 
         // Test escaping newlines
-        let result = escape_json("line1\nline2");
-        assert!(result.contains("line1"));
-        assert!(result.contains("\\n"));
-        assert!(result.contains("line2"));
+        let token_c = format!("nano-{}", uuid::Uuid::new_v4());
+        let token_d = format!("nano-{}", uuid::Uuid::new_v4());
+        let input = format!("{}\n{}", token_c, token_d);
+        let result = escape_json(&input);
+        assert!(result.contains(&token_c), "Escaped output missing token_c: {}", result);
+        assert!(result.contains("\\n"), "Escaped output missing escaped newline: {}", result);
+        assert!(result.contains(&token_d), "Escaped output missing token_d: {}", result);
 
         // Test escaping tabs
-        let result = escape_json("tab\there");
-        assert!(result.contains("tab"));
-        assert!(result.contains("\\t"));
-        assert!(result.contains("here"));
+        let token_e = format!("nano-{}", uuid::Uuid::new_v4());
+        let token_f = format!("nano-{}", uuid::Uuid::new_v4());
+        let input = format!("{}\t{}", token_e, token_f);
+        let result = escape_json(&input);
+        assert!(result.contains(&token_e), "Escaped output missing token_e: {}", result);
+        assert!(result.contains("\\t"), "Escaped output missing escaped tab: {}", result);
+        assert!(result.contains(&token_f), "Escaped output missing token_f: {}", result);
 
         // Test escaping backslashes
-        let result = escape_json("path\\to\\file");
-        assert!(result.contains("path"));
-        assert!(result.contains("\\\\")); // Two backslashes in output
-        assert!(result.contains("to"));
-        assert!(result.contains("file"));
+        let token_g = format!("nano-{}", uuid::Uuid::new_v4());
+        let token_h = format!("nano-{}", uuid::Uuid::new_v4());
+        let input = format!("{}\\\\{}", token_g, token_h);
+        let result = escape_json(&input);
+        assert!(result.contains(&token_g), "Escaped output missing token_g: {}", result);
+        assert!(result.contains("\\\\"), "Escaped output missing escaped backslash: {}", result);
+        assert!(result.contains(&token_h), "Escaped output missing token_h: {}", result);
     }
 
     #[test]

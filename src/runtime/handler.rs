@@ -1,7 +1,7 @@
-//! JavaScript handler execution for WinterCG requests
+//! JavaScript handler execution for WinterTC requests
 //!
 //! This module provides the core interface for executing JavaScript handlers
-//! that receive WinterCG Request objects and return Response objects.
+//! that receive WinterTC Request objects and return Response objects.
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
@@ -543,14 +543,19 @@ mod tests {
     fn test_extract_js_response_basic() {
         init_platform();
 
+        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
+
         let mut isolate = crate::v8::NanoIsolate::new().expect("Failed to create isolate");
         v8::scope!(handle_scope, isolate.isolate());
         let context = v8::Context::new(handle_scope, Default::default());
         let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
-        // Create a simple response object in JavaScript
-        let code = r#"({ status: 200, headers: { "Content-Type": "text/plain" }, body: "Hello" })"#;
-        let code_str = v8::String::new(ctx_scope, code).unwrap();
+        // Create a simple response object in JavaScript with dynamic body
+        let code = format!(
+            r#"({{ status: 200, headers: {{ "Content-Type": "text/plain" }}, body: "{}" }})"#,
+            dynamic_token
+        );
+        let code_str = v8::String::new(ctx_scope, &code).unwrap();
         let script = v8::Script::compile(ctx_scope, code_str, None).unwrap();
         let result = script.run(ctx_scope).expect("Script execution failed");
 
@@ -560,6 +565,17 @@ mod tests {
         let nano_response = response.unwrap();
         assert_eq!(nano_response.status(), 200);
         assert_eq!(nano_response.headers().get("Content-Type"), Some("text/plain".to_string()));
+        assert!(
+            nano_response.body().is_some(),
+            "Response should have a body"
+        );
+        let body_text = String::from_utf8_lossy(nano_response.body().unwrap());
+        assert!(
+            body_text.contains(&dynamic_token),
+            "Response body must contain dynamic token '{}', got: {}",
+            dynamic_token,
+            body_text
+        );
     }
 
     #[test]
@@ -589,14 +605,16 @@ mod tests {
     fn test_extract_js_response_default_status() {
         init_platform();
 
+        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
+
         let mut isolate = crate::v8::NanoIsolate::new().expect("Failed to create isolate");
         v8::scope!(handle_scope, isolate.isolate());
         let context = v8::Context::new(handle_scope, Default::default());
         let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
 
         // Create a response without explicit status (should default to 200)
-        let code = r#"({ headers: {}, body: "test" })"#;
-        let code_str = v8::String::new(ctx_scope, code).unwrap();
+        let code = format!(r#"({{ headers: {{}}, body: "{}" }})"#, dynamic_token);
+        let code_str = v8::String::new(ctx_scope, &code).unwrap();
         let script = v8::Script::compile(ctx_scope, code_str, None).unwrap();
         let result = script.run(ctx_scope).expect("Script execution failed");
 
@@ -605,5 +623,16 @@ mod tests {
 
         let nano_response = response.unwrap();
         assert_eq!(nano_response.status(), 200);
+        assert!(
+            nano_response.body().is_some(),
+            "Response should have a body"
+        );
+        let body_text = String::from_utf8_lossy(nano_response.body().unwrap());
+        assert!(
+            body_text.contains(&dynamic_token),
+            "Response body must contain dynamic token '{}', got: {}",
+            dynamic_token,
+            body_text
+        );
     }
 }
