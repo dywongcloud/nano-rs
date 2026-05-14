@@ -317,7 +317,7 @@ impl CryptoKey {
 }
 
 /// JWK (JSON Web Key) structure for key import/export
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JwkObject {
     /// Key type ("oct" for symmetric keys)
     pub kty: String,
@@ -341,6 +341,12 @@ impl JwkObject {
             ext: Some(extractable),
             key_ops: Some(key_ops),
         }
+    }
+    
+    /// Parse a JWK from JSON bytes
+    pub fn from_slice(data: &[u8]) -> Result<Self, crate::runtime::crypto::CryptoError> {
+        serde_json::from_slice(data)
+            .map_err(|e| crate::runtime::crypto::CryptoError::DataError(format!("Invalid JWK: {}", e)))
     }
     
     /// Parse a JWK from a JavaScript object
