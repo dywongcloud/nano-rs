@@ -1665,16 +1665,18 @@ mod tests {
         init_platform();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
+        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
+
         // Create a simple JS handler (non-async for now)
-        let entrypoint = create_test_handler(
-            &temp_dir,
-            "test.js",
+        let js_code = format!(
             r#"
-function fetch(request) {
-    return { status: 200, headers: { "Content-Type": "text/plain" }, body: "Hello from worker" };
-}
+function fetch(request) {{
+    return {{ status: 200, headers: {{ "Content-Type": "text/plain" }}, body: "{}" }};
+}}
 "#,
+            dynamic_token
         );
+        let entrypoint = create_test_handler(&temp_dir, "test.js", &js_code);
 
         let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
 
@@ -1701,6 +1703,14 @@ function fetch(request) {
             Some("text/plain".to_string())
         );
         assert!(resp.body().is_some());
+
+        let body_text = String::from_utf8_lossy(resp.body().unwrap());
+        assert!(
+            body_text.contains(&dynamic_token),
+            "Response must contain dynamic token '{}', got: {}",
+            dynamic_token,
+            body_text
+        );
 
         pool.shutdown().expect("Shutdown failed");
     }
@@ -1929,23 +1939,25 @@ function fetch(request) {
         init_platform();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-        // Create async handler
-        let entrypoint = create_test_handler(
-            &temp_dir,
-            "async_handler.js",
-            r#"
-async function fetch(request) {
-    // Simulate async work
-    const data = await Promise.resolve({ hello: "world" });
+        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
 
-    return {
+        // Create async handler
+        let js_code = format!(
+            r#"
+async function fetch(request) {{
+    // Simulate async work
+    const data = await Promise.resolve({{ token: "{}" }});
+
+    return {{
         status: 200,
-        headers: { "Content-Type": "application/json" },
+        headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify(data)
-    };
-}
+    }};
+}}
 "#,
+            dynamic_token
         );
+        let entrypoint = create_test_handler(&temp_dir, "async_handler.js", &js_code);
 
         let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
 
@@ -1963,8 +1975,12 @@ async function fetch(request) {
         assert_eq!(resp.status(), 200);
 
         let body_text = String::from_utf8_lossy(resp.body().unwrap());
-        assert!(body_text.contains("hello"), "Async response missing data: {}", body_text);
-        assert!(body_text.contains("world"), "Async response missing value: {}", body_text);
+        assert!(
+            body_text.contains(&dynamic_token),
+            "Async response must contain dynamic token '{}', got: {}",
+            dynamic_token,
+            body_text
+        );
 
         pool.shutdown().expect("Shutdown failed");
     }
@@ -2141,12 +2157,14 @@ function fetch(request) {
         init_platform();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         
+        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
+
         // Create a simple JS handler
-        let entrypoint = create_test_handler(
-            &temp_dir,
-            "test.js",
-            r#"function fetch(request) { return { status: 200, headers: {}, body: "Sliver OK" }; }"#,
+        let js_code = format!(
+            r#"function fetch(request) {{ return {{ status: 200, headers: {{}}, body: "{}" }}; }}"#,
+            dynamic_token
         );
+        let entrypoint = create_test_handler(&temp_dir, "test.js", &js_code);
         
         let unpacked = create_test_sliver_for_pool("dispatch.example.com");
         let pool = SliverWorkerPool::new(
@@ -2169,6 +2187,14 @@ function fetch(request) {
         assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
         let resp = response.unwrap();
         assert_eq!(resp.status(), 200);
+        
+        let body_text = String::from_utf8_lossy(resp.body().unwrap_or_default());
+        assert!(
+            body_text.contains(&dynamic_token),
+            "Sliver response must contain dynamic token '{}', got: {}",
+            dynamic_token,
+            body_text
+        );
         
         pool.shutdown().expect("Shutdown failed");
     }
@@ -2201,10 +2227,15 @@ function fetch(request) {
         init_platform();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
+        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
+
         // Create a JS handler in the temp directory (simulating extracted VFS)
-        let temp_handler_code = r#"function fetch(request) { return { status: 200, headers: { "Content-Type": "text/plain" }, body: "From temp VFS" }; }"#;
+        let temp_handler_code = format!(
+            r#"function fetch(request) {{ return {{ status: 200, headers: {{ "Content-Type": "text/plain" }}, body: "{}" }}; }}"#,
+            dynamic_token
+        );
         let temp_entrypoint = temp_dir.path().join("index.js");
-        std::fs::write(&temp_entrypoint, temp_handler_code)
+        std::fs::write(&temp_entrypoint, &temp_handler_code)
             .expect("Failed to write temp handler");
 
         // Create sliver with different handler content (should not be used)
@@ -2238,8 +2269,9 @@ function fetch(request) {
         let body = resp.body().cloned().unwrap_or_default();
         let body_text = String::from_utf8_lossy(&body);
         assert!(
-            body_text.contains("From temp VFS"),
-            "Expected response from temp VFS, got: {}",
+            body_text.contains(&dynamic_token),
+            "Expected response from temp VFS with dynamic token '{}', got: {}",
+            dynamic_token,
             body_text
         );
 
