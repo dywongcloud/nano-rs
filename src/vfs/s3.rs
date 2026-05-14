@@ -48,7 +48,7 @@ use crate::vfs::VfsBackend;
 #[derive(Debug)]
 pub struct S3Backend {
     /// S3 bucket for storage
-    bucket: Bucket,
+    bucket: Box<Bucket>,
     /// Resource limits for this backend
     limits: ResourceLimits,
     /// Key prefix for all objects (optional)
@@ -144,7 +144,7 @@ impl S3Backend {
     }
 
     /// Get the bucket name
-    pub fn bucket_name(&self) -> &str {
+    pub fn bucket_name(&self) -> String {
         self.bucket.name()
     }
 
@@ -198,40 +198,43 @@ impl S3Backend {
         }
     }
 
-    /// Check write limits
-    fn check_write_limits(&self, content_len: usize, is_new: bool, old_size: usize) -> VfsResult<()> {
-        // Check file size limit
-        if content_len > self.limits.file_size_bytes_max {
+    /// Check write bounds
+    fn check_write_bounds(&self, content_len: usize, is_new: bool, old_size: usize) -> VfsResult<()> {
+        let file_size_max = self.limits.file_size_bytes_max;
+        let file_count_max = self.limits.files_count_max;
+        let total_storage_max = self.limits.total_storage_bytes_max;
+        let max_file_size = file_size_max as usize;
+        let max_file_count = file_count_max as usize;
+        let max_total_storage = total_storage_max as usize;
+
+        if content_len > max_file_size {
             return Err(VfsError::QuotaExceeded {
                 resource: "file_size".to_string(),
                 limit: self.limits.file_size_bytes_max,
-                current: content_len,
+                current: content_len as u32,
             });
         }
 
         if is_new {
-            // Check file count limit
             let current_count = self.file_count.load(Ordering::SeqCst);
-            if current_count >= self.limits.files_count_max {
+            if current_count >= max_file_count {
                 return Err(VfsError::QuotaExceeded {
                     resource: "file_count".to_string(),
                     limit: self.limits.files_count_max,
-                    current: current_count,
+                    current: current_count as u32,
                 });
             }
         }
 
-        // Calculate size delta
         let size_delta = content_len as i64 - old_size as i64;
         let current_total = self.total_bytes.load(Ordering::SeqCst) as i64;
         let new_total = (current_total + size_delta) as usize;
 
-        // Check total storage limit
-        if new_total > self.limits.total_storage_bytes_max {
+        if new_total > max_total_storage {
             return Err(VfsError::QuotaExceeded {
                 resource: "total_storage".to_string(),
                 limit: self.limits.total_storage_bytes_max,
-                current: current_total as usize,
+                current: current_total as u32,
             });
         }
 
@@ -279,7 +282,7 @@ impl VfsBackend for S3Backend {
         };
 
         // Check limits
-        self.check_write_limits(content_len, is_new, old_size)?;
+        self.check_write_bounds(content_len, is_new, old_size)?;
 
         // Write to S3
         match self.bucket.put_object(&key, content).await {
@@ -355,7 +358,10 @@ impl VfsBackend for S3Backend {
             .last_modified
             .and_then(|ts| {
                 // Parse HTTP date format
-                std::time::SystemTime::try_from(chrono::DateTime::parse_from_rfc2822(&ts).ok()?.into())
+                chrono::DateTime::parse_from_rfc2822(&ts).ok().and_then(|dt| {
+                    let utc: chrono::DateTime<chrono::Utc> = dt.into();
+                    std::time::SystemTime::try_from(utc).ok()
+                })
             })
             .unwrap_or_else(std::time::SystemTime::now);
 
@@ -367,17 +373,54 @@ impl VfsBackend for S3Backend {
         })
     }
 
-    async fn list_dir(&self, _path: &VfsPath) -> VfsResult<Vec<VfsPath>> {
-        // S3 doesn't have native directories — would need ListObjectsV2 with prefix/delimiter
-        // This requires complex handling of common prefixes ("subdirectories") and contents (files)
-        // For now, return NotSupported. Full implementation would:
-        // 1. Use bucket.list() with the path as prefix and "/" as delimiter
-        // 2. Parse common_prefixes as subdirectories
-        // 3. Parse contents as files
-        // 4. Convert S3 keys back to VfsPath format
-        Err(VfsError::NotSupported {
-            feature: "list_dir on S3 backend".to_string(),
-        })
+    async fn list_dir(&self, path: &VfsPath) -> VfsResult<Vec<VfsPath>> {
+        let s3_key = self.to_s3_key(path);
+        let prefix = if s3_key.ends_with('/') {
+            s3_key
+        } else {
+            format!("{}/", s3_key)
+        };
+
+        let list_results = match self.bucket.list(prefix.clone(), Some("/".to_string())).await {
+            Ok(results) => results,
+            Err(e) => return Err(Self::map_s3_error(path.as_str(), e)),
+        };
+
+        let mut entries = std::collections::HashSet::new();
+        let parent_str = path.as_str();
+
+        for result in list_results {
+            // Process common prefixes (subdirectories)
+            if let Some(common_prefixes) = result.common_prefixes {
+                for cp in common_prefixes {
+                    if let Some(relative) = cp.prefix.strip_prefix(&prefix) {
+                        let name = relative.trim_end_matches('/');
+                        if !name.is_empty() {
+                            let child_path = format!("{}/{}", parent_str, name);
+                            if let Ok(vfs_path) = VfsPath::new(&child_path) {
+                                entries.insert(vfs_path);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Process contents (files)
+            for object in result.contents {
+                if let Some(relative) = object.key.strip_prefix(&prefix) {
+                    if !relative.is_empty() {
+                        let child_path = format!("{}/{}", parent_str, relative);
+                        if let Ok(vfs_path) = VfsPath::new(&child_path) {
+                            entries.insert(vfs_path);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut paths: Vec<VfsPath> = entries.into_iter().collect();
+        paths.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        Ok(paths)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
