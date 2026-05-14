@@ -218,15 +218,16 @@ impl RouteTarget {
                     ))
             }
             HandlerType::WinterCGSliverHandler { entrypoint, hostname } => {
-                // Sliver-based handler (snapshot-restored isolate)
-                tracing::debug!(
-                    "WinterCG sliver handler for {} on {} (uses snapshot restoration)",
-                    entrypoint,
-                    hostname
-                );
-                NanoResponse::ok()
-                    .with_header("Content-Type", "text/plain")
-                    .with_body(format!("Sliver handler: {} (snapshot restored)", entrypoint))
+                // Sliver-based handler requires worker pool dispatch for JavaScript execution.
+                // Direct handle() does not have access to the WorkerPool - use
+                // dispatch_to_worker_pool() which properly acquires snapshot-restored isolates.
+                tracing::warn!("WinterCG sliver handler called via direct handle() for {} on {}. Use dispatch_to_worker_pool() for JS execution.", entrypoint, hostname);
+                NanoResponse::with_status(503)
+                    .with_header("Content-Type", "application/json")
+                    .with_body(format!(
+                        r#"{{"error":"ServiceUnavailable","message":"Sliver JavaScript execution requires worker pool dispatch","code":503,"entrypoint":"{}","hostname":"{}"}}"#,
+                        entrypoint, hostname
+                    ))
             }
             HandlerType::VfsStaticFiles { files, default_file } => {
                 // Serve static files from VFS
@@ -1237,10 +1238,12 @@ mod tests {
         );
 
         let response = target.handle(request).await;
-        assert_eq!(response.status(), 200);
+        // Direct handle() returns 503 because sliver JS execution requires
+        // worker pool dispatch (snapshot restoration needs isolate management)
+        assert_eq!(response.status(), 503);
         assert!(response.body().is_some());
         let body = String::from_utf8_lossy(response.body().as_ref().unwrap());
-        assert!(body.contains("Sliver handler"));
-        assert!(body.contains("snapshot restored"));
+        assert!(body.contains("ServiceUnavailable"));
+        assert!(body.contains("worker pool dispatch"));
     }
 }
