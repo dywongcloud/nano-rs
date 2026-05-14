@@ -5,24 +5,19 @@
 //! and responses are returned via oneshot channels.
 
 use crate::http::NanoResponse;
-use crate::runtime::{HandlerContext, async_support};
+use crate::runtime::HandlerContext;
 use crate::v8::{initialize_platform, NanoIsolate};
 use crate::worker::context::ContextManager;
-use crate::worker::eviction::{EvictionAction, EvictionManager, IsolateId, IsolateMetadata};
+use crate::worker::eviction::{EvictionAction, EvictionManager, IsolateMetadata};
 use crate::worker::memory_monitor::{MemoryMonitor, MemoryPressureLevel};
 use crate::worker::oom::OomMonitorBuilder;
 use crate::worker::limits::RequestMemoryTracker;
 use crate::worker::HandlerTask;
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::SystemTime;
 
 use anyhow::{anyhow, Result};
-use base64::Engine;
-use std::fs;
 
 // Thread-local storage for the worker thread's Tokio runtime handle
 // This allows fetch() and other async operations to access the runtime
@@ -1862,6 +1857,7 @@ function fetch(request) {
         init_platform();
 
         // Compile-time check: NanoIsolate is NOT Send
+        #[allow(dead_code)]
         fn assert_not_send<T: Send>() {}
         // This should fail to compile if uncommented:
         // assert_not_send::<NanoIsolate>();
@@ -2059,8 +2055,6 @@ function fetch(request) {
     #[test]
     fn test_worker_pool_vfs_isolation() {
         // Test that different pools have isolated VFS namespaces
-        use crate::vfs::VfsBackend;
-        
         init_platform();
 
         // Create two pools for different apps

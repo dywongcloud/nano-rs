@@ -9,7 +9,6 @@ use axum::{
     http::{Request, Response, StatusCode},
 };
 use tokio::sync::oneshot;
-use tracing::Instrument;
 
 use crate::http::{NanoHeaders, NanoRequest, NanoResponse};
 use crate::logging::create_request_span;

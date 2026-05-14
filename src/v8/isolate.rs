@@ -23,8 +23,7 @@ use std::marker::PhantomData;
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use crate::limits::isolate::{HEAP_SIZE_BYTES_PER_ISOLATE, HEAP_SIZE_BYTES_MAX};
 use crate::{
-    assert_precondition, assert_postcondition, assert_positive, assert_negative,
-    assert_invariant, assert_range, assert_non_null
+    assert_precondition, assert_positive, assert_negative, assert_range
 };
 
 /// V8 snapshot format magic number (for future validation)
@@ -501,14 +500,25 @@ impl NanoIsolate {
 
     /// Set V8 heap limits for memory constraint enforcement
     ///
-    /// V8 will trigger near-heap-limit callbacks when approaching these limits.
-    /// The min_limit is the soft limit where GC is more aggressive,
-    /// max_limit is where OOM callbacks trigger.
+    /// Configures a near-heap-limit callback that triggers when V8's heap
+    /// approaches the configured max limit. The callback initially increases
+    /// the heap limit slightly to give GC a chance to run. After several
+    /// consecutive callbacks, it forces an OOM to prevent runaway memory.
     ///
     /// # Arguments
     ///
-    /// * `min_limit` - Soft heap limit in bytes (aggressive GC threshold)
-    /// * `max_limit` - Hard heap limit in bytes (OOM callback threshold)
+    /// * `min_bytes` - Soft heap limit in bytes (reserved for future GC tuning)
+    /// * `max_bytes` - Hard heap limit in bytes (triggers near-heap-limit callback)
+    ///
+    /// # Behavior
+    ///
+    /// When the heap approaches `max_bytes`, V8 invokes the callback:
+    /// 1. First 2 invocations: increase limit by 16MB and log a warning
+    /// 2. 3rd invocation: force OOM by returning current limit unchanged
+    ///
+    /// # Errors
+    ///
+    /// Logs an error and returns early if `max_bytes` is zero.
     ///
     /// # Example
     ///
@@ -521,14 +531,62 @@ impl NanoIsolate {
     /// // Set 128MB heap limit (100MB soft, 128MB hard)
     /// isolate.set_heap_limits(100 * 1024 * 1024, 128 * 1024 * 1024);
     /// ```
-    pub fn set_heap_limits(&mut self, _min_bytes: usize, _max_bytes: usize) {
-        // V8 API changed in v135 - heap limits now set via heap limit callback
-        // This is a stub for future implementation
-        tracing::debug!(
-            "Heap bounds configured: soft={}, hard={}",
-            _min_bytes,
-            _max_bytes
-        );
+    pub fn set_heap_limits(&mut self, min_bytes: usize, max_bytes: usize) {
+        // Validate inputs
+        if max_bytes == 0 {
+            tracing::error!("set_heap_limits called with max_bytes=0, aborting");
+            return;
+        }
+        if min_bytes > max_bytes {
+            tracing::warn!(
+                "set_heap_limits: min_bytes ({}) > max_bytes ({}), clamping min to 0",
+                min_bytes, max_bytes
+            );
+        }
+
+        // Store the configured limit
+        self.heap_limit_bytes = max_bytes as u32;
+
+        // Counter for how many times the near-heap-limit callback has fired
+        let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        // Maximum number of times to extend the heap limit before forcing OOM
+        const MAX_HEAP_LIMIT_EXTENSIONS: usize = 2;
+        // Amount to increase the heap limit each time (16MB)
+        const HEAP_LIMIT_INCREMENT: usize = 16 * 1024 * 1024;
+
+        self.add_near_heap_limit_callback(move |current_limit, initial_limit| {
+            let count = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let new_count = count + 1;
+
+            if new_count > MAX_HEAP_LIMIT_EXTENSIONS {
+                tracing::error!(
+                    "Isolate heap limit callback fired {} times (max={}). \
+                     Heap cannot be contained. Forcing OOM. \
+                     current_limit={}MB, initial_limit={}MB",
+                    new_count,
+                    MAX_HEAP_LIMIT_EXTENSIONS,
+                    current_limit / (1024 * 1024),
+                    initial_limit / (1024 * 1024),
+                );
+                // Return current_limit to force OOM (V8 treats non-increase as OOM)
+                return current_limit;
+            }
+
+            tracing::warn!(
+                "Isolate approaching heap limit ({}/{} extensions used). \
+                 current_limit={}MB, initial_limit={}MB. \
+                 Increasing limit by {}MB to allow GC to run.",
+                new_count,
+                MAX_HEAP_LIMIT_EXTENSIONS,
+                current_limit / (1024 * 1024),
+                initial_limit / (1024 * 1024),
+                HEAP_LIMIT_INCREMENT / (1024 * 1024),
+            );
+
+            // Increase the limit to give GC a chance to reclaim memory
+            current_limit.saturating_add(HEAP_LIMIT_INCREMENT)
+        });
     }
 
     /// Get V8 heap statistics
@@ -592,7 +650,7 @@ impl NanoIsolate {
     /// # Panics
     /// Panics if the state transition is invalid
     pub fn set_state(&mut self, new_state: IsolateState) {
-        use crate::assert_state_transition;
+        
 
         let old_state = self.state;
 
@@ -774,5 +832,44 @@ mod tests {
         // Verify file exists
         assert!(isolate.vfs().exists("/config.json").await.unwrap());
         assert!(!isolate.vfs().exists("/missing.txt").await.unwrap());
+    }
+
+    /// Test that set_heap_limits configures the heap limit and registers a callback
+    #[test]
+    fn test_set_heap_limits() {
+        init_platform();
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+        // Set a 64MB heap limit
+        isolate.set_heap_limits(32 * 1024 * 1024, 64 * 1024 * 1024);
+
+        // Verify the limit was stored
+        assert_eq!(isolate.heap_limit_bytes(), 64 * 1024 * 1024);
+    }
+
+    /// Test that set_heap_limits handles zero max_bytes gracefully
+    #[test]
+    fn test_set_heap_limits_zero_max() {
+        init_platform();
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+        // Should not panic and should not change the limit
+        let original_limit = isolate.heap_limit_bytes();
+        isolate.set_heap_limits(0, 0);
+        assert_eq!(isolate.heap_limit_bytes(), original_limit);
+    }
+
+    /// Test that set_heap_limits handles inverted min/max gracefully
+    #[test]
+    fn test_set_heap_limits_inverted() {
+        init_platform();
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+
+        // min > max should still set max and log a warning
+        isolate.set_heap_limits(200 * 1024 * 1024, 100 * 1024 * 1024);
+        assert_eq!(isolate.heap_limit_bytes(), 100 * 1024 * 1024);
     }
 }

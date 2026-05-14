@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_nano_json_layer_new() {
-        let layer = NanoJsonLayer::new();
+        let _layer = NanoJsonLayer::new();
         // Just verify it creates without panicking
     }
 }

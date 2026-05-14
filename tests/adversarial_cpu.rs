@@ -170,7 +170,7 @@ async fn test_algorithmic_complexity_attack() {
 
     let start = Instant::now();
     let client = reqwest::Client::new();
-    let result = client
+    let _result = client
         .get(&format!("http://127.0.0.1:{}/", port))
         .header("Host", "cpu-complexity.local")
         .timeout(Duration::from_secs(3))
@@ -222,7 +222,7 @@ async fn test_recursive_function_bomb() {
 
     let start = Instant::now();
     let client = reqwest::Client::new();
-    let result = client
+    let _result = client
         .get(&format!("http://127.0.0.1:{}/", port))
         .header("Host", "cpu-recursive.local")
         .timeout(Duration::from_secs(3))
@@ -282,7 +282,7 @@ async fn test_generator_memory_pressure() {
 
     let start = Instant::now();
     let client = reqwest::Client::new();
-    let result = client
+    let _result = client
         .get(&format!("http://127.0.0.1:{}/", port))
         .header("Host", "cpu-generator.local")
         .timeout(Duration::from_secs(3))
@@ -343,7 +343,7 @@ async fn test_computationally_expensive_crypto() {
 
     let start = Instant::now();
     let client = reqwest::Client::new();
-    let result = client
+    let _result = client
         .get(&format!("http://127.0.0.1:{}/", port))
         .header("Host", "cpu-crypto.local")
         .timeout(Duration::from_secs(3))
@@ -410,7 +410,7 @@ async fn test_regex_catastrophic_backtracking() {
 
     let start = Instant::now();
     let client = reqwest::Client::new();
-    let result = client
+    let _result = client
         .get(&format!("http://127.0.0.1:{}/", port))
         .header("Host", "cpu-regex.local")
         .timeout(Duration::from_secs(3))
@@ -467,7 +467,7 @@ async fn test_json_parse_bomb() {
 
     let start = Instant::now();
     let client = reqwest::Client::new();
-    let result = client
+    let _result = client
         .get(&format!("http://127.0.0.1:{}/", port))
         .header("Host", "cpu-json.local")
         .timeout(Duration::from_secs(3))

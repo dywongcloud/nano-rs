@@ -146,9 +146,6 @@ pub async fn ready_handler_with_state(is_shutting_down: bool) -> (StatusCode, Js
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::Body;
-    use axum::http::Request;
-    use tower::ServiceExt;
 
     #[tokio::test]
     async fn test_health_handler() {

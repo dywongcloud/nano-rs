@@ -240,7 +240,7 @@ pub fn create_app() -> Router {
     // Create router with example routes for testing
     let mut router = VirtualHostRouter::new(default_target);
 
-    // Register example routes (will be configurable in Phase 5)
+    // Register example routes
     router.register(
         "api.example.com".to_string(),
         RouteTarget {

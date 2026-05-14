@@ -344,7 +344,7 @@ fn fs_read_file_sync(
     match result {
         Ok(bytes) => {
             // If encoding specified, return string; otherwise return Uint8Array
-            if let Some(enc) = encoding {
+            if let Some(_enc) = encoding {
                 let text = String::from_utf8_lossy(&bytes);
                 if let Some(s) = v8::String::new(scope, &text) {
                     retval.set(s.into());

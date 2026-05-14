@@ -188,7 +188,7 @@ pub enum VfsError {
     
     /// Resource quota exceeded (EQUOTA)
     #[error("EQUOTA: quota exceeded for {resource}: limit={limit}, current={current}")]
-    QuotaExceeded { resource: String, limit: usize, current: usize },
+    QuotaExceeded { resource: String, limit: u32, current: u32 },
     
     /// Generic I/O error (EIO)
     #[error("EIO: I/O error: {0}")]
@@ -232,11 +232,11 @@ pub type VfsResult<T> = Result<T, VfsError>;
 #[derive(Debug, Clone, Copy)]
 pub struct ResourceLimits {
     /// Maximum size of a single file in bytes (default: 10MB)
-    pub file_size_bytes_max: usize,
+    pub file_size_bytes_max: u32,
     /// Maximum total storage per namespace in bytes (default: 100MB)
-    pub total_storage_bytes_max: usize,
+    pub total_storage_bytes_max: u32,
     /// Maximum number of files per namespace (default: 1000)
-    pub files_count_max: usize,
+    pub files_count_max: u32,
 }
 
 impl Default for ResourceLimits {
@@ -251,7 +251,7 @@ impl Default for ResourceLimits {
 
 impl ResourceLimits {
     /// Create limits with custom values
-    pub fn new(file_size_bytes_max: usize, total_storage_bytes_max: usize, files_count_max: usize) -> Self {
+    pub fn new(file_size_bytes_max: u32, total_storage_bytes_max: u32, files_count_max: u32) -> Self {
         Self {
             file_size_bytes_max,
             total_storage_bytes_max,

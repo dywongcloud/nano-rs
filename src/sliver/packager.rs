@@ -283,7 +283,7 @@ fn load_directory_files(dir: &Path) -> Result<Vec<(VfsPath, VfsFile)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    
     use tempfile::TempDir;
 
     #[test]

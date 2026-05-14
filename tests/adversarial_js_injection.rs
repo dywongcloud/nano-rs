@@ -13,7 +13,7 @@
 #[path = "common.rs"]
 mod common;
 
-use nano::v8::{initialize_platform, NanoIsolate};
+use nano::v8::initialize_platform;
 use nano::runtime::apis::RuntimeAPIs;
 
 /// Helper to execute code with V8 v147 scope pattern

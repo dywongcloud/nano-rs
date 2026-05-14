@@ -578,7 +578,7 @@ mod tests {
         let auth = Arc::new(AdminAuth::new("test-key"));
         let registry = Arc::new(RwLock::new(AppRegistry::default()));
         let state = AdminState::new(registry);
-        let router = create_admin_router(auth, state);
+        let _router = create_admin_router(auth, state);
 
         // Router should be created without panicking
         assert!(true);

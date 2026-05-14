@@ -12,8 +12,8 @@
 //!
 //! # WinterCG Integration
 //!
-//! This module now integrates with WinterCG types (NanoRequest/NanoResponse)
-//! to enable JavaScript handler execution in Phase 3.
+//! This module integrates with WinterCG types (NanoRequest/NanoResponse)
+//! to enable JavaScript handler execution.
 //!
 //! # Static File Serving
 //!
@@ -120,7 +120,7 @@ pub fn detect_entrypoint_type(path: &str) -> EntrypointType {
 pub enum HandlerType {
     /// Returns a fixed response string (for testing)
     StaticResponse(String),
-    /// WinterCG handler that uses NanoRequest/NanoResponse (Phase 3)
+    /// WinterCG handler that uses NanoRequest/NanoResponse
     WinterCGHandler(String),
     /// WinterCG handler for sliver-based (snapshot-restored) apps
     ///
@@ -175,13 +175,50 @@ pub struct RouteTarget {
     pub handler_type: HandlerType,
 }
 
+/// Execute a JavaScript handler standalone using a fresh V8 isolate
+///
+/// This helper creates a new V8 isolate on a blocking thread and executes
+/// the entrypoint with the given request. It handles V8 platform initialization
+/// and returns proper error responses on failure.
+async fn execute_js_standalone(entrypoint: String, request: NanoRequest) -> NanoResponse {
+    match tokio::task::spawn_blocking(move || {
+        if let Err(e) = crate::v8::platform::initialize_platform() {
+            return Err(format!("V8 platform initialization failed: {}", e));
+        }
+        
+        let mut isolate = crate::v8::NanoIsolate::new()
+            .map_err(|e| format!("Failed to create isolate: {}", e))?;
+        
+        let context = crate::runtime::HandlerContext {
+            entrypoint,
+            request,
+        };
+        
+        crate::runtime::execute_handler(&mut isolate, context)
+            .map_err(|e| format!("Handler execution failed: {}", e))
+    }).await {
+        Ok(Ok(response)) => response,
+        Ok(Err(err_msg)) => {
+            tracing::error!("Standalone JS handler error: {}", err_msg);
+            NanoResponse::with_status(500)
+                .with_header("Content-Type", "application/json")
+                .with_body(format!(r#"{{"error":"InternalServerError","message":"{}","code":500}}"#, err_msg))
+        }
+        Err(e) => {
+            tracing::error!("Standalone JS handler task failed: {}", e);
+            NanoResponse::with_status(500)
+                .with_header("Content-Type", "application/json")
+                .with_body(r#"{"error":"InternalServerError","message":"Task execution failed","code":500}"#)
+        }
+    }
+}
+
 impl RouteTarget {
     /// Handle a request and return a WinterCG-compatible response
     ///
     /// This method processes a NanoRequest through the configured handler
     /// and returns a NanoResponse. It supports static responses and WinterCG
-    /// handlers. For JavaScript execution, use `dispatch_to_worker_pool()`
-    /// which routes requests through the WorkerPool with proper isolate management.
+    /// handlers with standalone JavaScript execution.
     ///
     /// # Arguments
     ///
@@ -205,29 +242,12 @@ impl RouteTarget {
                 }
             }
             HandlerType::WinterCGHandler(_path) => {
-                // WinterCG handler requires worker pool dispatch for JavaScript execution.
-                // Direct handle() does not have access to the WorkerPool - use
-                // dispatch_to_worker_pool() which properly acquires isolates and
-                // executes JavaScript with full error handling and metrics.
-                tracing::warn!("WinterCG handler called via direct handle() for path: {}. Use dispatch_to_worker_pool() for JS execution.", _path);
-                NanoResponse::with_status(503)
-                    .with_header("Content-Type", "application/json")
-                    .with_body(format!(
-                        r#"{{"error":"ServiceUnavailable","message":"JavaScript execution requires worker pool dispatch","code":503,"path":"{}"}}"#,
-                        _path
-                    ))
+                execute_js_standalone(_path.clone(), _request.clone()).await
             }
-            HandlerType::WinterCGSliverHandler { entrypoint, hostname } => {
-                // Sliver-based handler requires worker pool dispatch for JavaScript execution.
-                // Direct handle() does not have access to the WorkerPool - use
-                // dispatch_to_worker_pool() which properly acquires snapshot-restored isolates.
-                tracing::warn!("WinterCG sliver handler called via direct handle() for {} on {}. Use dispatch_to_worker_pool() for JS execution.", entrypoint, hostname);
-                NanoResponse::with_status(503)
-                    .with_header("Content-Type", "application/json")
-                    .with_body(format!(
-                        r#"{{"error":"ServiceUnavailable","message":"Sliver JavaScript execution requires worker pool dispatch","code":503,"entrypoint":"{}","hostname":"{}"}}"#,
-                        entrypoint, hostname
-                    ))
+            HandlerType::WinterCGSliverHandler { entrypoint, .. } => {
+                // Note: True snapshot restoration requires AppRegistry access.
+                // In standalone mode we create a fresh isolate and execute the entrypoint.
+                execute_js_standalone(entrypoint.clone(), _request.clone()).await
             }
             HandlerType::VfsStaticFiles { files, default_file } => {
                 // Serve static files from VFS
@@ -656,7 +676,7 @@ fn error_response(error: &str, message: &str, code: StatusCode) -> impl IntoResp
 /// 3. Router returns the RouteTarget for that hostname
 /// 4. Handler dispatches based on handler_type:
 ///    - `StaticResponse`: Returns the configured string
-///    - `WinterCGHandler`: Dispatches to worker pool for JavaScript execution
+    ///    - `WinterCGHandler`: Executes JavaScript standalone in a V8 isolate
 /// 5. Metrics are recorded: request count and duration
 pub async fn virtual_host_handler(
     State(state): State<Arc<AppState>>,
@@ -1221,11 +1241,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_wintercg_handler_response() {
+        crate::v8::platform::initialize_platform().expect("Failed to initialize V8 platform");
+        
+        let temp_dir = tempfile::tempdir().unwrap();
+        let js_path = temp_dir.path().join("index.js");
+        std::fs::write(&js_path, r#"
+export default {
+    fetch() {
+        return { status: 200, headers: { "Content-Type": "text/plain" }, body: "Hello from WinterCG handler" };
+    }
+};
+"#).unwrap();
+
+        let target = RouteTarget {
+            hostname: "js.example.com".to_string(),
+            handler_type: HandlerType::WinterCGHandler(js_path.to_str().unwrap().to_string()),
+        };
+
+        let request = NanoRequest::new(
+            "GET".to_string(),
+            NanoUrl::parse("http://js.example.com/").unwrap(),
+            NanoHeaders::new(),
+            None,
+        );
+
+        let response = target.handle(request).await;
+        assert_eq!(response.status(), 200);
+        assert!(response.body().is_some());
+        let body = String::from_utf8_lossy(response.body().as_ref().unwrap());
+        assert!(body.contains("Hello from WinterCG handler"));
+    }
+
+    #[tokio::test]
     async fn test_sliver_handler_response() {
+        crate::v8::platform::initialize_platform().expect("Failed to initialize V8 platform");
+        
+        let temp_dir = tempfile::tempdir().unwrap();
+        let js_path = temp_dir.path().join("index.js");
+        std::fs::write(&js_path, r#"
+export default {
+    fetch() {
+        return { status: 200, headers: { "Content-Type": "text/plain" }, body: "Hello from sliver handler" };
+    }
+};
+"#).unwrap();
+
         let target = RouteTarget {
             hostname: "sliver.example.com".to_string(),
             handler_type: HandlerType::WinterCGSliverHandler {
-                entrypoint: "/app/index.js".to_string(),
+                entrypoint: js_path.to_str().unwrap().to_string(),
                 hostname: "sliver.example.com".to_string(),
             },
         };
@@ -1238,12 +1303,9 @@ mod tests {
         );
 
         let response = target.handle(request).await;
-        // Direct handle() returns 503 because sliver JS execution requires
-        // worker pool dispatch (snapshot restoration needs isolate management)
-        assert_eq!(response.status(), 503);
+        assert_eq!(response.status(), 200);
         assert!(response.body().is_some());
         let body = String::from_utf8_lossy(response.body().as_ref().unwrap());
-        assert!(body.contains("ServiceUnavailable"));
-        assert!(body.contains("worker pool dispatch"));
+        assert!(body.contains("Hello from sliver handler"));
     }
 }

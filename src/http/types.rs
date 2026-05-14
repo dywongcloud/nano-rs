@@ -25,7 +25,7 @@ pub struct NanoRequest {
     method: String,
     url: NanoUrl,
     headers: NanoHeaders,
-    body: Option<Bytes>,  // D-05: In-memory body for now (streaming in Phase 6)
+    body: Option<Bytes>,  // D-05: In-memory body
 }
 
 impl NanoRequest {
@@ -81,7 +81,7 @@ impl NanoRequest {
     /// Create from axum request (used in router handler)
     ///
     /// Converts an axum request into a NanoRequest, buffering the body
-    /// in memory per D-05 (streaming will be added in Phase 6).
+    /// in memory per D-05.
     ///
     /// # Arguments
     ///
@@ -105,7 +105,6 @@ impl NanoRequest {
         let nano_headers = NanoHeaders::from_axum_headers(&headers);
         
         // D-05: Buffer small bodies in memory
-        // For now, buffer all bodies (streaming comes in Phase 6)
         let body_bytes = axum::body::to_bytes(body, 1048576)  // 1MB limit
             .await?;
         let body = if body_bytes.is_empty() { None } else { Some(body_bytes) };

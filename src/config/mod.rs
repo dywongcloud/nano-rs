@@ -168,9 +168,9 @@ pub struct AppLimits {
     /// Request timeout in seconds (1-300, default: 30)
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u32,
-    /// Number of worker threads (1-32, default: 4)
+    /// Number of worker threads (1-64, default: 4)
     #[serde(default = "default_workers")]
-    pub workers: usize,
+    pub workers: u32,
     /// CPU time limit in milliseconds (1-1000, default: 50 like Cloudflare Workers)
     #[serde(default = "default_cpu_time_ms")]
     pub cpu_time_ms: u32,
@@ -199,7 +199,7 @@ fn default_timeout_secs() -> u32 {
     30 // 30 seconds default
 }
 
-fn default_workers() -> usize {
+fn default_workers() -> u32 {
     4 // 4 workers default
 }
 
@@ -256,7 +256,7 @@ pub struct NanoConfig {
 pub struct GlobalSettings {
     /// Default workers per app
     #[serde(default = "default_workers")]
-    pub workers_per_app: usize,
+    pub workers_per_app: u32,
     /// Server bind address
     #[serde(default = "default_bind")]
     pub bind_address: String,
@@ -330,25 +330,31 @@ pub fn validate_config(config: &AppConfig, base_path: Option<&std::path::Path>) 
         }
     }
 
-    // Validate limits
-    if config.limits.memory_mb < 16 || config.limits.memory_mb > 2048 {
+    // Validate limits against TigerStyle constants
+    let memory_min = 16u32;
+    let memory_max = crate::limits::isolate::HEAP_SIZE_BYTES_MAX / (1024 * 1024);
+    if config.limits.memory_mb < memory_min || config.limits.memory_mb > memory_max {
         errors.add(format!(
-            "memory_mb must be between 16 and 2048, got {}",
-            config.limits.memory_mb
+            "memory_mb must be between {} and {}, got {}",
+            memory_min, memory_max, config.limits.memory_mb
         ));
     }
 
-    if config.limits.timeout_secs < 1 || config.limits.timeout_secs > 300 {
+    let timeout_min = 1u32;
+    let timeout_max = crate::limits::execution::TIMEOUT_MS / 1000;
+    if config.limits.timeout_secs < timeout_min || config.limits.timeout_secs > timeout_max {
         errors.add(format!(
-            "timeout_secs must be between 1 and 300, got {}",
-            config.limits.timeout_secs
+            "timeout_secs must be between {} and {}, got {}",
+            timeout_min, timeout_max, config.limits.timeout_secs
         ));
     }
 
-    if config.limits.workers < 1 || config.limits.workers > 32 {
+    let workers_min = 1u32;
+    let workers_max = crate::limits::queue::WORKERS_PER_APP_MAX;
+    if config.limits.workers < workers_min || config.limits.workers > workers_max {
         errors.add(format!(
-            "workers must be between 1 and 32, got {}",
-            config.limits.workers
+            "workers must be between {} and {}, got {}",
+            workers_min, workers_max, config.limits.workers
         ));
     }
 
@@ -609,7 +615,7 @@ mod tests {
                     "hostname": "api.example.com",
                     "entrypoint": "/apps/api.js",
                     "env_vars": {"API_KEY": "secret123"},
-                    "limits": {"memory_mb": 256, "timeout_secs": 60}
+                    "limits": {"memory_mb": 256, "timeout_secs": 30}
                 }
             ],
             "server": {

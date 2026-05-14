@@ -32,41 +32,10 @@ impl WebAssemblyAPI {
         let wasm_key = v8::String::new(&mut ctx_scope, "WebAssembly").unwrap();
 
         if global.get(&mut ctx_scope, wasm_key.into()).is_none() {
-            // If for some reason WebAssembly is not available, create a stub
-            // that will throw meaningful errors
-            let wasm_obj = v8::Object::new(&mut ctx_scope);
-
-            // Create stub compile function
-            let compile_stub = v8::FunctionTemplate::new(&mut ctx_scope, |scope: &mut v8::PinnedRef<v8::HandleScope>,
-                _args: v8::FunctionCallbackArguments,
-                mut _retval: v8::ReturnValue| {
-                let msg = v8::String::new(scope, "WebAssembly.compile is not available").unwrap();
-                let error = v8::Exception::error(scope, msg);
-                scope.throw_exception(error);
-            });
-            let compile_fn = compile_stub.get_function(&mut ctx_scope).unwrap();
-            let compile_name = v8::String::new(&mut ctx_scope, "compile").unwrap();
-            wasm_obj.set(&mut ctx_scope, compile_name.into(), compile_fn.into());
-
-            // Create stub instantiate function
-            let instantiate_stub = v8::FunctionTemplate::new(&mut ctx_scope, |scope: &mut v8::PinnedRef<v8::HandleScope>,
-                _args: v8::FunctionCallbackArguments,
-                mut _retval: v8::ReturnValue| {
-                let msg = v8::String::new(scope, "WebAssembly.instantiate is not available").unwrap();
-                let error = v8::Exception::error(scope, msg);
-                scope.throw_exception(error);
-            });
-            let instantiate_fn = instantiate_stub.get_function(&mut ctx_scope).unwrap();
-            let instantiate_name = v8::String::new(&mut ctx_scope, "instantiate").unwrap();
-            wasm_obj.set(&mut ctx_scope, instantiate_name.into(), instantiate_fn.into());
-            
-            // Set the stub WebAssembly object
-            global.set(&mut ctx_scope, wasm_key.into(), wasm_obj.into());
-
-            tracing::warn!("Created stub WebAssembly API - V8 WebAssembly not available");
-        } else {
-            tracing::debug!("WebAssembly API already available in V8");
+            panic!("V8 WebAssembly is not available. This runtime requires V8 with WebAssembly support.");
         }
+
+        tracing::debug!("WebAssembly API available in V8");
 
         // Add our validate function which provides additional Rust-side validation
         if let Some(wasm_val) = global.get(&mut ctx_scope, wasm_key.into()) {

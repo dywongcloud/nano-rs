@@ -25,7 +25,7 @@ use crate::vfs::{BackendFactory, MemoryBackend};
 use crate::config::{VfsBackendType, VfsDiskConfig};
 use crate::worker::HandlerTask;
 use crate::app::registry::AppRegistry;
-use crate::control_plane::{ControlPlane, ControlError};
+use crate::control_plane::ControlPlane;
 
 /// Error types for queue operations
 #[derive(Debug, Clone, PartialEq)]
@@ -486,7 +486,7 @@ impl WorkQueue {
                                 EntrypointWorkerPool::new(hostname, self.workers_per_pool)
                             }
                         }
-                        VfsBackendType::S3 | _ => {
+                        VfsBackendType::S3 => {
                             tracing::debug!("Using default memory backend for hostname: {}", hostname);
                             EntrypointWorkerPool::new(hostname, self.workers_per_pool)
                         }

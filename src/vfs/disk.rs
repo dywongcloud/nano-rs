@@ -257,40 +257,43 @@ impl DiskBackend {
         Ok((count, total_bytes))
     }
 
-    /// Check write limits
-    fn check_write_limits(&self, content_len: usize, is_new: bool, old_size: usize) -> VfsResult<()> {
-        // Check file size limit
-        if content_len > self.limits.file_size_bytes_max {
+    /// Check write bounds against configured resource constants
+    fn check_write_bounds(&self, content_len: usize, is_new: bool, old_size: usize) -> VfsResult<()> {
+        let file_size_max = self.limits.file_size_bytes_max;
+        let file_count_max = self.limits.files_count_max;
+        let total_storage_max = self.limits.total_storage_bytes_max;
+        let max_file_size = file_size_max as usize;
+        let max_file_count = file_count_max as usize;
+        let max_total_storage = total_storage_max as usize;
+
+        if content_len > max_file_size {
             return Err(VfsError::QuotaExceeded {
                 resource: "file_size".to_string(),
                 limit: self.limits.file_size_bytes_max,
-                current: content_len,
+                current: content_len as u32,
             });
         }
 
         if is_new {
-            // Check file count limit
             let current_count = self.file_count.load(Ordering::SeqCst);
-            if current_count >= self.limits.files_count_max {
+            if current_count >= max_file_count {
                 return Err(VfsError::QuotaExceeded {
                     resource: "file_count".to_string(),
                     limit: self.limits.files_count_max,
-                    current: current_count,
+                    current: current_count as u32,
                 });
             }
         }
 
-        // Calculate size delta
         let size_delta = content_len as i64 - old_size as i64;
         let current_total = self.total_bytes.load(Ordering::SeqCst) as i64;
         let new_total = (current_total + size_delta) as usize;
 
-        // Check total storage limit
-        if new_total > self.limits.total_storage_bytes_max {
+        if new_total > max_total_storage {
             return Err(VfsError::QuotaExceeded {
                 resource: "total_storage".to_string(),
                 limit: self.limits.total_storage_bytes_max,
-                current: current_total as usize,
+                current: current_total as u32,
             });
         }
 
@@ -329,8 +332,8 @@ impl VfsBackend for DiskBackend {
             Err(_) => (false, 0),
         };
 
-        // Check limits
-        self.check_write_limits(content_len, is_new, old_size)?;
+        // Check bounds
+        self.check_write_bounds(content_len, is_new, old_size)?;
 
         // Ensure parent directory exists
         Self::ensure_parent_dir(&fs_path).await?;

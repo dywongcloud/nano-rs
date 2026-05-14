@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::limits;
 use crate::worker::timeout::TimeoutConfig;
 
 /// Environment variables for an application
@@ -43,9 +44,9 @@ pub struct AppLimits {
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u32,
 
-    /// Number of worker threads (1-32, default: 4)
+    /// Number of worker threads (1-64, default: 4)
     #[serde(default = "default_workers")]
-    pub workers: usize,
+    pub workers: u32,
 
     /// CPU time limit in milliseconds (1-1000, default: 50 like Cloudflare Workers)
     #[serde(default = "default_cpu_time_ms")]
@@ -76,7 +77,7 @@ fn default_timeout_secs() -> u32 {
     30
 }
 
-fn default_workers() -> usize {
+fn default_workers() -> u32 {
     4
 }
 
@@ -390,33 +391,41 @@ pub fn validate_config(
         }
     }
 
-    // Validate limits
-    if config.limits.memory_mb < 16 || config.limits.memory_mb > 2048 {
+    // Validate limits against TigerStyle constants
+    let memory_min = 16u32;
+    let memory_max = limits::isolate::HEAP_SIZE_BYTES_MAX / (1024 * 1024);
+    if config.limits.memory_mb < memory_min || config.limits.memory_mb > memory_max {
         errors.add(format!(
-            "memory_mb must be between 16 and 2048, got {}",
-            config.limits.memory_mb
+            "memory_mb must be between {} and {}, got {}",
+            memory_min, memory_max, config.limits.memory_mb
         ));
     }
 
-    if config.limits.timeout_secs < 1 || config.limits.timeout_secs > 300 {
+    let timeout_min = 1u32;
+    let timeout_max = limits::execution::TIMEOUT_MS / 1000;
+    if config.limits.timeout_secs < timeout_min || config.limits.timeout_secs > timeout_max {
         errors.add(format!(
-            "timeout_secs must be between 1 and 300, got {}",
-            config.limits.timeout_secs
+            "timeout_secs must be between {} and {}, got {}",
+            timeout_min, timeout_max, config.limits.timeout_secs
         ));
     }
 
-    if config.limits.workers < 1 || config.limits.workers > 32 {
+    let workers_min = 1u32;
+    let workers_max = limits::queue::WORKERS_PER_APP_MAX;
+    if config.limits.workers < workers_min || config.limits.workers > workers_max {
         errors.add(format!(
-            "workers must be between 1 and 32, got {}",
-            config.limits.workers
+            "workers must be between {} and {}, got {}",
+            workers_min, workers_max, config.limits.workers
         ));
     }
 
     // Validate CPU time limits (1-1000ms)
-    if config.limits.cpu_time_ms < 1 || config.limits.cpu_time_ms > 1000 {
+    let cpu_min = 1u32;
+    let cpu_max = 1000u32;
+    if config.limits.cpu_time_ms < cpu_min || config.limits.cpu_time_ms > cpu_max {
         errors.add(format!(
-            "cpu_time_ms must be between 1 and 1000, got {}",
-            config.limits.cpu_time_ms
+            "cpu_time_ms must be between {} and {}, got {}",
+            cpu_min, cpu_max, config.limits.cpu_time_ms
         ));
     }
 

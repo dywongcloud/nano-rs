@@ -195,7 +195,7 @@ where
 mod tests {
     use super::*;
     use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
-    use std::sync::Arc;
+    
     
     #[test]
     fn test_vfs_capture_new() {

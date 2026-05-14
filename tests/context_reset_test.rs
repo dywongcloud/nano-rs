@@ -6,7 +6,6 @@
 //! - Performance under stress (100 resets)
 //! - Memory stability during context lifecycle
 
-use nano::http::NanoUrl;
 use nano::v8::{initialize_platform, NanoIsolate};
 use nano::worker::context::ContextManager;
 

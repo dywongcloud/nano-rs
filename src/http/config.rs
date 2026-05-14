@@ -41,7 +41,6 @@ pub struct ServerConfig {
     /// Virtual host routes for testing
     ///
     /// Pairs of (hostname, handler_name) for registering test routes.
-    /// Full configuration file support comes in Phase 5.
     ///
     /// Default: Example routes for api.example.com and blog.example.com
     pub routes: Vec<(String, String)>, // (hostname, handler_name)
@@ -135,7 +134,7 @@ impl ServerConfig {
 
         let host = std::env::var("NANO_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
 
-        // Default routes for from_env (full config file support in Phase 5)
+        // Default routes for from_env
         let routes = vec![
             ("api.example.com".to_string(), "api".to_string()),
             ("blog.example.com".to_string(), "blog".to_string()),

@@ -6,17 +6,24 @@ use p256::{
     ecdsa::{SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey, Signature as P256Signature},
     SecretKey as P256SecretKey,
     PublicKey as P256PublicKey,
-    pkcs8::DecodePublicKey as _,
+    pkcs8::{DecodePublicKey, EncodePublicKey},
 };
 use p384::{
     ecdsa::{SigningKey as P384SigningKey, VerifyingKey as P384VerifyingKey, Signature as P384Signature},
     SecretKey as P384SecretKey,
     PublicKey as P384PublicKey,
-    pkcs8::DecodePublicKey as _,
 };
 use signature::{Signer, Verifier};
 use crate::runtime::crypto::{CryptoKey, CryptoError, KeyUsage, HashAlgorithm};
 use crate::runtime::crypto::crypto_key::CryptoKeyHandle;
+
+/// Base64url decode without padding
+#[allow(dead_code)]
+fn base64_decode_url_safe(input: &str) -> Result<Vec<u8>, CryptoError> {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    URL_SAFE_NO_PAD.decode(input)
+        .map_err(|e| CryptoError::DataError(format!("Base64 decode error: {}", e)))
+}
 
 /// ECDSA algorithm parameters
 #[derive(Debug, Clone)]
@@ -38,7 +45,7 @@ pub fn generate_key(
         "P-256" => {
             // Generate P-256 key pair
             let secret_key = P256SecretKey::random(&mut rand::rngs::OsRng);
-            let signing_key = P256SigningKey::from(&secret_key);
+            let _signing_key = P256SigningKey::from(&secret_key);
 
             // Serialize private key to PKCS#8
             let private_key_bytes = secret_key.to_sec1_der()
@@ -66,7 +73,7 @@ pub fn generate_key(
         "P-384" => {
             // Generate P-384 key pair
             let secret_key = P384SecretKey::random(&mut rand::rngs::OsRng);
-            let signing_key = P384SigningKey::from(&secret_key);
+            let _signing_key = P384SigningKey::from(&secret_key);
 
             // Serialize private key to PKCS#8
             let private_key_bytes = secret_key.to_sec1_der()
@@ -164,12 +171,241 @@ pub fn import_key(
             }
         }
         "spki" => {
-            // Public key import (not implemented for now)
-            Err(CryptoError::NotSupported)
+            // Import public key from SPKI DER format
+            match named_curve {
+                "P-256" => {
+                    let public_key = P256PublicKey::from_public_key_der(key_data)
+                        .map_err(|e| CryptoError::DataError(format!("Failed to parse SPKI key: {}", e)))?;
+
+                    // Re-serialize to SPKI for storage
+                    let spki_bytes = public_key.to_public_key_der()
+                        .map_err(|_| CryptoError::OperationFailed)?
+                        .as_bytes()
+                        .to_vec();
+
+                    let alg = if algorithm == "ECDH" {
+                        crate::runtime::crypto::AlgorithmIdentifier::Ecdh {
+                            named_curve: named_curve.to_string(),
+                        }
+                    } else {
+                        crate::runtime::crypto::AlgorithmIdentifier::Ecdsa {
+                            named_curve: named_curve.to_string(),
+                            hash: HashAlgorithm::Sha256,
+                        }
+                    };
+
+                    Ok(CryptoKey::new_ecdsa_public(
+                        alg,
+                        spki_bytes,
+                        extractable,
+                        usages,
+                    ))
+                }
+                "P-384" => {
+                    let public_key = P384PublicKey::from_public_key_der(key_data)
+                        .map_err(|e| CryptoError::DataError(format!("Failed to parse SPKI key: {}", e)))?;
+
+                    // Re-serialize to SPKI for storage
+                    let spki_bytes = public_key.to_public_key_der()
+                        .map_err(|_| CryptoError::OperationFailed)?
+                        .as_bytes()
+                        .to_vec();
+
+                    let alg = if algorithm == "ECDH" {
+                        crate::runtime::crypto::AlgorithmIdentifier::Ecdh {
+                            named_curve: named_curve.to_string(),
+                        }
+                    } else {
+                        crate::runtime::crypto::AlgorithmIdentifier::Ecdsa {
+                            named_curve: named_curve.to_string(),
+                            hash: HashAlgorithm::Sha384,
+                        }
+                    };
+
+                    Ok(CryptoKey::new_ecdsa_public(
+                        alg,
+                        spki_bytes,
+                        extractable,
+                        usages,
+                    ))
+                }
+                _ => Err(CryptoError::InvalidAlgorithm(format!(
+                    "Unsupported named curve: {}", named_curve
+                ))),
+            }
         }
         "jwk" => {
-            // JWK import (not implemented for now)
-            Err(CryptoError::NotSupported)
+            // Parse JWK JSON
+            let jwk: serde_json::Value = serde_json::from_slice(key_data)
+                .map_err(|e| CryptoError::DataError(format!("Invalid JWK: {}", e)))?;
+
+            let crv = jwk.get("crv")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| CryptoError::DataError("Missing 'crv' in JWK".to_string()))?;
+
+            if crv != named_curve {
+                return Err(CryptoError::DataError(format!(
+                    "JWK curve '{}' does not match expected '{}'", crv, named_curve
+                )));
+            }
+
+            let x = jwk.get("x")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| CryptoError::DataError("Missing 'x' in JWK".to_string()))?;
+            let y = jwk.get("y")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| CryptoError::DataError("Missing 'y' in JWK".to_string()))?;
+
+            let x_bytes = base64_decode_url_safe(x)?;
+            let y_bytes = base64_decode_url_safe(y)?;
+
+            match named_curve {
+                "P-256" => {
+                    if x_bytes.len() != 32 || y_bytes.len() != 32 {
+                        return Err(CryptoError::DataError(
+                            "Invalid P-256 JWK coordinate length".to_string()
+                        ));
+                    }
+
+                    // Construct uncompressed SEC1 point: 0x04 || x || y
+                    let mut sec1_point = vec![0x04u8];
+                    sec1_point.extend_from_slice(&x_bytes);
+                    sec1_point.extend_from_slice(&y_bytes);
+
+                    let public_key = P256PublicKey::from_sec1_bytes(&sec1_point)
+                        .map_err(|e| CryptoError::DataError(format!("Invalid JWK public key: {}", e)))?;
+
+                    let spki_bytes = public_key.to_public_key_der()
+                        .map_err(|_| CryptoError::OperationFailed)?
+                        .as_bytes()
+                        .to_vec();
+
+                    // Check if private key component 'd' is present
+                    if let Some(d) = jwk.get("d").and_then(|v| v.as_str()) {
+                        let d_bytes = base64_decode_url_safe(d)?;
+                        if d_bytes.len() != 32 {
+                            return Err(CryptoError::DataError(
+                                "Invalid P-256 JWK private key length".to_string()
+                            ));
+                        }
+                        let secret_key = P256SecretKey::from_slice(&d_bytes)
+                            .map_err(|e| CryptoError::DataError(format!("Invalid JWK private key: {}", e)))?;
+                        let private_key_bytes = secret_key.to_sec1_der()
+                            .map_err(|_| CryptoError::OperationFailed)?
+                            .to_vec();
+
+                        let alg = if algorithm == "ECDH" {
+                            crate::runtime::crypto::AlgorithmIdentifier::Ecdh {
+                                named_curve: named_curve.to_string(),
+                            }
+                        } else {
+                            crate::runtime::crypto::AlgorithmIdentifier::Ecdsa {
+                                named_curve: named_curve.to_string(),
+                                hash: HashAlgorithm::Sha256,
+                            }
+                        };
+
+                        Ok(CryptoKey::new_ecdsa_private(
+                            alg,
+                            private_key_bytes,
+                            extractable,
+                            usages,
+                        ))
+                    } else {
+                        let alg = if algorithm == "ECDH" {
+                            crate::runtime::crypto::AlgorithmIdentifier::Ecdh {
+                                named_curve: named_curve.to_string(),
+                            }
+                        } else {
+                            crate::runtime::crypto::AlgorithmIdentifier::Ecdsa {
+                                named_curve: named_curve.to_string(),
+                                hash: HashAlgorithm::Sha256,
+                            }
+                        };
+
+                        Ok(CryptoKey::new_ecdsa_public(
+                            alg,
+                            spki_bytes,
+                            extractable,
+                            usages,
+                        ))
+                    }
+                }
+                "P-384" => {
+                    if x_bytes.len() != 48 || y_bytes.len() != 48 {
+                        return Err(CryptoError::DataError(
+                            "Invalid P-384 JWK coordinate length".to_string()
+                        ));
+                    }
+
+                    // Construct uncompressed SEC1 point: 0x04 || x || y
+                    let mut sec1_point = vec![0x04u8];
+                    sec1_point.extend_from_slice(&x_bytes);
+                    sec1_point.extend_from_slice(&y_bytes);
+
+                    let public_key = P384PublicKey::from_sec1_bytes(&sec1_point)
+                        .map_err(|e| CryptoError::DataError(format!("Invalid JWK public key: {}", e)))?;
+
+                    let spki_bytes = public_key.to_public_key_der()
+                        .map_err(|_| CryptoError::OperationFailed)?
+                        .as_bytes()
+                        .to_vec();
+
+                    // Check if private key component 'd' is present
+                    if let Some(d) = jwk.get("d").and_then(|v| v.as_str()) {
+                        let d_bytes = base64_decode_url_safe(d)?;
+                        if d_bytes.len() != 48 {
+                            return Err(CryptoError::DataError(
+                                "Invalid P-384 JWK private key length".to_string()
+                            ));
+                        }
+                        let secret_key = P384SecretKey::from_slice(&d_bytes)
+                            .map_err(|e| CryptoError::DataError(format!("Invalid JWK private key: {}", e)))?;
+                        let private_key_bytes = secret_key.to_sec1_der()
+                            .map_err(|_| CryptoError::OperationFailed)?
+                            .to_vec();
+
+                        let alg = if algorithm == "ECDH" {
+                            crate::runtime::crypto::AlgorithmIdentifier::Ecdh {
+                                named_curve: named_curve.to_string(),
+                            }
+                        } else {
+                            crate::runtime::crypto::AlgorithmIdentifier::Ecdsa {
+                                named_curve: named_curve.to_string(),
+                                hash: HashAlgorithm::Sha384,
+                            }
+                        };
+
+                        Ok(CryptoKey::new_ecdsa_private(
+                            alg,
+                            private_key_bytes,
+                            extractable,
+                            usages,
+                        ))
+                    } else {
+                        let alg = if algorithm == "ECDH" {
+                            crate::runtime::crypto::AlgorithmIdentifier::Ecdh {
+                                named_curve: named_curve.to_string(),
+                            }
+                        } else {
+                            crate::runtime::crypto::AlgorithmIdentifier::Ecdsa {
+                                named_curve: named_curve.to_string(),
+                                hash: HashAlgorithm::Sha384,
+                            }
+                        };
+
+                        Ok(CryptoKey::new_ecdsa_public(
+                            alg,
+                            spki_bytes,
+                            extractable,
+                            usages,
+                        ))
+                    }
+                }
+                _ => Err(CryptoError::InvalidAlgorithm(format!(
+                    "Unsupported named curve: {}", named_curve
+                ))),
+            }
         }
         _ => Err(CryptoError::NotSupported),
     }
@@ -308,7 +544,7 @@ pub fn derive_bits(
                 secret_key.to_nonzero_scalar(),
                 public_key.as_affine()
             );
-            shared.raw_secret_bytes().as_slice().to_vec()
+            (&*shared.raw_secret_bytes()).to_vec()
         }
         "P-384" => {
             let secret_key = P384SecretKey::from_sec1_der(priv_bytes)
@@ -319,7 +555,7 @@ pub fn derive_bits(
                 secret_key.to_nonzero_scalar(),
                 public_key.as_affine()
             );
-            shared.raw_secret_bytes().as_slice().to_vec()
+            (&*shared.raw_secret_bytes()).to_vec()
         }
         _ => return Err(CryptoError::InvalidAlgorithm(format!("Unsupported curve for ECDH: {}", named_curve))),
     };

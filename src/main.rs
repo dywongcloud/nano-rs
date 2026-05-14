@@ -460,7 +460,6 @@ async fn run_from_sliver(
 /// - Sliver-based app support
 ///
 /// Note: Entrypoint-only apps use basic WorkQueue dispatch.
-/// Full EntrypointWorkerPool can be added in Phase 19.2 if needed.
 async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
     tracing::info!("Starting NANO with config: {}", config_path.display());
 

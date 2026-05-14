@@ -67,6 +67,7 @@ impl ContextManager {
     }
 
     /// Generate a new isolate_id (call this when replacing the isolate, e.g., after OOM)
+    #[allow(dead_code)]
     fn regenerate_isolate_id(&mut self) {
         self.isolate_id = IsolateId::generate();
         tracing::debug!("Isolate ID regenerated after replacement: {}", self.isolate_id);
@@ -76,7 +77,7 @@ impl ContextManager {
     pub fn create_initial_context(&mut self) -> Result<()> {
         // v147 API: HandleScope requires pin! + init
         let scope_storage = std::pin::pin!(v8::HandleScope::new(self.isolate.isolate()));
-        let mut scope = scope_storage.init();
+        let scope = scope_storage.init();
         let context = v8::Context::new(&scope, Default::default());
         let global_context = v8::Global::new(&scope, context);
 
@@ -97,7 +98,7 @@ impl ContextManager {
         // Create new context with clean global scope
         // v147 API: HandleScope requires pin! + init
         let scope_storage = std::pin::pin!(v8::HandleScope::new(self.isolate.isolate()));
-        let mut scope = scope_storage.init();
+        let scope = scope_storage.init();
         let new_context = v8::Context::new(&scope, Default::default());
         let global_context = v8::Global::new(&scope, new_context);
 

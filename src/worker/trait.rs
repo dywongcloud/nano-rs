@@ -1,7 +1,6 @@
 //! WorkerPool trait - unifying interface for all pool types
 //!
-//! This trait was created in Phase 999.2 to consolidate duplicate
-//! WorkerPool implementations from pool.rs and queue.rs.
+//! Consolidates WorkerPool implementations from pool.rs and queue.rs.
 //!
 //! ## Architecture
 //!
@@ -164,6 +163,7 @@ mod tests {
     fn test_worker_pool_object_safe() {
         // This is a compile-time check
         // If WorkerPool trait is object-safe, this compiles
+        #[allow(dead_code)]
         fn assert_object_safe<T: WorkerPool>() {}
         
         // The trait has methods that take &self (not &mut self) and don't use generics

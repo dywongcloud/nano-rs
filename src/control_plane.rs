@@ -5,15 +5,15 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::{
     assert_positive, assert_negative, assert_precondition, assert_postcondition,
     assert_invariant, assert_range, assert_resource_limit,
 };
 use crate::limits::*;
-use crate::worker::{HandlerTask, WorkQueue, QueueError};
-use crate::http::{NanoRequest, NanoResponse};
+use crate::worker::HandlerTask;
+use crate::http::NanoResponse;
 
 /// Maximum number of requests in a single batch.
 pub const BATCH_SIZE_MAX: usize = 64;
@@ -81,7 +81,6 @@ pub struct ValidatedRequest {
 }
 
 /// Batch of requests targeting the same tenant.
-#[derive(Debug)]
 pub struct RequestBatch {
     /// Tenant identifier
     pub tenant_id: String,
@@ -287,7 +286,7 @@ impl ControlPlane {
 
         // BATCH BY TENANT
         let mut batch_queue = self.batch_queue.lock().unwrap();
-        let batch_id = batch_queue.add_to_batch(validated).map_err(|e| e)?;
+        let _batch_id = batch_queue.add_to_batch(validated).map_err(|e| e)?;
 
         // POSTCONDITION: Batch queue must not exceed maximum pending batches
         assert_postcondition!(

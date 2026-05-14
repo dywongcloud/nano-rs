@@ -464,23 +464,26 @@ pub mod security {
 
         /// Check if a write operation is allowed
         pub fn check_write(&self, file_size: usize, is_new_file: bool) -> VfsResult<()> {
-            // Check file size limit
-            if file_size > self.limits.file_size_bytes_max {
+            let file_size_max = self.limits.file_size_bytes_max;
+            let file_count_max = self.limits.files_count_max;
+            let max_file_size = file_size_max as usize;
+            let max_file_count = file_count_max as usize;
+
+            if file_size > max_file_size {
                 return Err(VfsError::QuotaExceeded {
                     resource: "file_size".to_string(),
                     limit: self.limits.file_size_bytes_max,
-                    current: file_size,
+                    current: file_size as u32,
                 });
             }
 
-            // Check file count limit for new files
             if is_new_file {
                 let current_count = self.file_count.load(Ordering::SeqCst);
-                if current_count >= self.limits.files_count_max {
+                if current_count >= max_file_count {
                     return Err(VfsError::QuotaExceeded {
                         resource: "file_count".to_string(),
                         limit: self.limits.files_count_max,
-                        current: current_count,
+                        current: current_count as u32,
                     });
                 }
             }
@@ -488,15 +491,17 @@ pub mod security {
             Ok(())
         }
 
-        /// Check total storage limit with a proposed delta
+        /// Check total storage against a proposed delta
         pub fn check_total_storage(&self, size_delta: i64, current_total: usize) -> VfsResult<()> {
+            let total_storage_max = self.limits.total_storage_bytes_max;
+            let max_total_storage = total_storage_max as usize;
             let new_total = (current_total as i64 + size_delta) as usize;
 
-            if new_total > self.limits.total_storage_bytes_max {
+            if new_total > max_total_storage {
                 return Err(VfsError::QuotaExceeded {
                     resource: "total_storage".to_string(),
                     limit: self.limits.total_storage_bytes_max,
-                    current: current_total,
+                    current: current_total as u32,
                 });
             }
 

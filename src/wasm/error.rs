@@ -12,8 +12,8 @@ pub enum WasmError {
     #[error("WASM module validation failed: {0}")]
     ValidationError(String),
     
-    #[error("Memory limit exceeded: {used} > {limit}")]
-    MemoryLimitExceeded { used: usize, limit: usize },
+    #[error("Memory limit exceeded: {used} > {max}")]
+    MemoryLimitExceeded { used: u32, max: u32 },
     
     #[error("WASI error: {0}")]
     WasiError(String),

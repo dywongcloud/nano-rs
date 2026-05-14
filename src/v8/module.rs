@@ -686,7 +686,7 @@ fn module_resolve_callback<'a>(
     // Convert specifier to Rust string
     // v147 API: CallbackScope uses pin! + init() pattern
     let callback_scope = unsafe { v8::CallbackScope::new(context) };
-    let mut callback_scope = std::pin::pin!(callback_scope);
+    let callback_scope = std::pin::pin!(callback_scope);
     let callback_scope = callback_scope.init();
     // v147 API: to_rust_string_lossy expects &Isolate, get via Deref from PinnedRef
     // Note: CallbackScope derefs to PinnedRef<HandleScope>, which derefs to Isolate
@@ -780,11 +780,12 @@ fn module_resolve_callback<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http::{NanoHeaders, NanoRequest, NanoUrl};
+    
     use crate::v8::platform;
     use crate::vfs::{MemoryBackend, VfsNamespace};
-    use std::sync::Arc;
+    
 
+    #[allow(dead_code)]
     fn init_platform() {
         platform::initialize_platform().expect("Failed to initialize V8 platform");
     }

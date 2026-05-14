@@ -18,7 +18,6 @@
 #[path = "common.rs"]
 mod common;
 use common::{init_platform, create_test_vfs, SecurityTestContext};
-use nano::runtime::fs_polyfill::set_current_vfs;
 
 /// Helper to execute code with V8 v147 scope pattern
 fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
@@ -36,7 +35,7 @@ where
 /// Mitigation: Path validator rejects all ".." components
 #[test]
 fn test_traversal_basic_blocked() {
-    let ctx = SecurityTestContext::new("vfs-traversal.example.com");
+    let _ctx = SecurityTestContext::new("vfs-traversal.example.com");
     
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(handle_scope, nano_isolate.isolate());
@@ -67,7 +66,7 @@ fn test_traversal_basic_blocked() {
 /// Mitigation: Path validation after decoding
 #[test]
 fn test_traversal_encoded_blocked() {
-    let ctx = SecurityTestContext::new("vfs-encoded.example.com");
+    let _ctx = SecurityTestContext::new("vfs-encoded.example.com");
     
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
@@ -104,7 +103,7 @@ fn test_traversal_encoded_blocked() {
 /// Mitigation: Single decode only, remaining % characters don't form valid traversal
 #[test]
 fn test_traversal_double_encoded_blocked() {
-    let ctx = SecurityTestContext::new("vfs-double-enc.example.com");
+    let _ctx = SecurityTestContext::new("vfs-double-enc.example.com");
     
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
@@ -142,7 +141,7 @@ fn test_traversal_double_encoded_blocked() {
 /// Mitigation: Null byte validation in path
 #[test]
 fn test_traversal_null_byte_blocked() {
-    let ctx = SecurityTestContext::new("vfs-null.example.com");
+    let _ctx = SecurityTestContext::new("vfs-null.example.com");
     
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
@@ -243,7 +242,7 @@ fn test_symlink_escape_blocked() {
 /// Mitigation: Absolute paths are validated the same as relative
 #[test]
 fn test_absolute_path_blocked() {
-    let ctx = SecurityTestContext::new("vfs-absolute.example.com");
+    let _ctx = SecurityTestContext::new("vfs-absolute.example.com");
     
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
@@ -277,7 +276,7 @@ fn test_absolute_path_blocked() {
 /// Mitigation: All case variants blocked
 #[test]
 fn test_traversal_case_variants_blocked() {
-    let ctx = SecurityTestContext::new("vfs-case.example.com");
+    let _ctx = SecurityTestContext::new("vfs-case.example.com");
     
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
@@ -324,7 +323,7 @@ fn test_traversal_case_variants_blocked() {
 /// Mitigation: Any occurrence of ".." as path component is blocked
 #[test]
 fn test_traversal_nested_deep_blocked() {
-    let ctx = SecurityTestContext::new("vfs-deep.example.com");
+    let _ctx = SecurityTestContext::new("vfs-deep.example.com");
     
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
@@ -356,7 +355,7 @@ fn test_traversal_nested_deep_blocked() {
 /// Mitigation: Null byte detected, path rejected
 #[test]
 fn test_traversal_with_null_blocked() {
-    let ctx = SecurityTestContext::new("vfs-null-trav.example.com");
+    let _ctx = SecurityTestContext::new("vfs-null-trav.example.com");
     
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
@@ -391,7 +390,7 @@ fn test_directory_traversal_listing() {
     // This test documents that readdir is not exposed
     // readdir is intentionally not implemented in the fs polyfill
     
-    let ctx = SecurityTestContext::new("vfs-listing.example.com");
+    let _ctx = SecurityTestContext::new("vfs-listing.example.com");
     
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
@@ -418,7 +417,7 @@ fn test_directory_traversal_listing() {
 /// Mitigation: Write operations validated same as reads
 #[test]
 fn test_write_to_parent_blocked() {
-    let ctx = SecurityTestContext::new("vfs-write-parent.example.com");
+    let _ctx = SecurityTestContext::new("vfs-write-parent.example.com");
     
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());

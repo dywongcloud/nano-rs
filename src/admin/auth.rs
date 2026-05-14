@@ -204,8 +204,8 @@ pub async fn api_key_middleware_forbidden(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::Body;
-    use axum::http::{Request, StatusCode};
+    
+    use axum::http::StatusCode;
 
     #[test]
     fn test_admin_auth_new() {

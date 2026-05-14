@@ -119,7 +119,7 @@ impl NanoProcess {
         
         // Create config with limits
         let entrypoint_abs = temp_dir.join(entrypoint).to_str().unwrap().to_string();
-        let base_path = temp_dir.to_str().unwrap();
+        let _base_path = temp_dir.to_str().unwrap();
         
         let config = format!(r#"{{
   "apps": [{{
@@ -248,7 +248,7 @@ fn cleanup_test_dir(path: &PathBuf) {
 }
 
 /// Wait for server to be ready (synchronous version)
-pub fn wait_for_server_sync(port: u16, hostname: &str, max_wait_secs: u64) -> Result<(), String> {
+pub fn wait_for_server_sync(port: u16, _hostname: &str, max_wait_secs: u64) -> Result<(), String> {
     std::thread::sleep(Duration::from_millis(500));
     
     let start = Instant::now();

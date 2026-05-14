@@ -4,14 +4,15 @@
 
 use rsa::{
     RsaPrivateKey, RsaPublicKey,
-    pss::{SigningKey, VerifyingKey},
+    pss::{SigningKey as PssSigningKey, VerifyingKey as PssVerifyingKey},
+    pkcs1v15::{SigningKey as Pkcs1v15SigningKey, VerifyingKey as Pkcs1v15VerifyingKey},
     sha2::{Sha256, Sha384, Sha512},
     oaep::Oaep,
     BigUint,
 };
-use signature::{RandomizedSigner, Verifier};
+use signature::{RandomizedSigner, Signer, Verifier};
 use rand::rngs::OsRng;
-use crate::runtime::crypto::{CryptoKey, CryptoError, KeyUsage};
+use crate::runtime::crypto::{CryptoKey, CryptoError, KeyUsage, HashAlgorithm};
 
 /// RSA-OAEP encryption parameters
 #[derive(Debug, Clone)]
@@ -168,11 +169,23 @@ pub fn import_key(
                     usages,
                 ))
             } else {
-                // Public key only
+                // Public key only - reconstruct and store as SPKI
                 let public_key = RsaPublicKey::new(modulus, exponent)
                     .map_err(|_| CryptoError::OperationFailed)?;
 
-                Err(CryptoError::NotSupported)
+                // Serialize to SPKI format for storage
+                use rsa::pkcs8::EncodePublicKey;
+                let public_key_bytes = public_key.to_public_key_der()
+                    .map_err(|_| CryptoError::OperationFailed)?
+                    .as_bytes()
+                    .to_vec();
+
+                Ok(CryptoKey::new_rsa_public(
+                    alg_id,
+                    public_key_bytes,
+                    extractable,
+                    usages,
+                ))
             }
         }
         _ => Err(CryptoError::NotSupported),
@@ -183,7 +196,7 @@ pub fn import_key(
 ///
 /// WebCrypto: exportKey with format "jwk", "pkcs8", "spki"
 pub fn export_key(
-    format: &str,
+    _format: &str,
     key: &CryptoKey,
 ) -> Result<Vec<u8>, CryptoError> {
     if !key.extractable {
@@ -217,7 +230,7 @@ pub fn encrypt(
     // Encrypt the data
     let mut rng = OsRng;
     let encrypted = public_key.encrypt(&mut rng, oaep, data)
-        .map_err(|e| CryptoError::OperationFailed)?;
+        .map_err(|_e| CryptoError::OperationFailed)?;
 
     Ok(encrypted)
 }
@@ -243,7 +256,7 @@ pub fn decrypt(
 
     // Decrypt the data
     let decrypted = private_key.decrypt(oaep, data)
-        .map_err(|e| CryptoError::OperationFailed)?;
+        .map_err(|_e| CryptoError::OperationFailed)?;
 
     Ok(decrypted)
 }
@@ -261,10 +274,10 @@ pub fn sign(
 
     match algorithm {
         "RSA-PSS" => {
-            let salt_len = params.map(|p| p.salt_length).unwrap_or(32);
+            let _salt_len = params.map(|p| p.salt_length).unwrap_or(32);
 
             // Create PSS signing key
-            let signing_key = SigningKey::<Sha256>::new(private_key);
+            let signing_key = PssSigningKey::<Sha256>::new(private_key);
 
             // Sign the data
             use rsa::signature::SignatureEncoding;
@@ -274,8 +287,30 @@ pub fn sign(
             Ok(signature.to_bytes().to_vec())
         }
         "RSASSA-PKCS1-v1_5" => {
-            // PKCS#1 v1.5 signature (not implemented - requires different crate setup)
-            Err(CryptoError::NotSupported)
+            // Get the hash algorithm from the key's algorithm identifier
+            let hash = match &key.algorithm {
+                crate::runtime::crypto::AlgorithmIdentifier::RsaSsaPkcs1V1_5 { hash } => *hash,
+                _ => HashAlgorithm::Sha256,
+            };
+
+            // Create PKCS#1 v1.5 signing key with the appropriate hash
+            let signature = match hash {
+                HashAlgorithm::Sha256 => {
+                    let signing_key = Pkcs1v15SigningKey::<Sha256>::new(private_key);
+                    signing_key.sign(data)
+                }
+                HashAlgorithm::Sha384 => {
+                    let signing_key = Pkcs1v15SigningKey::<Sha384>::new(private_key);
+                    signing_key.sign(data)
+                }
+                HashAlgorithm::Sha512 => {
+                    let signing_key = Pkcs1v15SigningKey::<Sha512>::new(private_key);
+                    signing_key.sign(data)
+                }
+            };
+
+            use rsa::signature::SignatureEncoding;
+            Ok(signature.to_bytes().to_vec())
         }
         _ => Err(CryptoError::InvalidAlgorithm(algorithm.to_string())),
     }
@@ -289,14 +324,14 @@ pub fn verify(
     signature: &[u8],
     data: &[u8],
     algorithm: &str,
-    params: Option<&RsaPssParams>,
+    _params: Option<&RsaPssParams>,
 ) -> Result<bool, CryptoError> {
     let public_key = get_public_key(key)?;
 
     match algorithm {
         "RSA-PSS" => {
             // Create PSS verifying key
-            let verifying_key = VerifyingKey::<Sha256>::new(public_key);
+            let verifying_key = PssVerifyingKey::<Sha256>::new(public_key);
 
             // Parse the signature
             use rsa::pss::Signature as PssSignature;
@@ -310,8 +345,41 @@ pub fn verify(
             }
         }
         "RSASSA-PKCS1-v1_5" => {
-            // PKCS#1 v1.5 verification (not implemented)
-            Err(CryptoError::NotSupported)
+            // Get the hash algorithm from the key's algorithm identifier
+            let hash = match &key.algorithm {
+                crate::runtime::crypto::AlgorithmIdentifier::RsaSsaPkcs1V1_5 { hash } => *hash,
+                _ => HashAlgorithm::Sha256,
+            };
+
+            // Verify using PKCS#1 v1.5 with the appropriate hash
+            let result = match hash {
+                HashAlgorithm::Sha256 => {
+                    let verifying_key = Pkcs1v15VerifyingKey::<Sha256>::new(public_key);
+                    use rsa::pkcs1v15::Signature as Pkcs1v15Signature;
+                    let sig = Pkcs1v15Signature::try_from(signature)
+                        .map_err(|_| CryptoError::DataError("Invalid signature".to_string()))?;
+                    verifying_key.verify(data, &sig)
+                }
+                HashAlgorithm::Sha384 => {
+                    let verifying_key = Pkcs1v15VerifyingKey::<Sha384>::new(public_key);
+                    use rsa::pkcs1v15::Signature as Pkcs1v15Signature;
+                    let sig = Pkcs1v15Signature::try_from(signature)
+                        .map_err(|_| CryptoError::DataError("Invalid signature".to_string()))?;
+                    verifying_key.verify(data, &sig)
+                }
+                HashAlgorithm::Sha512 => {
+                    let verifying_key = Pkcs1v15VerifyingKey::<Sha512>::new(public_key);
+                    use rsa::pkcs1v15::Signature as Pkcs1v15Signature;
+                    let sig = Pkcs1v15Signature::try_from(signature)
+                        .map_err(|_| CryptoError::DataError("Invalid signature".to_string()))?;
+                    verifying_key.verify(data, &sig)
+                }
+            };
+
+            match result {
+                Ok(_) => Ok(true),
+                Err(_) => Ok(false),
+            }
         }
         _ => Err(CryptoError::InvalidAlgorithm(algorithm.to_string())),
     }

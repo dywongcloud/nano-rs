@@ -17,15 +17,15 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 use bytes::Bytes;
 
-use crate::http::{NanoHeaders, NanoResponse};
+use crate::http::NanoResponse;
 use crate::runtime::{HandlerContext, async_support};
 use crate::runtime::apis::RuntimeAPIs;
 use crate::v8::module::{is_esm_module, transform_module_code};
 use crate::worker::context::ContextManager;
 use crate::worker::HandlerTask;
 
-/// Thread-local storage for the worker thread's Tokio runtime handle.
-/// This allows fetch() and other async operations to access the runtime.
+// Thread-local storage for the worker thread's Tokio runtime handle.
+// This allows fetch() and other async operations to access the runtime.
 thread_local! {
     static WORKER_RUNTIME: RefCell<Option<tokio::runtime::Handle>> = RefCell::new(None);
 }

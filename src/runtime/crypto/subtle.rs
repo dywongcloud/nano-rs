@@ -30,8 +30,8 @@ impl SubtleCrypto {
     /// WebCrypto spec: https://www.w3.org/TR/WebCryptoAPI/#SubtleCrypto-method-generateKey
     pub fn generate_key(
         algorithm: &str,
-        extractable: bool,
-        usages: Vec<KeyUsage>,
+        _extractable: bool,
+        _usages: Vec<KeyUsage>,
     ) -> Result<CryptoKey, CryptoError> {
         match algorithm {
             _ => Err(CryptoError::NotSupported),
@@ -43,10 +43,10 @@ impl SubtleCrypto {
     /// WebCrypto spec: https://www.w3.org/TR/WebCryptoAPI/#SubtleCrypto-method-importKey
     pub fn import_key(
         format: &str,
-        key_data: &[u8],
-        algorithm: &str,
-        extractable: bool,
-        usages: Vec<KeyUsage>,
+        _key_data: &[u8],
+        _algorithm: &str,
+        _extractable: bool,
+        _usages: Vec<KeyUsage>,
     ) -> Result<CryptoKey, CryptoError> {
         match format {
             _ => Err(CryptoError::NotSupported),
@@ -58,7 +58,7 @@ impl SubtleCrypto {
     /// WebCrypto spec: https://www.w3.org/TR/WebCryptoAPI/#SubtleCrypto-method-exportKey
     pub fn export_key(
         format: &str,
-        key: &CryptoKey,
+        _key: &CryptoKey,
     ) -> Result<Vec<u8>, CryptoError> {
         match format {
             _ => Err(CryptoError::NotSupported),
@@ -70,8 +70,8 @@ impl SubtleCrypto {
     /// WebCrypto spec: https://www.w3.org/TR/WebCryptoAPI/#SubtleCrypto-method-encrypt
     pub fn encrypt(
         algorithm: &str,
-        key: &CryptoKey,
-        data: &[u8],
+        _key: &CryptoKey,
+        _data: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
         match algorithm {
             _ => Err(CryptoError::NotSupported),
@@ -83,8 +83,8 @@ impl SubtleCrypto {
     /// WebCrypto spec: https://www.w3.org/TR/WebCryptoAPI/#SubtleCrypto-method-decrypt
     pub fn decrypt(
         algorithm: &str,
-        key: &CryptoKey,
-        data: &[u8],
+        _key: &CryptoKey,
+        _data: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
         match algorithm {
             _ => Err(CryptoError::NotSupported),
@@ -96,8 +96,8 @@ impl SubtleCrypto {
     /// WebCrypto spec: https://www.w3.org/TR/WebCryptoAPI/#SubtleCrypto-method-sign
     pub fn sign(
         algorithm: &str,
-        key: &CryptoKey,
-        data: &[u8],
+        _key: &CryptoKey,
+        _data: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
         match algorithm {
             _ => Err(CryptoError::NotSupported),
@@ -109,9 +109,9 @@ impl SubtleCrypto {
     /// WebCrypto spec: https://www.w3.org/TR/WebCryptoAPI/#SubtleCrypto-method-verify
     pub fn verify(
         algorithm: &str,
-        key: &CryptoKey,
-        signature: &[u8],
-        data: &[u8],
+        _key: &CryptoKey,
+        _signature: &[u8],
+        _data: &[u8],
     ) -> Result<bool, CryptoError> {
         match algorithm {
             _ => Err(CryptoError::NotSupported),
@@ -154,10 +154,10 @@ impl SubtleCrypto {
     /// WebCrypto spec: https://www.w3.org/TR/WebCryptoAPI/#SubtleCrypto-method-deriveKey
     pub fn derive_key(
         algorithm: &str,
-        base_key: &CryptoKey,
-        derived_key_algorithm: &str,
-        extractable: bool,
-        usages: Vec<KeyUsage>,
+        _base_key: &CryptoKey,
+        _derived_key_algorithm: &str,
+        _extractable: bool,
+        _usages: Vec<KeyUsage>,
     ) -> Result<CryptoKey, CryptoError> {
         match algorithm {
             _ => Err(CryptoError::NotSupported),
@@ -169,8 +169,8 @@ impl SubtleCrypto {
     /// WebCrypto spec: https://www.w3.org/TR/WebCryptoAPI/#SubtleCrypto-method-deriveBits
     pub fn derive_bits(
         algorithm: &str,
-        base_key: &CryptoKey,
-        length: u32,
+        _base_key: &CryptoKey,
+        _length: u32,
     ) -> Result<Vec<u8>, CryptoError> {
         match algorithm {
             _ => Err(CryptoError::NotSupported),
@@ -182,9 +182,9 @@ impl SubtleCrypto {
     /// WebCrypto spec: https://www.w3.org/TR/WebCryptoAPI/#SubtleCrypto-method-wrapKey
     pub fn wrap_key(
         format: &str,
-        key: &CryptoKey,
-        wrapping_key: &CryptoKey,
-        wrap_algorithm: &str,
+        _key: &CryptoKey,
+        _wrapping_key: &CryptoKey,
+        _wrap_algorithm: &str,
     ) -> Result<Vec<u8>, CryptoError> {
         match format {
             _ => Err(CryptoError::NotSupported),
@@ -196,12 +196,12 @@ impl SubtleCrypto {
     /// WebCrypto spec: https://www.w3.org/TR/WebCryptoAPI/#SubtleCrypto-method-unwrapKey
     pub fn unwrap_key(
         format: &str,
-        wrapped_key: &[u8],
-        unwrapping_key: &CryptoKey,
-        unwrap_algorithm: &str,
-        unwrapped_key_algorithm: &str,
-        extractable: bool,
-        usages: Vec<KeyUsage>,
+        _wrapped_key: &[u8],
+        _unwrapping_key: &CryptoKey,
+        _unwrap_algorithm: &str,
+        _unwrapped_key_algorithm: &str,
+        _extractable: bool,
+        _usages: Vec<KeyUsage>,
     ) -> Result<CryptoKey, CryptoError> {
         match format {
             _ => Err(CryptoError::NotSupported),

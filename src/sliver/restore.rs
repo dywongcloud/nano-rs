@@ -99,7 +99,7 @@ mod tests {
     use crate::sliver::packer::pack_sliver;
     use crate::sliver::unpacker::unpack_sliver;
     use crate::vfs::{IsolateVfs, MemoryBackend, VfsFile, VfsNamespace, VfsPath};
-    use std::sync::Arc;
+    
 
     #[tokio::test]
     async fn test_restore_vfs_to_isolate() {

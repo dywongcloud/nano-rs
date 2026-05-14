@@ -15,7 +15,7 @@ pub struct IsolateInfo {
     /// Hostname this isolate serves
     pub hostname: String,
     /// Worker thread ID
-    pub worker_id: usize,
+    pub worker_id: u32,
     /// When the isolate was created
     pub created_at: Instant,
     /// Number of requests processed
@@ -42,7 +42,7 @@ pub struct AppStats {
     /// Hostname
     pub hostname: String,
     /// Number of active workers
-    pub worker_count: usize,
+    pub worker_count: u32,
     /// Total requests served
     pub total_requests: u64,
     /// Average memory per isolate
@@ -58,7 +58,7 @@ pub struct AppStats {
 pub struct AppConfigSnapshot {
     pub memory_limit_mb: u32,
     pub timeout_secs: u32,
-    pub workers: usize,
+    pub workers: u32,
 }
 
 /// System-wide diagnostics snapshot
@@ -217,7 +217,10 @@ impl DiagnosticsCollector {
                         worker_id,
                         created_at: Instant::now() - Duration::from_secs(60), // Simulated
                         request_count: 42 + (worker_id as u64 * 10), // Simulated
-                        memory_bytes: Some((app_config.limits.memory_mb as usize) * 1024 * 1024 / 4),
+                        memory_bytes: Some({
+                            let mb = app_config.limits.memory_mb;
+                            (mb as usize) * 1024 * 1024 / 4
+                        }),
                         busy: worker_id % 2 == 0, // Simulated: alternating busy/idle
                         env_keys: app_config.env_vars.keys().cloned().collect(),
                     });

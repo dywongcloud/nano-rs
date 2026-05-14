@@ -108,7 +108,7 @@ pub struct IsolateMetadata {
     /// Hostname this isolate serves
     pub hostname: String,
     /// Worker ID (index in the pool)
-    pub worker_id: usize,
+    pub worker_id: u32,
     /// When this isolate was last used
     pub last_used: Instant,
     /// How many times this isolate has been used
@@ -125,7 +125,7 @@ pub struct IsolateMetadata {
 
 impl IsolateMetadata {
     /// Create new metadata for an isolate
-    pub fn new(hostname: impl Into<String>, worker_id: usize) -> Self {
+    pub fn new(hostname: impl Into<String>, worker_id: u32) -> Self {
         Self {
             hostname: hostname.into(),
             worker_id,

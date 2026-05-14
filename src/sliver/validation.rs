@@ -308,7 +308,7 @@ pub fn can_restore_with_fallback(_metadata: &SliverMetadata) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    
     use tempfile::TempDir;
 
     fn create_test_sliver(dir: &Path, name: &str, valid: bool) -> PathBuf {

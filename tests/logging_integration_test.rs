@@ -7,11 +7,10 @@
 //! - Request context carries through the logging system
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
-use nano::logging::{create_request_span, init_logging_with_level, JsonVisitor, NanoSpanExt};
+use nano::logging::{create_request_span, JsonVisitor, NanoSpanExt};
 
 /// Test that JSON fields extraction works correctly
 #[test]
@@ -209,11 +208,11 @@ fn test_timestamp_rfc3339_format() {
 /// Test JsonVisitor handles various field types correctly
 #[test]
 fn test_json_visitor_field_types() {
-    use tracing::field::Field;
-    use tracing::Level;
+    
+    
 
     let mut fields = BTreeMap::new();
-    let mut visitor = JsonVisitor(&mut fields);
+    let _visitor = JsonVisitor(&mut fields);
 
     // Create a dummy field metadata for testing
     // Note: We can't easily test with real Field values, but we can verify

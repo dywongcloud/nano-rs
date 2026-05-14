@@ -22,7 +22,7 @@ pub struct IsolateResponse {
     /// Hostname this isolate serves
     pub hostname: String,
     /// Worker thread/pool ID
-    pub worker_id: usize,
+    pub worker_id: u32,
     /// When the isolate was created (ISO 8601)
     pub created_at: String,
     /// Uptime in human-readable format
@@ -43,7 +43,7 @@ pub struct AppSummary {
     /// Hostname
     pub hostname: String,
     /// Number of active workers
-    pub worker_count: usize,
+    pub worker_count: u32,
     /// Total requests served
     pub total_requests: u64,
     /// Average memory per isolate in MB
@@ -572,8 +572,8 @@ pub async fn app_metrics_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AppConfig, AppLimits};
-    use std::collections::HashMap;
+    
+    
 
     #[test]
     fn test_current_timestamp_format() {

@@ -189,7 +189,7 @@ pub async fn load_file_to_vfs(
 mod tests {
     use super::*;
     use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
-    use std::sync::Arc;
+    
 
     /// Create a temporary directory with test files
     async fn create_test_dir(base_path: &str) -> std::io::Result<()> {

@@ -115,9 +115,6 @@ mod tests {
     use crate::http::server::AppStateWithShutdown;
     use crate::metrics::MetricsRegistry;
     use crate::signal::ShutdownState;
-    use crate::worker::WorkQueue;
-    use axum::body::Body;
-    use tower::ServiceExt;
 
     #[tokio::test]
     async fn test_metrics_handler_returns_200() {

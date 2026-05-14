@@ -86,10 +86,10 @@ mod tests {
     #[test]
     fn test_json_visitor_string() {
         let mut fields = BTreeMap::new();
-        let mut visitor = JsonVisitor(&mut fields);
+        let _visitor = JsonVisitor(&mut fields);
 
         // Simulate recording a string field
-        use tracing::field::Field;
+        
         // We can't easily create a real Field, so we test through the public API
 
         // Test extraction helpers with manually inserted data

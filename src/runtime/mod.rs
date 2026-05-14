@@ -1,4 +1,4 @@
-//! JavaScript runtime APIs (Phase 3)
+//! JavaScript runtime APIs
 //!
 //! This module implements the WinterCG-compatible JavaScript APIs:
 //! - fetch() handler interface

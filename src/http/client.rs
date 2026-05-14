@@ -46,7 +46,7 @@ pub struct HttpClientResponse {
     pub status: StatusCode,
     /// HTTP response headers
     pub headers: Vec<(String, String)>,
-    /// Response body (accumulated for now, streaming in Phase 6)
+    /// Response body (accumulated in memory)
     pub body: Option<Bytes>,
     /// Final URL after redirects
     pub url: String,

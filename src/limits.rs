@@ -141,6 +141,33 @@ pub mod http {
     pub const BODY_SIZE_BYTES_MAX: u32 = 10 * 1024 * 1024; // 10 MB
 }
 
+/// VFS limits
+///
+/// These constants control virtual filesystem resource usage.
+pub mod vfs {
+    /// Maximum number of files per VFS namespace.
+    ///
+    /// Rationale: 100,000 files allows substantial applications
+    /// while bounding memory usage of VFS metadata.
+    pub const FILE_COUNT_MAX: u32 = 100_000;
+
+    /// Maximum total VFS storage per namespace in bytes.
+    ///
+    /// Rationale: 1GB allows large applications with assets.
+    pub const STORAGE_BYTES_MAX: u32 = 1024 * 1024 * 1024;
+
+    /// Maximum size of a single VFS file.
+    ///
+    /// Rationale: 100MB allows large assets while preventing
+    /// excessive memory usage from single file reads.
+    pub const FILE_SIZE_BYTES_MAX: u32 = 100 * 1024 * 1024;
+
+    /// Maximum VFS path length in bytes.
+    ///
+    /// Rationale: 4096 bytes is Linux PATH_MAX standard.
+    pub const PATH_LENGTH_BYTES_MAX: u32 = 4096;
+}
+
 /// Memory statistics and validation
 pub mod stats {
     use super::{buffer, isolate, queue};

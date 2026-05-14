@@ -1,12 +1,9 @@
 //! V8 Bridge for WinterCG types
 //!
-//! This module provides serialization for Request/Response objects that
-//! will be used with V8 JavaScript contexts in Phase 3.
+//! This module provides serialization for Request/Response objects used
+//! with V8 JavaScript contexts.
 //!
 //! Per D-06: JSON serialization → V8 parse (simpler than direct V8 API creation).
-//!
-//! Note: Full V8 object creation happens in Phase 3. This module provides
-//! the serialization layer and JSON utilities.
 
 use crate::http::{NanoRequest, NanoResponse};
 
