@@ -141,7 +141,7 @@ cargo build --release     ✅ Optimized build succeeds
 
 This plan provides the foundation for:
 - **02-02**: Virtual host routing (Host header dispatch)
-- **02-03**: WinterCG request/response object mapping
+- **02-03**: WinterTC request/response object mapping
 
 The server can be started with:
 ```rust

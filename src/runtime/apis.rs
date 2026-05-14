@@ -1,4 +1,4 @@
-//! Runtime JavaScript APIs for WinterCG compatibility
+//! Runtime JavaScript APIs for WinterTC compatibility
 //!
 //! This module provides JavaScript API bindings that bridge between V8 and Rust:
 //! - console.log/warn/error with structured logging via tracing
@@ -22,7 +22,7 @@ thread_local! {
 
 /// RuntimeAPIs manages all JavaScript API bindings
 ///
-/// This struct provides methods to bind WinterCG-compatible APIs to V8 contexts.
+/// This struct provides methods to bind WinterTC-compatible APIs to V8 contexts.
 /// Call RuntimeAPIs::bind_all() during context setup to make all APIs available.
 pub struct RuntimeAPIs;
 
@@ -30,7 +30,7 @@ impl RuntimeAPIs {
     /// Bind all runtime APIs to the V8 context
     ///
     /// This should be called once per context during handler setup.
-    /// Makes all WinterCG APIs available to JavaScript.
+    /// Makes all WinterTC APIs available to JavaScript.
     /// v147 API: Accepts PinnedRef<HandleScope<()>> (before context entry)
     pub fn bind_all(
         scope: &mut v8::PinnedRef<v8::HandleScope<'_, ()>>,
@@ -329,7 +329,7 @@ impl RuntimeAPIs {
         global.set(&mut ctx_scope, key.into(), ctor.into());
     }
 
-    /// Bind Response constructor for WinterCG compatibility
+    /// Bind Response constructor for WinterTC compatibility
     fn bind_response(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         use crate::runtime::fetch::{response_text_callback, response_json_callback, response_arraybuffer_callback, response_json_static_callback};
         
@@ -377,7 +377,7 @@ impl RuntimeAPIs {
         global.set(&mut ctx_scope, key.into(), ctor.into());
     }
 
-    /// Bind URL constructor for WinterCG compatibility
+    /// Bind URL constructor for WinterTC compatibility
     fn bind_url(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
@@ -453,7 +453,7 @@ impl RuntimeAPIs {
         global.set(&mut ctx_scope, key.into(), ctor.into());
     }
 
-    /// Bind Headers constructor for WinterCG compatibility
+    /// Bind Headers constructor for WinterTC compatibility
     fn bind_headers(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
 
@@ -651,7 +651,7 @@ fn text_decoder_constructor(
     _args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    // Constructor - TextDecoder always uses UTF-8 in WinterCG
+    // Constructor - TextDecoder always uses UTF-8 in WinterTC
     // No internal state needed
 }
 
@@ -999,7 +999,7 @@ fn form_data_constructor(
     retval.set(this.into());
 }
 
-/// Response constructor implementation for WinterCG compatibility
+/// Response constructor implementation for WinterTC compatibility
 fn response_constructor(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,

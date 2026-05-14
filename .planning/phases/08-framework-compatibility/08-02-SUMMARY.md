@@ -28,7 +28,7 @@ metrics:
 
 ## Overview
 
-Created test applications and integration tests verifying Next.js static export and Astro islands architecture compatibility with NANO. Both patterns use the WinterCG `export default { fetch }` handler interface.
+Created test applications and integration tests verifying Next.js static export and Astro islands architecture compatibility with NANO. Both patterns use the WinterTC `export default { fetch }` handler interface.
 
 ## What Was Built
 
@@ -125,7 +125,7 @@ This caused V8 parsing issues (SIGTRAP crash). Changed to static strings:
 ## Phase 8 Complete
 
 Both plans in Phase 8 are now complete:
-- **Plan 08-01**: Hono.js & Generic WinterCG (10 tests passing)
+- **Plan 08-01**: Hono.js & Generic WinterTC (10 tests passing)
 - **Plan 08-02**: Next.js & Astro (12 tests passing)
 - **Total**: 22 tests passing
 

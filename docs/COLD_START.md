@@ -94,7 +94,7 @@ NANO uses precise terminology for timing measurements to avoid confusion. The te
 2. Heap initialization (V8 internal setup)
 3. Context creation (first context)
 4. JavaScript compilation (parse + compile entrypoint)
-5. API bindings setup (all WinterCG APIs)
+5. API bindings setup (all WinterTC APIs)
 
 **When it matters:**
 - First request to a new hostname (no sliver)

@@ -2,7 +2,7 @@
 
 **Phase:** 03 — Runtime APIs  
 **Researched:** 2026-04-19  
-**Goal:** JavaScript code can use core WinterCG APIs for basic computation and async operations
+**Goal:** JavaScript code can use core WinterTC APIs for basic computation and async operations
 
 ## Domain Analysis
 
@@ -10,7 +10,7 @@
 
 Phase 3 implements the JavaScript runtime environment that executes within V8 isolates. This is where the HTTP server from Phase 2 meets the V8 engine from Phase 1 — enabling actual JavaScript execution on HTTP requests.
 
-**Key integration point:** The router's `WinterCGHandler` variant (currently a placeholder) will execute real JavaScript code using the WinterCG Request/Response types.
+**Key integration point:** The router's `WinterTCHandler` variant (currently a placeholder) will execute real JavaScript code using the WinterTC Request/Response types.
 
 ### Scope Boundaries
 
@@ -55,7 +55,7 @@ global.set(scope, console_key.into(), console.into());
 
 ### 2. Handler Interface Design
 
-Cloudflare Workers / WinterCG pattern:
+Cloudflare Workers / WinterTC pattern:
 
 ```javascript
 // Standard export pattern
@@ -168,7 +168,7 @@ structuredClone() needs to:
 
 ### 9. TextEncoder/TextDecoder
 
-WinterCG specifies UTF-8 encoding only (not full Encoding API).
+WinterTC specifies UTF-8 encoding only (not full Encoding API).
 
 Implementation:
 ```rust
@@ -286,7 +286,7 @@ NanoResponse → axum response
 
 | Success Criterion | Implementation Strategy |
 |-------------------|------------------------|
-| fetch() handler interface | WinterCGHandler executes JS, passes serialized Request, parses Response |
+| fetch() handler interface | WinterTCHandler executes JS, passes serialized Request, parses Response |
 | console.log/warn/error | Bind to tracing crate with structured output |
 | TextEncoder/TextDecoder | UTF-8 encode/decode bindings |
 | setTimeout/setInterval | Tokio timers + V8 callback integration |
@@ -299,14 +299,14 @@ NanoResponse → axum response
 
 ## Validation Strategy
 
-**Dimension 1 (Correctness):** Each API has unit tests verifying WinterCG compliance  
+**Dimension 1 (Correctness):** Each API has unit tests verifying WinterTC compliance  
 **Dimension 2 (Integration):** End-to-end test: HTTP request → JS handler → HTTP response  
 **Dimension 3 (Performance):** Handler execution <50ms for simple responses  
 **Dimension 4 (Error Handling):** Invalid JS returns 500 with structured error  
 **Dimension 5 (Security):** Handler cannot access outside its isolate  
 **Dimension 6 (State Management):** Each request gets fresh JS context  
 **Dimension 7 (Observability):** Structured logs show handler execution time  
-**Dimension 8 (Spec Compliance):** Tests against WinterCG specification examples
+**Dimension 8 (Spec Compliance):** Tests against WinterTC specification examples
 
 ---
 

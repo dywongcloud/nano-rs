@@ -14,10 +14,10 @@
 
 ## Framework Compatibility Targets
 
-- **Hono.js:** Primary target — lightweight, WinterCG-native
+- **Hono.js:** Primary target — lightweight, WinterTC-native
 - **Next.js static export:** HTML/CSS/JS assets serve correctly
 - **Astro static build:** Islands architecture preserved
-- **Generic WinterCG:** Any spec-compliant framework
+- **Generic WinterTC:** Any spec-compliant framework
 
 ## Build Commands
 

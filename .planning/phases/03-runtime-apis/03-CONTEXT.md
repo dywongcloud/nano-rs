@@ -26,12 +26,12 @@ JavaScript runtime environment executing within V8 isolates. This phase enables 
 
 ### Handler Interface (D-01)
 - **D-01:** Support Cloudflare Workers export pattern: `export default { fetch(request) { ... } }`
-- Standard WinterCG Request/Response objects passed to handler
+- Standard WinterTC Request/Response objects passed to handler
 
 ### API Implementation (D-02 to D-06)
 - **D-02:** console.log binds to Rust tracing crate (structured logging)
 - **D-03:** setTimeout/setInterval use tokio timers (not custom event loop)
-- **D-04:** TextEncoder/TextDecoder support UTF-8 only (per WinterCG)
+- **D-04:** TextEncoder/TextDecoder support UTF-8 only (per WinterTC)
 - **D-05:** crypto.getRandomValues uses getrandom crate (not V8 entropy)
 - **D-06:** performance.now() uses std::time::Instant (monotonic high-res)
 
@@ -51,7 +51,7 @@ JavaScript runtime environment executing within V8 isolates. This phase enables 
 ## Canonical References
 
 ### Prior Phase Context
-- `.planning/phases/02-http-server-core/02-CONTEXT.md` — WinterCG types and routing
+- `.planning/phases/02-http-server-core/02-CONTEXT.md` — WinterTC types and routing
 - `.planning/phases/02-http-server-core/02-03-SUMMARY.md` — v8_bridge serialization pattern
 - `.planning/phases/01-v8-foundation/01-03-SUMMARY.md` — console.log binding pattern
 
@@ -63,7 +63,7 @@ JavaScript runtime environment executing within V8 isolates. This phase enables 
 - `.planning/PROJECT.md` — Core value and constraints
 
 ### Technical References
-- WinterCG specification: https://wintercg.org/working-group/
+- WinterTC specification: https://wintertc.org/working-group/
 - Cloudflare Workers docs: https://developers.cloudflare.com/workers/
 
 </canonical_refs>

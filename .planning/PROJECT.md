@@ -31,7 +31,7 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 ### HTTP & Routing
 - ✅ axum HTTP server with configurable port/host
 - ✅ Virtual host routing (Host header → app mapping)
-- ✅ WinterCG Request/Response/URL/Headers objects
+- ✅ WinterTC Request/Response/URL/Headers objects
 
 ### JavaScript Runtime
 - ✅ fetch() handler interface (export default { fetch })
@@ -66,7 +66,7 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 - ✅ Hono.js apps
 - ✅ Next.js static export
 - ✅ Astro static build
-- ✅ Generic WinterCG compatibility
+- ✅ Generic WinterTC compatibility
 
 ---
 
@@ -160,7 +160,7 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 - ✓ Rust project skeleton with rusty_v8 integration — v1.0
 - ✓ Platform initialization and single V8 isolate — v1.0
 - ✓ HTTP server (axum) with fetch() handler interface — v1.0
-- ✓ Core WinterCG APIs: Request/Response/Headers/URL — v1.0
+- ✓ Core WinterTC APIs: Request/Response/Headers/URL — v1.0
 - ✓ TextEncoder/TextDecoder and console APIs — v1.0
 - ✓ crypto.getRandomValues() implementation — v1.0
 - ✓ Outbound fetch() via tokio — v1.0
@@ -168,7 +168,7 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 - ✓ WorkQueue dispatch (tokio channels) — v1.0
 - ✓ Virtual host routing (Host header → app mapping) — v1.0
 - ✓ Context reset between requests — v1.0
-- ✓ Extended WinterCG: Streams (Readable/Writable) — v1.0
+- ✓ Extended WinterTC: Streams (Readable/Writable) — v1.0
 - ✓ crypto.subtle implementation using Rust crypto crates — v1.0
 - ✓ EPT initialization fix (strong v8::Global sentinel) — v1.0
 
@@ -217,7 +217,7 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 | Live migration (running isolates) | Requires freeze/thaw, significant complexity |
 | npm package resolution | Apps remain single-file, bundling is user responsibility |
 | TypeScript/JSX transpilation | User must bundle beforehand |
-| Native module support | Only pure JS/WinterCG APIs |
+| Native module support | Only pure JS/WinterTC APIs |
 | Subprocess spawning from JS | Security/scope constraint |
 | Built-in horizontal clustering | External load balancer sufficient |
 | VFS directory operations (mkdir, readdir) | Defer to v2.0 |
@@ -247,7 +247,7 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 
 **v1.0 — Edge Runtime Foundation** ✅ SHIPPED 2026-04-19
 - 9 phases, 42 requirements, 151 commits
-- Multi-tenant JavaScript edge runtime with WinterCG compliance
+- Multi-tenant JavaScript edge runtime with WinterTC compliance
 
 **v1.1 — Isolate Snapshots & VFS** ✅ SHIPPED 2026-04-20
 - 7 phases, 20 requirements, 42 commits since v1.0
@@ -287,7 +287,7 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 ## Constraints
 
 - **Tech stack**: Rust + rusty_v8 + tokio + axum
-- **API surface**: WinterCG Minimum Common API compliance
+- **API surface**: WinterTC Minimum Common API compliance
 - **V8 version**: Tracks Deno's rusty_v8 (auto-updates via crate)
 - **Build time**: Uses pre-built V8 (no 2-hour compiles)
 - **Snapshot format**: Tar-based, extensible, version-agnostic
@@ -322,7 +322,7 @@ NANO is a single-process HTTP server that hosts multiple JavaScript applications
 
 ## Evolution
 
-**v1.0 (2026-04-19):** Foundation complete — multi-tenant edge runtime with WinterCG compliance, production observability, and crypto support.
+**v1.0 (2026-04-19):** Foundation complete — multi-tenant edge runtime with WinterTC compliance, production observability, and crypto support.
 
 **v1.1 (2026-04-20):** SLIVER milestone — container-image semantics for isolates with ~267µs cold starts, VFS with JavaScript API, and cross-instance migration.
 

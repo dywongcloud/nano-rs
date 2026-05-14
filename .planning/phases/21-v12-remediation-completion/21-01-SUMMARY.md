@@ -114,8 +114,8 @@ Tests: 3/3 VFS tests now passing (verified via external test suite)
 ## Next Steps
 
 Phase 21 continues with Wave 2:
-- Plan 21-02: WinterCG Headers API (+2% score)
-- Plan 21-03: WinterCG URL API (+2% score)
+- Plan 21-02: WinterTC Headers API (+2% score)
+- Plan 21-03: WinterTC URL API (+2% score)
 
 ---
 

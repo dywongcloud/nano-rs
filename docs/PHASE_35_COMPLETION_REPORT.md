@@ -142,7 +142,7 @@ The following remain as documented future work:
 1. **WebCrypto Stubs** — Left with `#[allow(dead_code)]` and comments
    - Will be completed in Phase 36
 
-2. **Router WinterCG Handler Placeholder** — Left for Phase 35.1
+2. **Router WinterTC Handler Placeholder** — Left for Phase 35.1
    - Currently returns placeholder instead of executing JS
    - Requires WorkerPool integration
 

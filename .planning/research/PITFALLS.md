@@ -271,12 +271,12 @@ When creating and destroying many isolates (e.g., in a worker pool), memory leak
 
 ---
 
-### Pitfall 9: WinterCG fetch() Implementation Gaps
+### Pitfall 9: WinterTC fetch() Implementation Gaps
 **What goes wrong:**
 Implementing `fetch()` incorrectly for server-side runtimes causes compatibility issues with web standards, unexpected CORS behavior, or missing features like duplex streaming.
 
 **Why it happens:**
-- WinterCG documents divergence from browser fetch() for server-side
+- WinterTC documents divergence from browser fetch() for server-side
 - Server runtimes don't have origins or cookie jars like browsers
 - CORS is irrelevant on servers but browsers enforce it
 - Full duplex HTTP streams are expected by modern frameworks
@@ -287,18 +287,18 @@ Implementing `fetch()` incorrectly for server-side runtimes causes compatibility
 - Missing streaming support breaks large request/response handling
 
 **Prevention:**
-- **Follow WinterCG Fetch Subset:** Implement the documented server-side subset
+- **Follow WinterTC Fetch Subset:** Implement the documented server-side subset
 - Skip CORS enforcement
 - Support manual redirect handling
 - Implement full duplex streaming
-- Use `Headers`, `Request`, `Response` from WinterCG minimum common API
+- Use `Headers`, `Request`, `Response` from WinterTC minimum common API
 
 **Detection:**
 - Compatibility test failures with isomorphic libraries
 - fetch() behavior differences from Cloudflare Workers/Deno
 - Issues with streaming requests/responses
 
-**Phase to address:** Phase 3 (Core WinterCG APIs)
+**Phase to address:** Phase 3 (Core WinterTC APIs)
 
 ---
 
@@ -393,7 +393,7 @@ Implementing Web Crypto API incorrectly introduces timing attacks, improper key 
 - Timing analysis showing variable-time operations
 - WPT (Web Platform Tests) crypto test failures
 
-**Phase to address:** Phase 4 (Extended WinterCG)
+**Phase to address:** Phase 4 (Extended WinterTC)
 
 ---
 
@@ -536,7 +536,7 @@ Web Streams API implementation doesn't properly handle backpressure, causing mem
 | Async integration | HIGH | StackOverflow answer and deno_core patterns |
 | Memory leaks | HIGH | Issue #1348 and DHAT analysis |
 | Context/isolate lifecycle | MEDIUM-HIGH | Based on V8 docs and deno_core behavior |
-| WinterCG specifics | MEDIUM | Less documentation on edge cases |
+| WinterTC specifics | MEDIUM | Less documentation on edge cases |
 | Snapshot issues | MEDIUM | V8 internals can vary by version |
 
 ---
@@ -564,7 +564,7 @@ Web Streams API implementation doesn't properly handle backpressure, causing mem
 - "rusty_v8 TryCatch not catching heap limit" — Heap limit callback pattern
 
 ### Web Standards
-- WinterCG Minimum Common API proposal
+- WinterTC Minimum Common API proposal
 - WHATWG Fetch standard (server-side considerations)
 - RFC 6455 WebSocket Protocol
 

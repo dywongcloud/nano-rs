@@ -7,7 +7,7 @@
 
 ## Overview
 
-NANO provides partial Node.js compatibility for common patterns, but is **NOT a Node.js replacement**. It targets WinterCG (Web-interoperable Runtimes Community Group) APIs first, with Node.js polyfills for convenience.
+NANO provides partial Node.js compatibility for common patterns, but is **NOT a Node.js replacement**. It targets WinterTC (Web-interoperable Runtimes Community Group) APIs first, with Node.js polyfills for convenience.
 
 **Key Differences:**
 - NANO is multi-tenant by design (one process, many isolated apps)
@@ -18,7 +18,7 @@ NANO provides partial Node.js compatibility for common patterns, but is **NOT a 
 **Target Use Case:**
 - Edge functions, serverless workloads
 - Static sites with light dynamic processing
-- Microservices that fit WinterCG APIs
+- Microservices that fit WinterTC APIs
 - Cloudflare Workers migration
 
 **NOT Suitable For:**
@@ -37,13 +37,13 @@ NANO provides partial Node.js compatibility for common patterns, but is **NOT a 
 | **buffer** | ⚠️ Partial | ~60% | Buffer.from, alloc, toString. Limited encodings. |
 | **fs** | ⚠️ Partial | ~30% | Async methods + Sync methods via VFS. Limited API surface. |
 | **crypto** | ⚠️ Partial | ~20% | WebCrypto only. No Node.js crypto module. |
-| **http** | ❌ Not Supported | 0% | Use WinterCG `fetch()` instead |
-| **https** | ❌ Not Supported | 0% | Use WinterCG `fetch()` instead |
+| **http** | ❌ Not Supported | 0% | Use WinterTC `fetch()` instead |
+| **https** | ❌ Not Supported | 0% | Use WinterTC `fetch()` instead |
 | **net** | ❌ Not Supported | 0% | Raw sockets not available |
 | **os** | ❌ Not Supported | 0% | No system information access |
 | **path** | ❌ Not Supported | 0% | Use `URL` API instead |
 | **process** | ❌ Not Supported | 0% | No `process.env` or `process.exit` |
-| **stream** | ⚠️ Partial | ~40% | WinterCG ReadableStream/WritableStream only |
+| **stream** | ⚠️ Partial | ~40% | WinterTC ReadableStream/WritableStream only |
 | **url** | ⚠️ Partial | ~80% | URL, URLSearchParams supported |
 | **util** | ❌ Not Supported | 0% | Not implemented |
 | **events** | ❌ Not Supported | 0% | EventEmitter not available |
@@ -60,7 +60,7 @@ NANO provides partial Node.js compatibility for common patterns, but is **NOT a 
 | `setInterval` | ✅ Full | Same API |
 | `clearTimeout` | ✅ Full | Same API |
 | `clearInterval` | ✅ Full | Same API |
-| `fetch` | ✅ Full | Native WinterCG implementation |
+| `fetch` | ✅ Full | Native WinterTC implementation |
 | `TextEncoder` | ✅ Full | Same API |
 | `TextDecoder` | ✅ Full | Same API |
 | `crypto` | ⚠️ Partial | WebCrypto only (no Node.js crypto) |
@@ -103,7 +103,7 @@ export default {
 
 **Key Changes:**
 - No server creation — NANO manages HTTP
-- Handler receives WinterCG `Request` object
+- Handler receives WinterTC `Request` object
 - Return `Response` object
 - Async by default
 
@@ -334,7 +334,7 @@ export default {
 | **Pure ESM packages** | ✅ Excellent | Any package using standard Web APIs |
 | **Node.js-specific packages** | ❌ Poor | Packages using http, net, fs directly |
 | **Bundled applications** | ✅ Good | Webpack, Rollup, esbuild output |
-| **Hono.js** | ✅ Excellent | Designed for WinterCG |
+| **Hono.js** | ✅ Excellent | Designed for WinterTC |
 | **Next.js (static export)** | ✅ Good | Static HTML/JS output works |
 | **Astro (static build)** | ✅ Good | Islands architecture preserved |
 | **React/Vue/Svelte** | ✅ Good | Client-side bundles work |
@@ -351,7 +351,7 @@ npm test  # Uses Jest, Mocha, etc.
 
 **NANO (New):**
 ```bash
-# Test with WinterCG-compatible test runner
+# Test with WinterTC-compatible test runner
 # Or integration tests against running NANO
 
 # Example: Use Vitest with happy-dom
@@ -394,7 +394,7 @@ NANO is NOT suitable for:
 - You use native dependencies (C++ addons)
 - You need extensive file system operations
 - You rely on Node.js-specific behavior
-- Your app doesn't fit WinterCG patterns
+- Your app doesn't fit WinterTC patterns
 
 ---
 
@@ -408,7 +408,7 @@ NANO is NOT suitable for:
 | **Astro** | ✅ Excellent | Static and islands architecture fully supported |
 | **SvelteKit** | ⚠️ Adapter needed | Use adapter-static or custom adapter |
 | **Remix** | ⚠️ Limited | Edge adapter support needed |
-| **Hono.js** | ✅ Excellent | Native WinterCG support |
+| **Hono.js** | ✅ Excellent | Native WinterTC support |
 | **Fresh** | ⚠️ Partial | Deno-specific, may need polyfills |
 | **Express.js** | ❌ Not supported | Requires Node.js http module |
 | **Fastify** | ❌ Not supported | Requires Node.js core modules |
@@ -461,7 +461,7 @@ module.exports = {
 ## See Also
 
 - [API Reference](API.md) — All available JavaScript APIs
-- [WinterCG Spec](https://wintercg.org/) — Standard APIs NANO implements
+- [WinterTC Spec](https://wintertc.org/) — Standard APIs NANO implements
 - [Compatibility Matrix](COMPATIBILITY.md) — Full feature compatibility
 - [CLI Reference](CLI.md) — Commands for running apps
 

@@ -71,7 +71,7 @@ cargo test --lib
 
 ### P0 Critical
 
-1. **Router WinterCGHandler (src/http/router.rs:206)**
+1. **Router WinterTCHandler (src/http/router.rs:206)**
    - **Before:** Returned fake success with "JS handler (Phase 3)" text
    - **After:** Returns proper HTTP 503 with JSON error explaining worker pool dispatch is required
    - **Rationale:** Direct `handle()` path doesn't have WorkerPool access; `dispatch_to_worker_pool()` is the production path for JS execution

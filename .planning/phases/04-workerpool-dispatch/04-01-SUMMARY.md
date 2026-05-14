@@ -38,7 +38,7 @@ decisions:
 ### 1. HandlerTask (src/worker/mod.rs)
 Cross-thread task definition containing:
 - `entrypoint`: Path to JavaScript file
-- `request`: WinterCG-compatible NanoRequest
+- `request`: WinterTC-compatible NanoRequest
 - `response_tx`: Oneshot channel for returning NanoResponse
 
 Explicit `unsafe impl Send` verifies the task can cross thread boundaries safely.

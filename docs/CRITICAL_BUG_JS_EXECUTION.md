@@ -95,8 +95,8 @@ This bug affects:
 
 After fix, the blackbox tests should show:
 - CRUD: 6/6 tests passing (currently 1/6)
-- WinterCG Headers: ✅ (currently ❌)
-- WinterCG URL: ✅ (currently ❌)
+- WinterTC Headers: ✅ (currently ❌)
+- WinterTC URL: ✅ (currently ❌)
 - WebCrypto SHA-256: ✅ (currently ❌)
 - VFS read: ✅ (currently ❌)
 - Multi-tenancy: 3/3 tests passing (currently 1/3)

@@ -2,7 +2,7 @@
 
 **Phase:** 21  
 **Plan:** 21-04  
-**Subsystem:** WinterCG Streams API  
+**Subsystem:** WinterTC Streams API  
 **Completed:** 2026-04-21  
 **Duration:** 45 minutes  
 

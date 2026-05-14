@@ -435,13 +435,14 @@ Implement WebSocket support:
 | v1.6.0 | 2026-05-06 | Phase 38: Sliver completion ✅ |
 | v1.6.1 | 2026-05-12 | Phase 37 TigerStyle: Control/Data Plane separation ✅ |
 | v1.6.2 | 2026-05-12 | Plan 37-08: TODO/Placeholder Resolution — Zero technical debt ✅ |
+| v1.7.0 | 2026-05-12 | Full gap fix: snapshot loading, WinterTC rename, strict tests, dead code removal ✅ |
 | v2.0.0 | — | Phases 41-42: Production polish, WebSocket server |
 
 ---
 
 **Last Updated:** 2026-05-12  
-**Version:** v1.6.2  
-**Status:** ✅ **COMPLETE** — All placeholders resolved, zero technical debt
+**Version:** v1.7.0  
+**Status:** ✅ **COMPLETE** — All placeholders resolved, zero technical debt, snapshot loading restored
 
 **Summary:**
 - ✅ V8 v147 migration: COMPLETE
@@ -456,10 +457,13 @@ Implement WebSocket support:
 - ✅ Router WinterTC handler: Fixed (returns 503 instead of placeholder text)
 - ✅ Module loader VFS: Fixed (VFS passed through execution context)
 - ✅ ECDH key derivation: Implemented (p256/p384 ecdh features)
-- ✅ Tests: 657+ total (657 lib + integration)
+- ✅ Tests: 670 total (670 lib + integration)
 - ✅ Zero placeholders in production code (excluding documented legacy format constants)
 - ✅ Zero TODO/FIXME/XXX/HACK comments in source
 - ✅ Zero todo!/unimplemented! macros in production code
+- ✅ V8 snapshot loading: Restored from external snapshots (was incorrectly marked as unsupported)
+- ✅ WinterTC rename: All WinterCG references updated to WinterTC
+- ✅ Strict tests: Dynamic token assertions prevent hard-coded placeholder regressions
 
 **See:** `docs/TODO_RESOLUTION.md` for full resolution log
 - 📋 Next: Phase 41 — Production Polish (Prometheus metrics, documentation)

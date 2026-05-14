@@ -127,7 +127,7 @@ All fundamental functionality works:
 - CLI operations
 - HTTP server startup
 - CRUD operations
-- WinterCG APIs
+- WinterTC APIs
 - WebCrypto
 - All HTTP verbs
 - Multi-tenancy

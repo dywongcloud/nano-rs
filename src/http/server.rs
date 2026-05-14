@@ -503,7 +503,7 @@ pub async fn start_server_with_router(
 /// Start the HTTP server for sliver-based JavaScript execution
 ///
 /// This server routes ALL requests to the SliverWorkerPool for JS execution,
-/// enabling full WinterCG-compatible request handling from heap snapshots.
+/// enabling full WinterTC-compatible request handling from heap snapshots.
 ///
 /// # Arguments
 ///
@@ -550,7 +550,7 @@ where
         // Health check endpoints
         .route("/health", get(health_handler))
         .route("/_admin/health", get(admin_health_handler))
-        // ALL requests go to JS execution (WinterCG style)
+        // ALL requests go to JS execution (WinterTC style)
         .route("/", any({
             let state = handler_state.clone();
             move |req| sliver_js_handler(axum::extract::State(state.clone()), req)
@@ -624,7 +624,7 @@ pub async fn start_server_with_config(
                     // JavaScript entrypoint - use sliver handler
                     RouteTarget {
                         hostname: app.hostname.clone(),
-                        handler_type: HandlerType::WinterCGSliverHandler {
+                        handler_type: HandlerType::WinterTCSliverHandler {
                             hostname: app.hostname.clone(),
                             entrypoint: app.entrypoint.clone(),
                         },
@@ -715,7 +715,7 @@ pub async fn start_server_with_config(
                     // JavaScript entrypoint - execute as Worker
                     RouteTarget {
                         hostname: app.hostname.clone(),
-                        handler_type: HandlerType::WinterCGHandler(path),
+                        handler_type: HandlerType::WinterTCHandler(path),
                     }
                 }
                 crate::http::router::EntrypointType::StaticFile(path) => {
@@ -748,8 +748,8 @@ pub async fn start_server_with_config(
         
         // Log registration with handler type
         let handler_name = match &target.handler_type {
-            HandlerType::WinterCGHandler(_) => "javascript",
-            HandlerType::WinterCGSliverHandler { .. } => "sliver-js",
+            HandlerType::WinterTCHandler(_) => "javascript",
+            HandlerType::WinterTCSliverHandler { .. } => "sliver-js",
             HandlerType::StaticFile { .. } => "static-file",
             HandlerType::StaticDir { .. } => "static-dir",
             HandlerType::StaticResponse(_) => "static-response",

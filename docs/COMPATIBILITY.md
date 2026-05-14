@@ -5,7 +5,7 @@
 
 ---
 
-## WinterCG Minimum Common APIs
+## WinterTC Minimum Common APIs
 
 | API | Status | Notes |
 |-----|--------|-------|
@@ -18,8 +18,8 @@
 | TextEncoder | ✅ Complete | UTF-8 encoding |
 | TextDecoder | ✅ Complete | UTF-8 decoding |
 | console | ✅ Complete | log, error, warn methods |
-| ReadableStream | ✅ Complete | WinterCG streams |
-| WritableStream | ✅ Complete | WinterCG streams |
+| ReadableStream | ✅ Complete | WinterTC streams |
+| WritableStream | ✅ Complete | WinterTC streams |
 | AbortController | ✅ Complete | Signal-based cancellation |
 | Blob | ✅ Complete | Binary data wrapper |
 | FormData | ✅ Complete | Multipart form data |
@@ -27,7 +27,7 @@
 | structuredClone | ✅ Complete | Deep object cloning |
 | performance.now() | ✅ Complete | High-res timer |
 
-**Coverage:** 16/16 core WinterCG APIs (100%)
+**Coverage:** 16/16 core WinterTC APIs (100%)
 
 ---
 
@@ -70,17 +70,17 @@
 | fs.existsSync | ✅ Complete | Sync check | |
 
 **NOT Implemented (by design):**
-- Node.js http module — Use WinterCG fetch() instead
+- Node.js http module — Use WinterTC fetch() instead
 - Node.js net module — Raw sockets not supported
 - process.env global — Use request headers or config
 - Node.js path module — Use URL API instead
 - Node.js os module — Not available
-- Node.js stream module — Use WinterCG streams
+- Node.js stream module — Use WinterTC streams
 - Node.js crypto module — Use WebCrypto instead
 
 **Coverage:** 11/20+ common APIs (55%)
 
-**Important:** NANO is NOT a Node.js replacement. It targets WinterCG (Web-interoperable Runtimes Community Group) APIs first, with Node.js polyfills for convenience.
+**Important:** NANO is NOT a Node.js replacement. It targets WinterTC (Web-interoperable Runtimes Community Group) APIs first, with Node.js polyfills for convenience.
 
 ---
 
@@ -101,7 +101,7 @@
 
 | Framework | Status | Notes |
 |-----------|--------|-------|
-| Hono.js | ✅ Supported | Full WinterCG compatibility |
+| Hono.js | ✅ Supported | Full WinterTC compatibility |
 | Next.js (static export) | ✅ Supported | Static assets + JS execution |
 | Astro (static build) | ✅ Supported | Islands architecture |
 | Cloudflare Workers | ⚠️ Mostly Compatible | Standard patterns work; KV, DO not available |
@@ -163,7 +163,7 @@
 
 ### What "100%" Means
 
-When we say "100% Complete" for WinterCG APIs, we mean:
+When we say "100% Complete" for WinterTC APIs, we mean:
 - All core APIs are implemented
 - All tests pass
 - Full specification compliance
@@ -177,7 +177,7 @@ When we say ~55% for Node.js compatibility, we mean:
 
 ### Design Philosophy
 
-NANO targets **WinterCG first, Node.js convenience second**:
+NANO targets **WinterTC first, Node.js convenience second**:
 
 1. Use `fetch()` instead of `http` module
 2. Use `URL` instead of `path` module  
@@ -220,7 +220,7 @@ See [ROADMAP](../.planning/ROADMAP.md) for full details.
 
 - [API Reference](API.md) — All JavaScript APIs with examples
 - [Node.js Migration Guide](NODEJS_COMPAT.md) — Detailed migration patterns
-- [WinterCG Spec](https://wintercg.org/) — Standard APIs NANO implements
+- [WinterTC Spec](https://wintertc.org/) — Standard APIs NANO implements
 - [Architecture Decision Records](ADR/) — Design decisions behind compatibility choices
 
 ---

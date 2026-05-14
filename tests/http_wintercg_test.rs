@@ -1,6 +1,6 @@
-//! WinterCG types integration tests
+//! WinterTC types integration tests
 //!
-//! Tests verify full WinterCG compliance for Request, Response, Headers,
+//! Tests verify full WinterTC compliance for Request, Response, Headers,
 //! URL, and URLSearchParams types.
 
 use bytes::Bytes;
@@ -54,7 +54,7 @@ fn test_url_full_compliance() {
     )
     .unwrap();
 
-    // All WinterCG URL properties
+    // All WinterTC URL properties
     assert_eq!(url.protocol(), "https:");
     assert_eq!(url.host(), "example.com");
     assert_eq!(url.hostname(), "example.com");
@@ -70,7 +70,7 @@ fn test_url_full_compliance() {
 fn test_headers_api_compliance() {
     let mut headers = NanoHeaders::new();
 
-    // Test all WinterCG Headers methods
+    // Test all WinterTC Headers methods
     headers.append("Accept", "application/json");
     headers.append("Accept", "text/html");
     headers.set("Content-Type", "application/json");

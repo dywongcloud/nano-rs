@@ -19,7 +19,7 @@ Per TigerStyle principle: **"Do it right the first time, the best you know how, 
 
 | ID | Location | Issue | Current Behavior | Resolution | Status |
 |----|----------|-------|------------------|------------|--------|
-| T-001 | src/http/router.rs:206 | Router WinterCGHandler returns placeholder | "JS handler (Phase 3)" fake success | Return 503 with clear message that worker pool dispatch is required | FIXED |
+| T-001 | src/http/router.rs:206 | Router WinterTCHandler returns placeholder | "JS handler (Phase 3)" fake success | Return 503 with clear message that worker pool dispatch is required | FIXED |
 | T-002 | src/v8/module.rs:514 | Module loader uses placeholder VFS | MemoryBackend with "temp" namespace | Accept VFS reference through handler context | FIXED |
 | T-003 | src/runtime/crypto/ecdsa.rs:275 | ECDH returns NotSupported | Err(CryptoError::NotSupported) | Implement ECDH using p256 crate | FIXED |
 | T-004 | src/sliver/validation.rs:296 | V8 version returns hardcoded string | "135.0" placeholder | Use v8::V8::get_version() | FIXED |

@@ -283,7 +283,7 @@ cp nano-rs-v1.4.0 ./bin/nano-rs
 ## Known Limitations
 
 ### By Design
-- Node.js http module — Use WinterCG fetch()
+- Node.js http module — Use WinterTC fetch()
 - Node.js net module — Raw sockets not supported
 - process.env global — Use config or headers
 - Node.js path module — Use URL API

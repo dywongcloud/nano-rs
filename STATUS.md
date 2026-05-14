@@ -122,9 +122,9 @@ Measured on Darwin arm64, Rust 1.75, V8 12.0:
 
 ## Implemented APIs
 
-### WinterCG Minimum Common APIs
+### WinterTC Minimum Common APIs
 
-All core WinterCG-compatible APIs fully implemented:
+All core WinterTC-compatible APIs fully implemented:
 
 | API | Status | Notes |
 |-----|--------|-------|

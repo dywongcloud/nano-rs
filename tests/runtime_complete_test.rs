@@ -1,6 +1,6 @@
 //! Complete Phase 3 Runtime API integration test
 //!
-//! This test verifies all WinterCG runtime APIs work together in a single handler:
+//! This test verifies all WinterTC runtime APIs work together in a single handler:
 //! - console API
 //! - TextEncoder/TextDecoder
 //! - crypto.getRandomValues

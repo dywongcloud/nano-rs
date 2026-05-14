@@ -4,7 +4,7 @@
 - **Feature**: Fast-path static file serving from VFS without JS overhead
 - **Status**: PLANNED
 - **Description**:
-  - **Current (v1.1)**: ALL requests dispatch to JS handler (pure WinterCG)
+  - **Current (v1.1)**: ALL requests dispatch to JS handler (pure WinterTC)
   - **Proposed**: Check VFS first for static files, serve directly from Rust
   - **Benefits**: 
     - ~10x faster for static assets (no JS isolate context switch)
@@ -25,7 +25,7 @@
     ```
   - **Tradeoffs**: 
     - Requires build-time routing analysis
-    - Less pure WinterCG (but compatible)
+    - Less pure WinterTC (but compatible)
     - Use Option 1 for now (full JS routing), add this later for performance
 
 ## V8 Runtime Heap Snapshots - IMPLEMENTED ✅

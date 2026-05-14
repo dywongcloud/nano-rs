@@ -166,7 +166,7 @@ No new threat surface introduced beyond what was planned:
 ## Dependencies
 
 - **Requires**: Phase 2 Plan 01 (HTTP Server Foundation) - provides axum server infrastructure
-- **Enables**: Phase 2 Plan 03 (WinterCG Request/Response) - routing foundation in place
+- **Enables**: Phase 2 Plan 03 (WinterTC Request/Response) - routing foundation in place
 - **Enables**: Phase 3 (Runtime APIs) - JavaScript handler execution
 
 ## Performance Notes
@@ -185,4 +185,4 @@ No new threat surface introduced beyond what was planned:
 
 ## Next Steps
 
-Phase 2 Plan 03: WinterCG Request/Response Objects - Build on this routing foundation to implement WinterCG-compliant request/response handling before JS execution integration in Phase 3.
+Phase 2 Plan 03: WinterTC Request/Response Objects - Build on this routing foundation to implement WinterTC-compliant request/response handling before JS execution integration in Phase 3.

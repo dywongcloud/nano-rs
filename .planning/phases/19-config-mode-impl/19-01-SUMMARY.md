@@ -82,7 +82,7 @@ Implemented fully functional `--config` workflow that loads and serves multiple 
 
 1. **Sliver-first support**: Config mode fully supports sliver-based apps with dedicated `SliverWorkerPool`. Entrypoint-based apps use existing `WorkQueue` dispatch (sufficient for Phase 19.1).
 
-2. **Virtual host routing**: Uses existing `VirtualHostRouter` infrastructure with `HandlerType::WinterCGSliverHandler` and `HandlerType::WinterCGHandler` variants.
+2. **Virtual host routing**: Uses existing `VirtualHostRouter` infrastructure with `HandlerType::WinterTCSliverHandler` and `HandlerType::WinterTCHandler` variants.
 
 3. **Config validation**: Leverages existing `validate_nano_config()` which checks hostnames, limits, duplicate detection, etc.
 

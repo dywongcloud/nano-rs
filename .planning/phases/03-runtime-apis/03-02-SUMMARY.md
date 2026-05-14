@@ -32,7 +32,7 @@ metrics:
 
 ## Summary
 
-Successfully implemented the core JavaScript runtime APIs for WinterCG compatibility:
+Successfully implemented the core JavaScript runtime APIs for WinterTC compatibility:
 - **Console API** (`console.log`, `console.warn`, `console.error`) with structured logging via tracing crate
 - **TextEncoder** for UTF-8 string → Uint8Array conversion
 - **TextDecoder** for Uint8Array/ArrayBuffer → string conversion
@@ -75,14 +75,14 @@ fn console_log_callback(...) {
 
 ### 3. TextEncoder Implementation
 
-WinterCG-compliant UTF-8 encoding:
+WinterTC-compliant UTF-8 encoding:
 - Constructor: `new TextEncoder()`
 - Method: `encode(string)` → `Uint8Array`
-- Always uses UTF-8 (per WinterCG spec)
+- Always uses UTF-8 (per WinterTC spec)
 
 ### 4. TextDecoder Implementation
 
-WinterCG-compliant UTF-8 decoding:
+WinterTC-compliant UTF-8 decoding:
 - Constructor: `new TextDecoder()`
 - Method: `decode(Uint8Array|ArrayBuffer)` → `string`
 - Safe handling via `from_utf8_lossy` (replacement characters for invalid sequences)

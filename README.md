@@ -167,7 +167,7 @@ Cloudflare-specific APIs (KV, Durable Objects) are not supported.
 Existing Cloudflare Workers can run on nano-rs with these changes:
 
 1. Replace env bindings with direct configuration
-2. Use standard WinterCG APIs
+2. Use standard WinterTC APIs
 3. No changes needed for fetch/Response/Request patterns
 4. Store state in VFS or external database (no KV)
 
@@ -208,7 +208,7 @@ See [Performance Documentation](docs/PERFORMANCE.md) for benchmarks and tuning g
 
 ## Documentation
 
-- **[API Reference](docs/API.md)** — JavaScript globals, WebCrypto, WinterCG APIs
+- **[API Reference](docs/API.md)** — JavaScript globals, WebCrypto, WinterTC APIs
 - **[CLI Reference](docs/CLI.md)** — Command-line interface and commands
 - **[Configuration](docs/CONFIG.md)** — Configuration schema and options
 - **[Admin API](docs/ADMIN_API.md)** — Admin HTTP endpoints for monitoring

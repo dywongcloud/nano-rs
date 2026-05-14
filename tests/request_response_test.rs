@@ -1,7 +1,7 @@
 //! Integration tests for Request/Response fixes (Phase 17)
 //!
 //! These tests verify that:
-//! 1. Full WinterCG Request object is passed to JS (method, url, headers, body, bodyUsed)
+//! 1. Full WinterTC Request object is passed to JS (method, url, headers, body, bodyUsed)
 //! 2. Async handlers with await resolve correctly
 //! 3. Request body is readable
 
@@ -27,16 +27,16 @@ fn create_test_handler(dir: &TempDir, filename: &str, code: &str) -> String {
 }
 
 #[test]
-fn test_wintercg_request_object() {
+fn test_wintertc_request_object() {
     init_platform();
     let temp_dir = TempDir::new().unwrap();
 
     let entrypoint = create_test_handler(
         &temp_dir,
-        "wintercg_test.js",
+        "wintertc_test.js",
         r#"
 function fetch(request) {
-    // Verify all WinterCG Request properties exist
+    // Verify all WinterTC Request properties exist
     const checks = {
         hasMethod: typeof request.method === 'string',
         hasUrl: typeof request.url === 'string',

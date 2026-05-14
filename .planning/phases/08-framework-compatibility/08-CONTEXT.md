@@ -6,13 +6,13 @@
 <domain>
 ## Phase Boundary
 
-Popular JavaScript frameworks run without modification on NANO. This phase verifies that Hono.js, Next.js static export, Astro static build, and generic WinterCG apps execute correctly when properly configured for edge deployment.
+Popular JavaScript frameworks run without modification on NANO. This phase verifies that Hono.js, Next.js static export, Astro static build, and generic WinterTC apps execute correctly when properly configured for edge deployment.
 
 **Success Criteria (from ROADMAP.md):**
 1. Hono.js hello-world app with middleware responds correctly
 2. Next.js static export (HTML/CSS/JS assets) serves all files correctly
 3. Astro static build (islands architecture) renders and hydrates correctly
-4. Generic WinterCG-compliant app (not framework-specific) runs correctly
+4. Generic WinterTC-compliant app (not framework-specific) runs correctly
 
 **In scope:**
 - Framework compatibility verification testing
@@ -22,7 +22,7 @@ Popular JavaScript frameworks run without modification on NANO. This phase verif
 
 **Out of scope:**
 - npm package resolution (user must bundle apps)
-- Framework-specific runtime code (frameworks adapt to WinterCG)
+- Framework-specific runtime code (frameworks adapt to WinterTC)
 - Real filesystem access (VFS/bundle approach only)
 - TypeScript/JSX transpilation (user must bundle beforehand)
 
@@ -35,7 +35,7 @@ Popular JavaScript frameworks run without modification on NANO. This phase verif
 - **No framework detection in runtime**
 - NANO does not detect or special-case frameworks
 - Follows Cloudflare Workers/Deno Deploy model: runtime executes JS, frameworks adapt to it
-- Frameworks export WinterCG-compatible handlers when configured for edge deployment
+- Frameworks export WinterTC-compatible handlers when configured for edge deployment
 
 ### Static Asset Serving (D-02)
 - **VFS bundle approach**
@@ -60,7 +60,7 @@ Popular JavaScript frameworks run without modification on NANO. This phase verif
   - Hono: `export default { fetch }` with middleware pattern
   - Next.js: static export structure with HTML/CSS/JS bundle
   - Astro: islands architecture with client/server split
-  - Generic: plain WinterCG handler without framework
+  - Generic: plain WinterTC handler without framework
 
 ### App Configuration (D-05)
 - No special framework config fields needed
@@ -94,7 +94,7 @@ Popular JavaScript frameworks run without modification on NANO. This phase verif
 
 ### Requirements
 - `.planning/REQUIREMENTS.md` §FRAME-01 through FRAME-04 — Framework compatibility requirements
-- `.planning/REQUIREMENTS.md` §Design Principles — WinterCG compliance, no filesystem
+- `.planning/REQUIREMENTS.md` §Design Principles — WinterTC compliance, no filesystem
 
 ### Project Context
 - `.planning/PROJECT.md` — Core value, constraints (no npm, no filesystem access)
@@ -105,7 +105,7 @@ Popular JavaScript frameworks run without modification on NANO. This phase verif
 - Hono.js: https://hono.dev/docs/getting-started/basic
 - Next.js static export: https://nextjs.org/docs/app/api-reference/cli/next#build
 - Astro static build: https://docs.astro.build/en/guides/deploy/
-- WinterCG spec: https://wintercg.org/working-group/
+- WinterTC spec: https://wintertc.org/working-group/
 
 </canonical_refs>
 
@@ -114,7 +114,7 @@ Popular JavaScript frameworks run without modification on NANO. This phase verif
 
 ### Reusable Assets
 - `src/runtime/handler.rs` — Handler execution with `export default { fetch }` pattern
-- `src/runtime/apis.rs` — RuntimeAPIs::bind_all() provides WinterCG APIs
+- `src/runtime/apis.rs` — RuntimeAPIs::bind_all() provides WinterTC APIs
 - `src/config/app.rs` — AppConfig for app registration (no changes needed)
 - `src/http/v8_bridge.rs` — Request/Response serialization for JS handlers
 

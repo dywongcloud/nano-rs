@@ -57,7 +57,7 @@ All test suites pass at 100%:
 
 ### Compatibility
 
-- WinterCG APIs: 100% compatible
+- WinterTC APIs: 100% compatible
 - WebCrypto: 100% compatible  
 - Node.js fs polyfill: 100% compatible
 - Cloudflare Workers: 100% compatible (standard patterns)

@@ -1,8 +1,8 @@
-# Phase 21 Plan 03: WinterCG URL API - Summary
+# Phase 21 Plan 03: WinterTC URL API - Summary
 
 **Phase:** 21  
 **Plan:** 21-03  
-**Subsystem:** WinterCG URL API  
+**Subsystem:** WinterTC URL API  
 **Completed:** 2026-04-21  
 **Duration:** 30 minutes (combined with 21-02)  
 

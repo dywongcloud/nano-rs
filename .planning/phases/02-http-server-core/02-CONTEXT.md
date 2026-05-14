@@ -6,12 +6,12 @@
 <domain>
 ## Phase Boundary
 
-HTTP server accepts requests and routes by Host header with WinterCG-compatible objects. This phase establishes the HTTP layer that sits between incoming TCP connections and V8 isolate execution.
+HTTP server accepts requests and routes by Host header with WinterTC-compatible objects. This phase establishes the HTTP layer that sits between incoming TCP connections and V8 isolate execution.
 
 **In scope:**
 - axum HTTP server with configurable port binding
 - Virtual host routing via Host header (exact match)
-- Request/Response object mapping to WinterCG specification
+- Request/Response object mapping to WinterTC specification
 - Headers API implementation (case-insensitive, multi-value handling)
 - URL/URLSearchParams implementation
 - Error handling for routing and execution failures
@@ -44,7 +44,7 @@ HTTP server accepts requests and routes by Host header with WinterCG-compatible 
 - **D-08:** Multiple values combine with commas, except Set-Cookie which stays separate (browser behavior)
 
 ### URL/URLSearchParams (D-09 to D-10)
-- **D-09:** Full WinterCG URL compliance (not basic parsing only)
+- **D-09:** Full WinterTC URL compliance (not basic parsing only)
 - **D-10:** Percent-decode with lossy UTF-8 replacement (U+FFFD for invalid sequences)
 
 ### Error Handling (D-11 to D-12)
@@ -76,8 +76,8 @@ HTTP server accepts requests and routes by Host header with WinterCG-compatible 
 - `.planning/PROJECT.md` — Core value and constraints
 - `.planning/ROADMAP.md` §Phase 2 — Goal and success criteria
 
-### WinterCG Specification
-- https://wintercg.org/working-group/ — WinterCG working group specs (URL, Headers, Request, Response)
+### WinterTC Specification
+- https://wintertc.org/working-group/ — WinterTC working group specs (URL, Headers, Request, Response)
 
 ### axum Documentation
 - https://docs.rs/axum/latest/axum/ — Router, middleware, State extractor patterns

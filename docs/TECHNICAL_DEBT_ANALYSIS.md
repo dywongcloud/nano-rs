@@ -120,16 +120,16 @@ This document catalogs all technical debt, unused code, unimplemented features, 
 
 ## 2. Placeholder/Future Features
 
-### 2.1 WinterCG Handler Execution (`src/http/router.rs`)
+### 2.1 WinterTC Handler Execution (`src/http/router.rs`)
 **Status:** Placeholder only
 
 **Lines 206-214:**
 ```rust
-HandlerType::WinterCGHandler(_path) => {
+HandlerType::WinterTCHandler(_path) => {
     // Phase 3: Execute JavaScript handler
     // Router integration for handler execution is working
     // Full execution will be enabled after platform initialization fixes
-    tracing::debug!("WinterCG handler for path: {} (Phase 3)", _path);
+    tracing::debug!("WinterTC handler for path: {} (Phase 3)", _path);
     NanoResponse::ok()
         .with_header("Content-Type", "text/plain")
         .with_body(format!("JS handler (Phase 3): {}", _path))
@@ -287,7 +287,7 @@ tracing::debug!("walk_and_capture: recursive directory walking not yet implement
 
 ### P0 - Critical (Block Production)
 
-1. **Router WinterCG Handler Placeholder** - Currently returns placeholder instead of executing JS
+1. **Router WinterTC Handler Placeholder** - Currently returns placeholder instead of executing JS
 2. **Module Import VFS Placeholder** - Uses placeholder VFS instead of actual isolate VFS
 
 ### P1 - High (Important for Completeness)
@@ -318,7 +318,7 @@ tracing::debug!("walk_and_capture: recursive directory walking not yet implement
    - If not used in v1.5, remove to reduce binary size (45.9 MB)
    - If planned for v1.6, add to roadmap
 
-2. **Fix Router WinterCG Handler**
+2. **Fix Router WinterTC Handler**
    - Actually execute JS handlers or remove feature
    - Currently misleading (returns "JS handler (Phase 3)" but doesn't execute)
 

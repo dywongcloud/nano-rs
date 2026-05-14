@@ -1,7 +1,7 @@
 //! Framework Compatibility Tests
 //! 
-//! Tests that Hono.js-style and generic WinterCG apps execute correctly
-//! in NANO's V8 runtime with all WinterCG APIs available.
+//! Tests that Hono.js-style and generic WinterTC apps execute correctly
+//! in NANO's V8 runtime with all WinterTC APIs available.
 //!
 //! # V8 v147 Compatibility Note
 //! All V8 operations (platform init, isolate creation, execution) must happen
@@ -40,8 +40,8 @@ fn create_temp_js_file(fixture_name: &str) -> std::path::PathBuf {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_generic_wintercg_app_root_route() {
-    let js_path = create_temp_js_file("generic-wintercg-app");
+async fn test_generic_wintertc_app_root_route() {
+    let js_path = create_temp_js_file("generic-wintertc-app");
     let js_path_str = js_path.to_string_lossy().to_string();
 
     let response = tokio::task::spawn_blocking(move || {
@@ -87,8 +87,8 @@ async fn test_generic_wintercg_app_root_route() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_generic_wintercg_app_health_route() {
-    let js_path = create_temp_js_file("generic-wintercg-app");
+async fn test_generic_wintertc_app_health_route() {
+    let js_path = create_temp_js_file("generic-wintertc-app");
     let js_path_str = js_path.to_string_lossy().to_string();
 
     let response = tokio::task::spawn_blocking(move || {
@@ -119,8 +119,8 @@ async fn test_generic_wintercg_app_health_route() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_generic_wintercg_app_api_data_route() {
-    let js_path = create_temp_js_file("generic-wintercg-app");
+async fn test_generic_wintertc_app_api_data_route() {
+    let js_path = create_temp_js_file("generic-wintertc-app");
     let js_path_str = js_path.to_string_lossy().to_string();
 
     let response = tokio::task::spawn_blocking(move || {
@@ -151,8 +151,8 @@ async fn test_generic_wintercg_app_api_data_route() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_generic_wintercg_app_404() {
-    let js_path = create_temp_js_file("generic-wintercg-app");
+async fn test_generic_wintertc_app_404() {
+    let js_path = create_temp_js_file("generic-wintertc-app");
     let js_path_str = js_path.to_string_lossy().to_string();
 
     let response = tokio::task::spawn_blocking(move || {

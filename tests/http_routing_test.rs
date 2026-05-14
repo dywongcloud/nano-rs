@@ -171,7 +171,7 @@ async fn test_mixed_case_host() {
 
 #[tokio::test]
 async fn test_javascript_entrypoint_routing() {
-    // Test JavaScript entrypoint handler type
+    // Test JavaScript entrypoint handler type with a real temp file
     let default = RouteTarget {
         hostname: "default".to_string(),
         handler_type: HandlerType::StaticResponse("default".to_string()),
@@ -179,11 +179,23 @@ async fn test_javascript_entrypoint_routing() {
 
     let mut router = VirtualHostRouter::new(default);
 
+    // Create a real JS handler file
+    let js_code = r#"
+        export default {
+            async fetch(request) {
+                return new Response('Hello from JS handler', { status: 200 });
+            }
+        };
+    "#;
+    let temp_dir = std::env::temp_dir();
+    let handler_path = temp_dir.join("http_routing_test_handler.js");
+    std::fs::write(&handler_path, js_code).unwrap();
+
     router.register(
         "js.test.com".to_string(),
         RouteTarget {
             hostname: "js.test.com".to_string(),
-            handler_type: HandlerType::WinterCGHandler("/app/handler.js".to_string()),
+            handler_type: HandlerType::WinterTCHandler(handler_path.to_str().unwrap().to_string()),
         },
     );
 
@@ -206,8 +218,7 @@ async fn test_javascript_entrypoint_routing() {
 
     let body_bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
-    assert!(body_str.contains("JS handler (Phase 3)"));
-    assert!(body_str.contains("/app/handler.js"));
+    assert!(body_str.contains("Hello from JS handler"), "Expected JS handler response, got: {}", body_str);
 }
 
 #[tokio::test]

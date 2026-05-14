@@ -12,7 +12,7 @@
 This audit reveals **significant gaps** between advertised features and actual implementation. While the sliver system and WebCrypto are production-ready, **critical advertised features remain unimplemented** and return placeholder responses.
 
 ### Critical Finding
-**The HTTP Router WinterCG handler is a placeholder** — requests to JavaScript handlers return text saying "JS handler (Phase 3)" instead of actually executing JavaScript code. This is a core advertised feature that is non-functional.
+**The HTTP Router WinterTC handler is a placeholder** — requests to JavaScript handlers return text saying "JS handler (Phase 3)" instead of actually executing JavaScript code. This is a core advertised feature that is non-functional.
 
 ---
 
@@ -29,14 +29,14 @@ This audit reveals **significant gaps** between advertised features and actual i
 
 ## 🔴 CRITICAL ISSUES (Advertised but Non-Functional)
 
-### 1. HTTP Router WinterCG Handler — NON-FUNCTIONAL
+### 1. HTTP Router WinterTC Handler — NON-FUNCTIONAL
 **File:** `src/http/router.rs:206-214`  
 **Status:** ADVERTISED BUT RETURNS PLACEHOLDER
 
 **Current Implementation:**
 ```rust
-HandlerType::WinterCGHandler(_path) => {
-    tracing::debug!("WinterCG handler for path: {} (Phase 3)", _path);
+HandlerType::WinterTCHandler(_path) => {
+    tracing::debug!("WinterTC handler for path: {} (Phase 3)", _path);
     NanoResponse::ok()
         .with_header("Content-Type", "text/plain")
         .with_body(format!("JS handler (Phase 3): {}", _path))
@@ -49,7 +49,7 @@ HandlerType::WinterCGHandler(_path) => {
 **User Impact:** HIGH — Deployed apps return placeholder text instead of executing
 
 **Evidence from documentation:**
-- `docs/ARCHITECTURE.md` describes "WinterCG-compatible request handling"
+- `docs/ARCHITECTURE.md` describes "WinterTC-compatible request handling"
 - `docs/API.md` shows JavaScript handler examples
 - `README.md` claims "Execute JavaScript handlers via HTTP"
 
@@ -83,7 +83,7 @@ let mut loader = ModuleLoader::new(vfs_placeholder);
 **What it should do:** Use the actual app's VFS for import resolution  
 **Impact:** HIGH — ES Module imports from VFS don't work correctly  
 
-**Related:** The router WinterCG handler issue compounds this — even if modules resolved, handlers wouldn't execute.
+**Related:** The router WinterTC handler issue compounds this — even if modules resolved, handlers wouldn't execute.
 
 **Required Fix:**
 1. Pass VFS reference through compilation context
@@ -282,7 +282,7 @@ pub struct PrometheusMetricFamily;
 ### HTTP/Router (2 CRITICAL)
 | Issue | File | Line | Severity | Effort |
 |-------|------|------|----------|--------|
-| WinterCG handler placeholder | router.rs | 206 | 🔴 CRITICAL | 2-3 days |
+| WinterTC handler placeholder | router.rs | 206 | 🔴 CRITICAL | 2-3 days |
 | Module VFS placeholder | module.rs | 514 | 🔴 CRITICAL | 1-2 days |
 
 ### V8/Isolate (1 HIGH)
@@ -312,7 +312,7 @@ pub struct PrometheusMetricFamily;
 ## Recommended Priority Order
 
 ### Phase 39: Critical Router Fix (URGENT)
-1. Fix HTTP router WinterCG handler execution
+1. Fix HTTP router WinterTC handler execution
 2. Wire module loader to actual VFS
 3. **Effort:** 3-5 days
 4. **Impact:** HIGH — Enables core advertised feature
@@ -362,7 +362,7 @@ The following advertised features have **NO END-TO-END TESTS**:
 ### Immediate Actions Required:
 
 1. **STOP advertising JavaScript handler execution** until fixed, OR
-2. **PRIORITIZE Phase 39** to fix router WinterCG handler execution
+2. **PRIORITIZE Phase 39** to fix router WinterTC handler execution
 3. **Add integration tests** for HTTP → JS execution flow
 4. **Update documentation** to reflect current limitations
 
@@ -376,7 +376,7 @@ The following advertised features have **NO END-TO-END TESTS**:
 ---
 
 **Auditor Recommendation:** 
-🔴 **DO NOT advertise v1.6.0 as production-ready** until the router WinterCG handler is fixed. This is a fundamental feature that is broken.
+🔴 **DO NOT advertise v1.6.0 as production-ready** until the router WinterTC handler is fixed. This is a fundamental feature that is broken.
 
 **Next Phase Recommendation:**
 Create **Phase 39: Router Execution Fix** as the highest priority item before any other work.

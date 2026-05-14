@@ -61,7 +61,7 @@ const pages = {
         <li>Pre-rendered HTML at build time</li>
         <li>Zero server-side JavaScript execution per request</li>
         <li>Fast cold starts</li>
-        <li>Compatible with WinterCG</li>
+        <li>Compatible with WinterTC</li>
       </ul>
     </div>
     <nav>

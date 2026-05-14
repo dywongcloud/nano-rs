@@ -15,7 +15,7 @@
 
 We have 8 remaining failing tests preventing v1.2.0 from reaching production-ready 90%+ score:
 - 3 VFS tests (6% impact)
-- 3 WinterCG tests (6% impact)  
+- 3 WinterTC tests (6% impact)  
 - 1 Timer test (2% impact)
 - 1 SHA-256 test (2% impact)
 
@@ -44,7 +44,7 @@ Execute 6 focused plans to fix all 8 issues:
 - **Effort:** 2-3 hours
 - **Result:** Score jumps to 90%
 
-### Wave 2: WinterCG APIs
+### Wave 2: WinterTC APIs
 **Execute Second:** Plans 21-02, 21-03 (can be parallel)
 - **Why:** Fix Headers and URL APIs
 - **Effort:** 1-2 hours each
@@ -89,7 +89,7 @@ Execute 6 focused plans to fix all 8 issues:
 
 ---
 
-### Plan 21-02: WinterCG Headers API
+### Plan 21-02: WinterTC Headers API
 **File:** `21-02-PLAN.md`
 
 **Goal:** Fix Headers class methods (`get`, `set`, `has`, `delete`, `entries`)
@@ -112,7 +112,7 @@ Execute 6 focused plans to fix all 8 issues:
 
 ---
 
-### Plan 21-03: WinterCG URL API
+### Plan 21-03: WinterTC URL API
 **File:** `21-03-PLAN.md`
 
 **Goal:** Fix URL `searchParams` and methods
@@ -215,7 +215,7 @@ cd /Users/gleicon/code/rust/nano-rs
 cargo build --release
 # Test: Score should reach 90%
 
-# Wave 2: WinterCG APIs
+# Wave 2: WinterTC APIs
 # Follow 21-02-PLAN.md and 21-03-PLAN.md
 cargo build --release
 # Test: Score should reach 92-94%
@@ -272,8 +272,8 @@ node tests/harness.js 2>&1 | grep -E "(Score|Total|Passed)"
 
 1. ✅ Score reaches 90%+ (45+/50 tests passing)
 2. ✅ All VFS operations work (3/3 tests passing)
-3. ✅ WinterCG Headers API works (1/1 test passing)
-4. ✅ WinterCG URL API works (1/1 test passing)
+3. ✅ WinterTC Headers API works (1/1 test passing)
+4. ✅ WinterTC URL API works (1/1 test passing)
 5. ✅ Streams API functional (1/1 test passing)
 6. ✅ Timer functions available (1/1 test passing)
 7. ✅ SHA-256 hashing works (1/1 test passing)

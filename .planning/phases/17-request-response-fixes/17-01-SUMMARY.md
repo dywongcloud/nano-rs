@@ -9,11 +9,11 @@
 
 ## Summary of Changes
 
-This plan fixed **Bug #1 (Incomplete Request)** and **Bug #4 (Async Support)** identified in the v1.2 blackbox evaluation. The changes ensure handlers receive full WinterCG Request objects and support async/await patterns.
+This plan fixed **Bug #1 (Incomplete Request)** and **Bug #4 (Async Support)** identified in the v1.2 blackbox evaluation. The changes ensure handlers receive full WinterTC Request objects and support async/await patterns.
 
 ### Key Improvements
 
-1. **Full WinterCG Request Object:** Handlers now receive complete Request objects with:
+1. **Full WinterTC Request Object:** Handlers now receive complete Request objects with:
    - `request.method` - HTTP method (GET, POST, etc.)
    - `request.url` - Full URL string with path and query params
    - `request.headers` - Header object with all request headers
@@ -38,7 +38,7 @@ This plan fixed **Bug #1 (Incomplete Request)** and **Bug #4 (Async Support)** i
 | File | Changes |
 |------|---------|
 | `src/worker/pool.rs` | Fixed request serialization, added Promise handling, microtask checkpoint |
-| `src/runtime/request.rs` | **NEW** - WinterCG Request body reading APIs |
+| `src/runtime/request.rs` | **NEW** - WinterTC Request body reading APIs |
 | `src/runtime/mod.rs` | Added `pub mod request;` export |
 | `src/runtime/apis.rs` | Added Request API binding to RuntimeAPIs |
 | `tests/request_response_test.rs` | **NEW** - 6 integration tests |
@@ -53,7 +53,7 @@ This plan fixed **Bug #1 (Incomplete Request)** and **Bug #4 (Async Support)** i
 - `test_request_body_passed` - Verifies body presence and bodyUsed flag
 
 ### Integration Tests Added (`tests/request_response_test.rs`)
-- `test_wintercg_request_object` - Validates all WinterCG Request properties
+- `test_wintertc_request_object` - Validates all WinterTC Request properties
 - `test_request_headers_available` - Tests header object access
 - `test_async_handler_resolves` - Basic async handler resolution
 - `test_promise_fulfilled_state` - Promise chain resolution
@@ -79,7 +79,7 @@ All HTTP methods tested with full body, headers, and processing:
 ```
 running 6 integration tests
 test test_request_url_parsing ... ok
-test test_wintercg_request_object ... ok
+test test_wintertc_request_object ... ok
 test test_async_handler_resolves ... ok
 test test_request_headers_available ... ok
 test test_promise_fulfilled_state ... ok
@@ -159,7 +159,7 @@ All 4 tasks were executed as planned:
    - Adapted patterns from `src/runtime/handler.rs`
 
 3. ✅ **Task 3:** Added Request Body Reading APIs
-   - Created `src/runtime/request.rs` with WinterCG helpers
+   - Created `src/runtime/request.rs` with WinterTC helpers
    - Implemented `text()`, `json()`, `arrayBuffer()` methods
    - Exported from `src/runtime/mod.rs`
 
@@ -202,7 +202,7 @@ All 4 tasks were executed as planned:
 
 | Criterion | Status |
 |-----------|--------|
-| Handler receives full WinterCG Request | ✅ Verified by `test_wintercg_request_object` |
+| Handler receives full WinterTC Request | ✅ Verified by `test_wintertc_request_object` |
 | `request.method` contains HTTP method | ✅ Verified by `test_full_request_object_passed` |
 | `request.url` contains full URL | ✅ Verified by `test_request_url_parsing` |
 | `request.headers` contains headers | ✅ Verified by `test_request_headers_available` |

@@ -35,7 +35,7 @@ We need a filesystem abstraction that provides:
 * **Isolation** — Per-tenant filesystem namespaces
 * **Portability** — Works with sliver snapshots
 * **Flexibility** — Multiple storage backends
-* **Standards compliance** — WinterCG-compatible
+* **Standards compliance** — WinterTC-compatible
 * **Performance** — Fast default, scalable options
 
 ---

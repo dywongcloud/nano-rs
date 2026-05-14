@@ -111,7 +111,7 @@
 </blockquote>
 
 ### Phase 17: Request/Response Fixes ✅ COMPLETE
-**Goal:** Pass full WinterCG Request (URL, headers, body) to JS; add Promise support  
+**Goal:** Pass full WinterTC Request (URL, headers, body) to JS; add Promise support  
 **Depends on:** v1.1 complete  
 **Requirements:** REQ-17-01, REQ-17-02, REQ-17-03  
 **Success Criteria**:
@@ -177,15 +177,15 @@
   ✅ Score reaches 90%+ (45+/50 tests passing)
   ✅ All CRUD operations work (6/6)
   ✅ VFS fully functional (3/3 tests passing)
-  ✅ WinterCG Headers API works
-  ✅ WinterCG URL API works  
+  ✅ WinterTC Headers API works
+  ✅ WinterTC URL API works  
   ✅ Streams API functional
   ✅ Timer functions available
   ✅ SHA-256 hashing works
 **Plans:**
   - [x] 21-01-PLAN.md — VFS Implementation (COMPLETE 2026-05-01)
-  - [x] 21-02-PLAN.md — WinterCG Headers API fix (COMPLETE 2026-05-01)
-  - [x] 21-03-PLAN.md — WinterCG URL API fix (COMPLETE 2026-05-01)
+  - [x] 21-02-PLAN.md — WinterTC Headers API fix (COMPLETE 2026-05-01)
+  - [x] 21-03-PLAN.md — WinterTC URL API fix (COMPLETE 2026-05-01)
   - [x] 21-04-PLAN.md — Streams API (COMPLETE 2026-05-01)
   - [x] 21-05-PLAN.md — Timer functions (COMPLETE 2026-05-01)
   - [x] 21-06-PLAN.md — SHA-256 hashing and final verification (COMPLETE 2026-05-01)
@@ -626,7 +626,7 @@ This milestone eliminates ALL technical debt from nano-rs. Every placeholder bec
 - Start v1.6 planning: `/gsd-plan-phase 37`
 
 ### Completed in v1.4.2:
-- ✅ **Phase 21** — v1.2.0 Remediation (VFS, WinterCG APIs, Streams, Timers, SHA-256)
+- ✅ **Phase 21** — v1.2.0 Remediation (VFS, WinterTC APIs, Streams, Timers, SHA-256)
 - ✅ **Phase 21.2** — Critical bug fixes (VFS patterns, server cleanup)
 - ✅ **Phase 22** — Documentation & Architecture (ADRs, API docs, performance guides)
 - ✅ **Phase 27** — Production Multi-Tenancy (CPU limits, memory eviction, metrics, WASM)

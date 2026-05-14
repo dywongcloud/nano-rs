@@ -1,6 +1,6 @@
 //! JavaScript runtime APIs
 //!
-//! This module implements the WinterCG-compatible JavaScript APIs:
+//! This module implements the WinterTC-compatible JavaScript APIs:
 //! - fetch() handler interface
 //! - console.log/warn/error
 //! - TextEncoder/TextDecoder
@@ -13,7 +13,7 @@
 //! - DOMException
 //!
 //! These APIs bridge between JavaScript execution in V8 and the Rust
-//! runtime, providing the standard WinterCG environment for edge functions.
+//! runtime, providing the standard WinterTC environment for edge functions.
 
 pub mod handler;
 pub mod apis;

@@ -1,8 +1,8 @@
-# Phase 21 Plan 02: WinterCG Headers API - Summary
+# Phase 21 Plan 02: WinterTC Headers API - Summary
 
 **Phase:** 21  
 **Plan:** 21-02  
-**Subsystem:** WinterCG HTTP Headers  
+**Subsystem:** WinterTC HTTP Headers  
 **Completed:** 2026-04-21  
 **Duration:** 30 minutes (combined with 21-03)  
 
@@ -38,7 +38,7 @@ let headers_obj = if let Some(headers_ctor) = global.get(context_scope, headers_
 
 ## Requirements Completed
 
-- ✅ WinterCG Headers API works in handlers
+- ✅ WinterTC Headers API works in handlers
 - ✅ `headers.get()` returns header values
 - ✅ `headers.set()` modifies headers
 - ✅ `headers.has()` checks existence

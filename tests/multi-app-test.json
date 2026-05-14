@@ -22,7 +22,7 @@
       },
       "limits": {
         "memory_mb": 256,
-        "timeout_secs": 60,
+        "timeout_secs": 30,
         "workers": 4
       }
     },

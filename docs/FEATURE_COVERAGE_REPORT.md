@@ -45,8 +45,8 @@
 | ESM Module System | ✅ | `export default { fetch }` via transformation |
 | Config Mode | ✅ | `--config` workflow fully implemented |
 | Sliver VFS Integration | ✅ | JS entrypoint read from sliver VFS |
-| WinterCG Headers API | ✅ | Headers class working |
-| WinterCG URL API | ✅ | URL class working |
+| WinterTC Headers API | ✅ | Headers class working |
+| WinterTC URL API | ✅ | URL class working |
 | Streams API | ✅ | ReadableStream/WritableStream functional |
 | Timer Functions | ✅ | setTimeout/setInterval working |
 | Static File Serving | ✅ | Auto-detect and serve static files |

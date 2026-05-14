@@ -55,7 +55,7 @@ The current README has an "Executive Summary" but some feature claims may not ma
 ### Acceptance Criteria
 - [ ] Audit all feature status claims against actual tests
 - [ ] Node.js compatibility matrix reflects reality (not just "100% Complete")
-- [ ] WinterCG API documentation matches actual implementation
+- [ ] WinterTC API documentation matches actual implementation
 - [ ] WebCrypto documentation lists all supported algorithms
 - [ ] README version number matches ROADMAP
 
@@ -63,7 +63,7 @@ The current README has an "Executive Summary" but some feature claims may not ma
 Current issues:
 - README says "v1.5.0" but ROADMAP shows v1.1 shipped, v1.2 in remediation
 - Some claims like "100% Complete" for all APIs may need qualification
-- Need to document what "WinterCG compatibility" actually means (subset of APIs)
+- Need to document what "WinterTC compatibility" actually means (subset of APIs)
 
 ---
 

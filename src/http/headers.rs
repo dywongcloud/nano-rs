@@ -1,6 +1,6 @@
 //! Headers API implementation
 //!
-//! WinterCG-compliant Headers type that wraps HTTP headers with
+//! WinterTC-compliant Headers type that wraps HTTP headers with
 //! case-insensitive name handling per RFC 7230.
 //!
 //! # Decisions
@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-/// WinterCG-compliant Headers implementation
+/// WinterTC-compliant Headers implementation
 ///
 /// Stores headers in a HashMap with lowercase keys for case-insensitive
 /// matching per RFC 7230. Multiple values are stored as vectors.
@@ -64,7 +64,7 @@ impl NanoHeaders {
 
     /// Get a header value
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Headers/get
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Headers/get
     ///
     /// Returns the header value as a string. For non-Set-Cookie headers,
     /// multiple values are combined with commas per RFC 7230. For Set-Cookie,
@@ -92,7 +92,7 @@ impl NanoHeaders {
 
     /// Get all Set-Cookie header values
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Headers/getSetCookie
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Headers/getSetCookie
     ///
     /// Returns all Set-Cookie values as separate strings. This is necessary
     /// because browsers don't combine multiple Set-Cookie headers with commas.
@@ -107,7 +107,7 @@ impl NanoHeaders {
 
     /// Check if a header exists
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Headers/has
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Headers/has
     ///
     /// # Arguments
     ///
@@ -122,7 +122,7 @@ impl NanoHeaders {
 
     /// Set a header value
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Headers/set
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Headers/set
     ///
     /// Replaces any existing values for this header with a single new value.
     /// Header name is normalized to lowercase.
@@ -139,7 +139,7 @@ impl NanoHeaders {
 
     /// Append a header value
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Headers/append
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Headers/append
     ///
     /// Adds a new value for the header, preserving existing values.
     /// Header name is normalized to lowercase.
@@ -157,7 +157,7 @@ impl NanoHeaders {
 
     /// Delete a header
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Headers/delete
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Headers/delete
     ///
     /// Removes all values for the given header name.
     ///
@@ -170,7 +170,7 @@ impl NanoHeaders {
 
     /// Iterate over all headers
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Headers/forEach
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Headers/forEach
     ///
     /// Calls the callback for each header. For Set-Cookie, only the first
     /// value is passed; for other headers with multiple values, they are
@@ -296,7 +296,7 @@ mod tests {
     fn test_headers_api_compliance() {
         let mut headers = NanoHeaders::new();
 
-        // Test all WinterCG Headers methods
+        // Test all WinterTC Headers methods
         headers.append("Accept", "application/json");
         headers.append("Accept", "text/html");
         headers.set("Content-Type", "application/json");

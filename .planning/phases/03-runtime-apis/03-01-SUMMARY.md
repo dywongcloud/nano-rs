@@ -139,7 +139,7 @@ let scope = &mut v8::ContextScope::new(scope, v8_context);
 
 | Stub | File | Line | Reason |
 |------|------|------|--------|
-| Router placeholder | router.rs:77-85 | WinterCGHandler branch | Pending axum Handler trait resolution |
+| Router placeholder | router.rs:77-85 | WinterTCHandler branch | Pending axum Handler trait resolution |
 | console binding | handler.rs | execute_in_v8 | Will add with RuntimeAPIs module |
 
 ## Commits

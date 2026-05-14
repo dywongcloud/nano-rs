@@ -48,7 +48,7 @@ The 2025 standard stack for building a V8-based JavaScript edge runtime in Rust 
 | **virtual-fs** | ^0.2 | In-memory filesystem per isolate | Multiple backend support (MemoryFS, SandboxedPhysicalFS); conforms to std::fs patterns |
 | **vfs-kit** (alt) | ^0.2 | Alternative VFS | Lighter weight; MapFS for pure in-memory; actively developed 2026 |
 
-### Compression (WinterCG CompressionStream)
+### Compression (WinterTC CompressionStream)
 
 | Technology | Version | Purpose | Why |
 |------------|---------|---------|-----|
@@ -148,7 +148,7 @@ reqwest = "0.12"
 | **HTTP Server** | axum | hyper directly | hyper is lower-level; axum provides routing, extractors, middleware without significant overhead |
 | **Crypto** | ring + p256 + rsa | RustCrypto ecosystem (generic) | ring has broader audit history; BoringSSL pedigree; better side-channel resistance guarantees |
 | **VFS** | virtual-fs | vfs (older crate) | vfs lacks active maintenance; virtual-fs has SandboxedPhysicalFS for security |
-| **Compression** | flate2 | zstd | zstd not in WinterCG spec; flate2 covers gzip/deflate as required |
+| **Compression** | flate2 | zstd | zstd not in WinterTC spec; flate2 covers gzip/deflate as required |
 | **Compression** | flate2 | libz-sys | flate2 with zlib-rs backend is pure Rust, no C dependencies, faster |
 
 ---

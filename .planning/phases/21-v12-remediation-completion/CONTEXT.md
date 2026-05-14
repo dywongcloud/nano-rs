@@ -24,11 +24,11 @@ These are the biggest blocker - 6% of the test score
 
 **Impact:** +6% score (42% → 48% of remaining failures)
 
-### WinterCG API Issues (3 tests) - Priority: MEDIUM
+### WinterTC API Issues (3 tests) - Priority: MEDIUM
 
-4. **WinterCG: Headers API** - Headers class methods not accessible in handlers
-5. **WinterCG: URL API** - URL search params and methods not working
-6. **WinterCG: ReadableStream/WritableStream** - Stream APIs not implemented
+4. **WinterTC: Headers API** - Headers class methods not accessible in handlers
+5. **WinterTC: URL API** - URL search params and methods not working
+6. **WinterTC: ReadableStream/WritableStream** - Stream APIs not implemented
 
 **Root Cause Analysis:**
 - Headers API: Need to implement proper Headers prototype with methods like `get()`, `set()`, `has()`
@@ -67,7 +67,7 @@ These are the biggest blocker - 6% of the test score
 - Plan 21-01: VFS JavaScript bindings and integration
 - This fixes 3 tests = +6% score
 
-**Wave 2: WinterCG Headers & URL**
+**Wave 2: WinterTC Headers & URL**
 - Plan 21-02: Headers API implementation
 - Plan 21-03: URL API fixes
 - This fixes 2 tests = +4% score
@@ -89,8 +89,8 @@ These are the biggest blocker - 6% of the test score
 
 1. ✅ Score reaches 90%+ (45+/50 tests passing)
 2. ✅ All VFS operations work (3/3 tests passing)
-3. ✅ WinterCG Headers API works (1/1 test passing)
-4. ✅ WinterCG URL API works (1/1 test passing)
+3. ✅ WinterTC Headers API works (1/1 test passing)
+4. ✅ WinterTC URL API works (1/1 test passing)
 5. ✅ Streams API functional (1/1 test passing)
 6. ✅ Timer functions available (1/1 test passing)
 7. ✅ SHA-256 hashing works (1/1 test passing)
@@ -105,7 +105,7 @@ These are the biggest blocker - 6% of the test score
 - `src/worker/queue.rs` - Worker execution, needs VFS context setup
 - `src/runtime/apis.rs` - Runtime API injection point
 
-### WinterCG APIs
+### WinterTC APIs
 - `src/runtime/headers.rs` - Headers implementation (may need creation)
 - `src/runtime/url.rs` - URL implementation fixes
 - `src/runtime/streams.rs` - Streams implementation (needs creation)
@@ -122,7 +122,7 @@ These are the biggest blocker - 6% of the test score
 
 - Phase 20 (Sliver VFS Integration) ✅ COMPLETE
 - Existing VFS infrastructure in `src/vfs/`
-- Existing WinterCG Request/Response in `src/runtime/`
+- Existing WinterTC Request/Response in `src/runtime/`
 
 ---
 

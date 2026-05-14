@@ -7,17 +7,17 @@
 
 ## Overview
 
-NANO provides a WinterCG-compatible JavaScript runtime with additional NANO-specific APIs for filesystem access and edge-specific functionality.
+NANO provides a WinterTC-compatible JavaScript runtime with additional NANO-specific APIs for filesystem access and edge-specific functionality.
 
 **Quick Links:**
-- [WinterCG APIs](#wintercg-apis) — Standard web APIs
+- [WinterTC APIs](#wintertc-apis) — Standard web APIs
 - [WebCrypto](#webcrypto-api) — Cryptographic operations
 - [NANO-Specific APIs](#nano-specific-apis) — Nano.fs.* for file access
 - [Node.js Compatibility](#nodejs-compatibility-polyfills) — Buffer, timers, fs
 
 ---
 
-## WinterCG APIs
+## WinterTC APIs
 
 ### console
 
@@ -44,7 +44,7 @@ In production mode, console output is structured JSON:
 
 ### TextEncoder / TextDecoder
 
-WinterCG-standard encoding/decoding.
+WinterTC-standard encoding/decoding.
 
 ```javascript
 const encoder = new TextEncoder();
@@ -66,7 +66,7 @@ const str = decoder.decode(bytes); // "Hello"
 
 ### fetch() / Request / Response / Headers
 
-Full WinterCG HTTP client implementation.
+Full WinterTC HTTP client implementation.
 
 #### fetch()
 
@@ -172,7 +172,7 @@ const headers2 = new Headers({
 
 ### URL / URLSearchParams
 
-WinterCG URL manipulation.
+WinterTC URL manipulation.
 
 #### URL
 
@@ -627,7 +627,7 @@ const exists = fs.existsSync('/data/config.json');
 
 ---
 
-## Streams (WinterCG)
+## Streams (WinterTC)
 
 ### ReadableStream
 
@@ -764,7 +764,7 @@ export default {
 - [Configuration](CONFIG.md) — Runtime configuration options
 - [Node.js Compatibility](NODEJS_COMPAT.md) — Migration from Node.js
 - [Compatibility Matrix](COMPATIBILITY.md) — Full API compatibility status
-- [WinterCG Spec](https://wintercg.org/) — Standard APIs NANO implements
+- [WinterTC Spec](https://wintertc.org/) — Standard APIs NANO implements
 
 ---
 

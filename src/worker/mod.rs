@@ -187,7 +187,7 @@ use tokio::sync::oneshot;
 pub struct HandlerTask {
     /// Path to the JavaScript entrypoint file
     pub entrypoint: String,
-    /// The incoming HTTP request (WinterCG-compatible)
+    /// The incoming HTTP request (WinterTC-compatible)
     pub request: NanoRequest,
     /// Channel to send the response back to the caller
     pub response_tx: oneshot::Sender<anyhow::Result<NanoResponse>>,

@@ -5,7 +5,7 @@
 
 ## Overview
 
-NANO is a single-process HTTP server hosting multiple isolated JavaScript applications in separate V8 isolates. Each application runs in its own isolate with strong isolation boundaries, context reset between requests, and WinterCG-compliant APIs. This architecture eliminates container overhead while maintaining security and performance.
+NANO is a single-process HTTP server hosting multiple isolated JavaScript applications in separate V8 isolates. Each application runs in its own isolate with strong isolation boundaries, context reset between requests, and WinterTC-compliant APIs. This architecture eliminates container overhead while maintaining security and performance.
 
 ## Recommended Architecture
 
@@ -109,7 +109,7 @@ WorkQueue Pop → JS Handler Call → fetch() API Response → Serialize → HTT
 |-----------|---------------|-------------------|
 | V8 Isolate | Sandboxed JS execution environment | Worker Thread, Extensions |
 | Context | Per-request fresh V8 context | V8 Isolate |
-| Extensions | WinterCG API bindings | V8 Isolate, Rust Ops |
+| Extensions | WinterTC API bindings | V8 Isolate, Rust Ops |
 
 **Data Flow:**
 ```
@@ -125,7 +125,7 @@ V8 Context → Load Handler Script → Create Request/Response → Execute fetch
 
 | Component | Responsibility | Communicates With |
 |-----------|---------------|-------------------|
-| Extension Loader | Load WinterCG APIs into context | V8 Isolate |
+| Extension Loader | Load WinterTC APIs into context | V8 Isolate |
 | Ops (Rust functions) | Host functions callable from JS | Extension Loader, System Services |
 | Resource Table | Track open resources (streams, sockets) | Ops, Resource Manager |
 
@@ -211,7 +211,7 @@ loop {
     let request = work_queue.recv().await;
     let context = isolate.create_context();  // Fresh context
     
-    // Bind WinterCG APIs to context
+    // Bind WinterTC APIs to context
     bind_fetch_api(&context);
     bind_crypto_api(&context);
     
@@ -282,7 +282,7 @@ pub struct ResourceTable {
 
 ### Pattern 4: Snapshot-Based Startup
 
-**What:** Pre-compile runtime code (WinterCG APIs) into V8 snapshots for instant context creation.
+**What:** Pre-compile runtime code (WinterTC APIs) into V8 snapshots for instant context creation.
 
 **Why this works:**
 - Snapshot creation: Once at build time
@@ -294,7 +294,7 @@ pub struct ResourceTable {
 ```rust
 // Build time: create snapshot
 let mut snapshot_creator = SnapshotCreator::new(None);
-// ... load all WinterCG APIs ...
+// ... load all WinterTC APIs ...
 let snapshot = snapshot_creator.create_blob(SnapshotCreator::FunctionCodeHandling::Clear);
 
 // Runtime: use snapshot
@@ -377,7 +377,7 @@ Based on component dependencies:
 5. **WorkQueue implementation** (tokio channels, dispatch)
 6. **Context lifecycle** (create, execute, reset, dispose)
 
-### Phase 3: WinterCG APIs
+### Phase 3: WinterTC APIs
 7. **Request/Response/URL** (fetch interface types)
 8. **Headers implementation** (Web-standard headers)
 9. **fetch() handler routing** (HTTP → JS function call)
@@ -410,7 +410,7 @@ Single Isolate → WorkerPool → WorkQueue → HTTP Server
     ↓                   ↓           ↓
 Context Lifecycle ←─────┴───────────┘
     ↓
-WinterCG APIs (Request, Response, URL, Headers)
+WinterTC APIs (Request, Response, URL, Headers)
     ↓
 fetch() Routing ←─── Outbound fetch() (tokio)
     ↓
@@ -471,7 +471,7 @@ Advanced Features (Streams, Crypto, WebSockets, etc.)
 
 - Deno Architecture: https://docs.deno.com/runtime/contributing/architecture/ [HIGH confidence - official docs]
 - deno_core ARCHITECTURE.md: https://github.com/denoland/deno_core/blob/main/ARCHITECTURE.md [HIGH confidence - official source]
-- WinterCG Standards: https://wintercg.org/work [HIGH confidence - standards body]
+- WinterTC Standards: https://wintertc.org/work [HIGH confidence - standards body]
 - Cloudflare Workers Runtime APIs: https://developers.cloudflare.com/workers/runtime-apis/ [HIGH confidence - reference implementation]
 - rusty_v8 Documentation: https://docs.rs/rusty_v8/latest/rusty_v8/ [HIGH confidence - API docs]
 - V8 Isolates Documentation: https://v8.dev/docs/embed [MEDIUM confidence - V8 project docs]

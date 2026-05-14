@@ -3,7 +3,7 @@ phase: 03-runtime-apis
 plan: 03
 type: execute
 subsystem: api
-tags: [v8, timers, abortcontroller, tokio, wintercg]
+tags: [v8, timers, abortcontroller, tokio, wintertc]
 
 # Dependency graph
 requires:

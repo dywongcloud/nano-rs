@@ -327,9 +327,9 @@ fn execute_handler_code<'a>(
     v8_context: v8::Local<'a, v8::Context>,
     handler_ctx: &HandlerContext,
 ) -> Result<NanoResponse> {
-    // Bind all WinterCG APIs (URL, fetch, etc.) to the context
+    // Bind all WinterTC APIs (URL, fetch, etc.) to the context
     RuntimeAPIs::bind_all(scope, v8_context);
-    tracing::debug!("Bound WinterCG APIs to handler context");
+    tracing::debug!("Bound WinterTC APIs to handler context");
 
     // Read the handler code from cache or disk
     let code = read_code_cached(&handler_ctx.entrypoint)?;

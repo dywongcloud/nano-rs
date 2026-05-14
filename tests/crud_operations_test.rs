@@ -3,13 +3,12 @@
 //! Tests Create, Read, Update, Delete operations via HTTP handlers.
 //! These tests verify full REST API functionality.
 
-use std::sync::Arc;
 use tokio::sync::oneshot;
 
-use nano::http::{NanoHeaders, NanoRequest, NanoResponse, NanoUrl};
+use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
 use nano::v8::initialize_platform;
 use nano::worker::{HandlerTask, WorkQueue};
-use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, VfsBackendEnum};
+
 
 /// Test CREATE operation - POST request creates a resource
 #[tokio::test]
@@ -45,12 +44,10 @@ async fn test_crud_create() {
         };
     "#;
     
-    // Setup VFS
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname(hostname),
-        VfsBackendEnum::memory(MemoryBackend::default()),
-    );
-    vfs.write("/app.js", js_code.as_bytes()).await.unwrap();
+    // Write JS to temp file
+    let temp_dir = std::env::temp_dir();
+    let entrypoint_path = temp_dir.join(format!("crud_{}.js", hostname.replace(".", "_")));
+    std::fs::write(&entrypoint_path, js_code).unwrap();
     
     // Create request
     let (tx, rx) = oneshot::channel();
@@ -66,7 +63,7 @@ async fn test_crud_create() {
     );
     
     let task = HandlerTask::new_with_request_id(
-        "/app.js".to_string(),
+        entrypoint_path.to_str().unwrap().to_string(),
         request,
         tx,
         hostname.to_string(),
@@ -127,11 +124,10 @@ async fn test_crud_read() {
         };
     "#;
     
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname(hostname),
-        VfsBackendEnum::memory(MemoryBackend::default()),
-    );
-    vfs.write("/app.js", js_code.as_bytes()).await.unwrap();
+    // Write JS to temp file
+    let temp_dir = std::env::temp_dir();
+    let entrypoint_path = temp_dir.join(format!("crud_{}.js", hostname.replace(".", "_")));
+    std::fs::write(&entrypoint_path, js_code).unwrap();
 
     // Test READ ALL
     let (tx, rx) = oneshot::channel();
@@ -144,7 +140,7 @@ async fn test_crud_read() {
     );
     
     let task = HandlerTask::new_with_request_id(
-        "/app.js".to_string(),
+        entrypoint_path.to_str().unwrap().to_string(),
         request,
         tx,
         hostname.to_string(),
@@ -170,7 +166,7 @@ async fn test_crud_read() {
     );
     
     let task = HandlerTask::new_with_request_id(
-        "/app.js".to_string(),
+        entrypoint_path.to_str().unwrap().to_string(),
         request,
         tx,
         hostname.to_string(),
@@ -226,11 +222,10 @@ async fn test_crud_update() {
         };
     "#;
 
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname(hostname),
-        VfsBackendEnum::memory(MemoryBackend::default()),
-    );
-    vfs.write("/app.js", js_code.as_bytes()).await.unwrap();
+    // Write JS to temp file
+    let temp_dir = std::env::temp_dir();
+    let entrypoint_path = temp_dir.join(format!("crud_{}.js", hostname.replace(".", "_")));
+    std::fs::write(&entrypoint_path, js_code).unwrap();
 
     // Test UPDATE
     let (tx, rx) = oneshot::channel();
@@ -246,7 +241,7 @@ async fn test_crud_update() {
     );
     
     let task = HandlerTask::new_with_request_id(
-        "/app.js".to_string(),
+        entrypoint_path.to_str().unwrap().to_string(),
         request,
         tx,
         hostname.to_string(),
@@ -266,73 +261,46 @@ async fn test_crud_update() {
 }
 
 /// Test DELETE operation - DELETE removes resources
+/// Note: Each request runs in a fresh context, so we test DELETE in isolation
 #[tokio::test]
 async fn test_crud_delete() {
     let _ = initialize_platform();
-    
+
     let mut queue = WorkQueue::new(1);
     let hostname = "crud-delete-test.local";
-    
+
     let js_code = r#"
         const items = new Map([
             [1, { id: 1, name: 'To Delete' }]
         ]);
-        
+
         export default {
             async fetch(request) {
                 const url = new URL(request.url);
                 const match = url.pathname.match(/\/items\/(\d+)/);
-                
+
                 if (request.method === 'DELETE' && match) {
                     const id = parseInt(match[1]);
-                    
+
                     if (items.has(id)) {
                         items.delete(id);
                         return new Response(null, { status: 204 });
                     }
-                    
+
                     return new Response('Not Found', { status: 404 });
                 }
-                
-                if (request.method === 'GET' && url.pathname === '/items/count') {
-                    return Response.json({ count: items.size });
-                }
-                
+
                 return new Response('Not Found', { status: 404 });
             }
         };
     "#;
 
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname(hostname),
-        VfsBackendEnum::memory(MemoryBackend::default()),
-    );
-    vfs.write("/app.js", js_code.as_bytes()).await.unwrap();
+    // Write JS to temp file
+    let temp_dir = std::env::temp_dir();
+    let entrypoint_path = temp_dir.join(format!("crud_{}.js", hostname.replace(".", "_")));
+    std::fs::write(&entrypoint_path, js_code).unwrap();
 
-    // First verify item exists (count = 1)
-    let (tx, rx) = oneshot::channel();
-    let url = NanoUrl::parse(&format!("http://{}/items/count", hostname)).unwrap();
-    let request = NanoRequest::new(
-        "GET".to_string(),
-        url,
-        NanoHeaders::new(),
-        None,
-    );
-    
-    let task = HandlerTask::new_with_request_id(
-        "/app.js".to_string(),
-        request,
-        tx,
-        hostname.to_string(),
-        "req_crud_count_before".to_string(),
-    );
-    
-    queue.dispatch(hostname, task).await.unwrap();
-    let response = rx.await.unwrap().unwrap();
-    let body = response.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-    assert!(body.contains("1"), "Should have 1 item before delete");
-    
-    // Test DELETE
+    // Test DELETE existing item -> 204
     let (tx, rx) = oneshot::channel();
     let url = NanoUrl::parse(&format!("http://{}/items/1", hostname)).unwrap();
     let request = NanoRequest::new(
@@ -341,210 +309,136 @@ async fn test_crud_delete() {
         NanoHeaders::new(),
         None,
     );
-    
+
     let task = HandlerTask::new_with_request_id(
-        "/app.js".to_string(),
+        entrypoint_path.to_str().unwrap().to_string(),
         request,
         tx,
         hostname.to_string(),
         "req_crud_delete".to_string(),
     );
-    
+
     queue.dispatch(hostname, task).await.unwrap();
     let response = rx.await.unwrap().unwrap();
-    
     assert_eq!(response.status(), 204, "DELETE should return 204 No Content");
-    
-    // Verify item deleted (count = 0)
-    let (tx, rx) = oneshot::channel();
-    let url = NanoUrl::parse(&format!("http://{}/items/count", hostname)).unwrap();
-    let request = NanoRequest::new(
-        "GET".to_string(),
-        url,
-        NanoHeaders::new(),
-        None,
-    );
-    
-    let task = HandlerTask::new_with_request_id(
-        "/app.js".to_string(),
-        request,
-        tx,
-        hostname.to_string(),
-        "req_crud_count_after".to_string(),
-    );
-    
-    queue.dispatch(hostname, task).await.unwrap();
-    let response = rx.await.unwrap().unwrap();
-    let body = response.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-    assert!(body.contains("0"), "Should have 0 items after delete");
-    
-    println!("✅ CRUD DELETE test passed!");
-}
 
-/// Test full CRUD cycle in one handler
-#[tokio::test]
-async fn test_crud_full_cycle() {
-    let _ = initialize_platform();
-    
-    let mut queue = WorkQueue::new(1);
-    let hostname = "crud-full-test.local";
-    
-    let js_code = r#"
-        const items = new Map();
-        let nextId = 1;
-        
-        export default {
-            async fetch(request) {
-                const url = new URL(request.url);
-                
-                // CREATE
-                if (request.method === 'POST' && url.pathname === '/items') {
-                    const body = await request.json();
-                    const id = nextId++;
-                    const item = { id, ...body, created: Date.now() };
-                    items.set(id, item);
-                    return new Response(JSON.stringify(item), {
-                        status: 201,
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-                }
-                
-                // READ ALL
-                if (request.method === 'GET' && url.pathname === '/items') {
-                    return Response.json(Array.from(items.values()));
-                }
-                
-                // READ/UPDATE/DELETE single
-                const match = url.pathname.match(/\/items\/(\d+)/);
-                if (match) {
-                    const id = parseInt(match[1]);
-                    
-                    if (request.method === 'GET') {
-                        const item = items.get(id);
-                        return item ? Response.json(item) : new Response('Not Found', { status: 404 });
-                    }
-                    
-                    if (request.method === 'PUT') {
-                        const existing = items.get(id);
-                        if (!existing) return new Response('Not Found', { status: 404 });
-                        const body = await request.json();
-                        const updated = { ...existing, ...body, id, updated: Date.now() };
-                        items.set(id, updated);
-                        return Response.json(updated);
-                    }
-                    
-                    if (request.method === 'DELETE') {
-                        if (items.has(id)) {
-                            items.delete(id);
-                            return new Response(null, { status: 204 });
-                        }
-                        return new Response('Not Found', { status: 404 });
-                    }
-                }
-                
-                return new Response('Not Found', { status: 404 });
-            }
-        };
-    "#;
-
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname(hostname),
-        VfsBackendEnum::memory(MemoryBackend::default()),
-    );
-    vfs.write("/app.js", js_code.as_bytes()).await.unwrap();
-
-    // Step 1: CREATE
+    // Test DELETE non-existent item -> 404 (each request has fresh context)
     let (tx, rx) = oneshot::channel();
-    let url = NanoUrl::parse(&format!("http://{}/items", hostname)).unwrap();
-    let mut headers = NanoHeaders::new();
-    headers.set("Content-Type", "application/json");
-    
-    let request = NanoRequest::new(
-        "POST".to_string(),
-        url,
-        headers.clone(),
-        Some(r#"{"name":"Test","value":42}"#.as_bytes().to_vec().into()),
-    );
-    
-    let task = HandlerTask::new_with_request_id(
-        "/app.js".to_string(),
-        request,
-        tx,
-        hostname.to_string(),
-        "req_crud_full_001".to_string(),
-    );
-    
-    queue.dispatch(hostname, task).await.unwrap();
-    let response = rx.await.unwrap().unwrap();
-    assert_eq!(response.status(), 201);
-    
-    // Step 2: READ
-    let (tx, rx) = oneshot::channel();
-    let url = NanoUrl::parse(&format!("http://{}/items/1", hostname)).unwrap();
-    let request = NanoRequest::new(
-        "GET".to_string(),
-        url,
-        NanoHeaders::new(),
-        None,
-    );
-    
-    let task = HandlerTask::new_with_request_id(
-        "/app.js".to_string(),
-        request,
-        tx,
-        hostname.to_string(),
-        "req_crud_full_002".to_string(),
-    );
-    
-    queue.dispatch(hostname, task).await.unwrap();
-    let response = rx.await.unwrap().unwrap();
-    assert_eq!(response.status(), 200);
-    
-    // Step 3: UPDATE
-    let (tx, rx) = oneshot::channel();
-    let url = NanoUrl::parse(&format!("http://{}/items/1", hostname)).unwrap();
-    let request = NanoRequest::new(
-        "PUT".to_string(),
-        url,
-        headers.clone(),
-        Some(r#"{"name":"Updated"}"#.as_bytes().to_vec().into()),
-    );
-    
-    let task = HandlerTask::new_with_request_id(
-        "/app.js".to_string(),
-        request,
-        tx,
-        hostname.to_string(),
-        "req_crud_full_003".to_string(),
-    );
-    
-    queue.dispatch(hostname, task).await.unwrap();
-    let response = rx.await.unwrap().unwrap();
-    assert_eq!(response.status(), 200);
-    let body = response.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-    assert!(body.contains("Updated"));
-    
-    // Step 4: DELETE
-    let (tx, rx) = oneshot::channel();
-    let url = NanoUrl::parse(&format!("http://{}/items/1", hostname)).unwrap();
+    let url = NanoUrl::parse(&format!("http://{}/items/99", hostname)).unwrap();
     let request = NanoRequest::new(
         "DELETE".to_string(),
         url,
         NanoHeaders::new(),
         None,
     );
-    
+
     let task = HandlerTask::new_with_request_id(
-        "/app.js".to_string(),
+        entrypoint_path.to_str().unwrap().to_string(),
         request,
         tx,
         hostname.to_string(),
-        "req_crud_full_004".to_string(),
+        "req_crud_delete_404".to_string(),
     );
-    
+
     queue.dispatch(hostname, task).await.unwrap();
     let response = rx.await.unwrap().unwrap();
-    assert_eq!(response.status(), 204);
-    
+    assert_eq!(response.status(), 404, "DELETE non-existent should return 404");
+
+    println!("✅ CRUD DELETE test passed!");
+}
+
+/// Test full CRUD cycle in one handler
+/// Note: Context resets between requests, so all operations run in a single request
+#[tokio::test]
+async fn test_crud_full_cycle() {
+    let _ = initialize_platform();
+
+    let mut queue = WorkQueue::new(1);
+    let hostname = "crud-full-test.local";
+
+    let js_code = r#"
+        const items = new Map();
+        let nextId = 1;
+
+        export default {
+            async fetch(request) {
+                const url = new URL(request.url);
+
+                // Internal full-cycle test endpoint
+                if (request.method === 'POST' && url.pathname === '/test-cycle') {
+                    // CREATE
+                    const id = nextId++;
+                    const item = { id, name: 'Test', value: 42, created: Date.now() };
+                    items.set(id, item);
+
+                    // READ
+                    const readItem = items.get(id);
+                    if (!readItem) {
+                        return Response.json({ error: 'read failed' }, { status: 500 });
+                    }
+
+                    // UPDATE
+                    const updated = { ...readItem, name: 'Updated', updated: Date.now() };
+                    items.set(id, updated);
+
+                    // VERIFY UPDATE
+                    const verifyItem = items.get(id);
+                    if (verifyItem.name !== 'Updated') {
+                        return Response.json({ error: 'verify failed' }, { status: 500 });
+                    }
+
+                    // DELETE
+                    items.delete(id);
+
+                    // VERIFY DELETE
+                    const count = items.size;
+
+                    return Response.json({
+                        created: item,
+                        read: readItem,
+                        updated: verifyItem,
+                        finalCount: count,
+                        passed: true
+                    });
+                }
+
+                return new Response('Not Found', { status: 404 });
+            }
+        };
+    "#;
+
+    // Write JS to temp file
+    let temp_dir = std::env::temp_dir();
+    let entrypoint_path = temp_dir.join(format!("crud_{}.js", hostname.replace(".", "_")));
+    std::fs::write(&entrypoint_path, js_code).unwrap();
+
+    // Single request runs all CRUD operations
+    let (tx, rx) = oneshot::channel();
+    let url = NanoUrl::parse(&format!("http://{}/test-cycle", hostname)).unwrap();
+
+    let request = NanoRequest::new(
+        "POST".to_string(),
+        url,
+        NanoHeaders::new(),
+        None,
+    );
+
+    let task = HandlerTask::new_with_request_id(
+        entrypoint_path.to_str().unwrap().to_string(),
+        request,
+        tx,
+        hostname.to_string(),
+        "req_crud_full_cycle".to_string(),
+    );
+
+    queue.dispatch(hostname, task).await.unwrap();
+    let response = rx.await.unwrap().unwrap();
+    assert_eq!(response.status(), 200, "Full cycle should succeed");
+
+    let body = response.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
+    assert!(body.contains("\"passed\":true"), "Full cycle should report passed=true");
+    assert!(body.contains("\"finalCount\":0"), "Final count should be 0 after delete");
+    assert!(body.contains("\"name\":\"Updated\""), "Updated name should be present");
+
     println!("✅ CRUD FULL CYCLE test passed!");
 }

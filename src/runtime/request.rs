@@ -1,4 +1,4 @@
-//! Request object helpers for WinterCG compatibility
+//! Request object helpers for WinterTC compatibility
 //!
 //! This module provides Request prototype methods (text, json, arrayBuffer)
 //! for reading request bodies. These methods decode base64-encoded bodies

@@ -22,10 +22,10 @@ expected: Different Host headers route to different apps (app1.local vs app2.loc
 result: pass
 notes: 7/7 routing tests passed including test_routes_by_host_header, test_case_insensitive_host
 
-### 3. WinterCG Request/Response Types
-expected: NanoRequest/NanoResponse implement all WinterCG properties (method, url, headers, body, status)
+### 3. WinterTC Request/Response Types
+expected: NanoRequest/NanoResponse implement all WinterTC properties (method, url, headers, body, status)
 result: pass
-notes: 9/9 WinterCG compliance tests passed
+notes: 9/9 WinterTC compliance tests passed
 
 ### 4. URL Parsing with Search Params
 expected: URL with query strings parsed correctly, search params accessible

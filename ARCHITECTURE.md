@@ -25,7 +25,7 @@ TCP accept loop on the main thread. Uses axum for HTTP handling.
 - **router.rs**: Virtual host routing — matches Host header to app
 - **v8_bridge.rs**: Bridges HTTP requests into V8 isolates
 - **client.rs**: Outbound HTTP client for `fetch()` from JavaScript
-- **types.rs**: WinterCG Request/Response/URL/Headers implementations
+- **types.rs**: WinterTC Request/Response/URL/Headers implementations
 
 Request flow: TCP accept → Host header lookup → app routing → work queue dispatch.
 
@@ -205,9 +205,9 @@ Release profile optimized for size and speed:
 6. **Bounded queues**: Backpressure prevents memory exhaustion
 7. **Pre-built V8 only**: No 2-hour compilation, tracks Deno's rusty_v8
 
-## WinterCG Compliance
+## WinterTC Compliance
 
-NANO targets WinterCG Minimum Common API:
+NANO targets WinterTC Minimum Common API:
 
 Implemented: Request, Response, Headers, URL, TextEncoder, TextDecoder, console, crypto.getRandomValues, crypto.subtle (AES-GCM, HMAC), ReadableStream, WritableStream, AbortController, performance.now(), structuredClone, Blob, FormData, DOMException
 

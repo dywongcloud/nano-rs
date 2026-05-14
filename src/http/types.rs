@@ -1,7 +1,7 @@
-//! Request and Response types for WinterCG compatibility
+//! Request and Response types for WinterTC compatibility
 //!
 //! These types bridge Rust HTTP handling with JavaScript execution,
-//! providing WinterCG-compliant Request and Response objects.
+//! providing WinterTC-compliant Request and Response objects.
 //!
 //! # Decisions
 //!
@@ -16,10 +16,10 @@
 use bytes::Bytes;
 use crate::http::{NanoHeaders, NanoUrl};
 
-/// WinterCG-compatible Request object
+/// WinterTC-compatible Request object
 ///
 /// Represents an HTTP request that will be passed to the JavaScript handler.
-/// Contains all WinterCG Request properties: method, url, headers, body.
+/// Contains all WinterTC Request properties: method, url, headers, body.
 #[derive(Debug, Clone)]
 pub struct NanoRequest {
     method: String,
@@ -47,28 +47,28 @@ impl NanoRequest {
     
     /// HTTP method
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Request/method
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Request/method
     pub fn method(&self) -> &str {
         &self.method
     }
     
     /// Request URL
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Request/url
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Request/url
     pub fn url(&self) -> &NanoUrl {
         &self.url
     }
     
     /// Request headers
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Request/headers
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Request/headers
     pub fn headers(&self) -> &NanoHeaders {
         &self.headers
     }
     
     /// Request body
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Request/body
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Request/body
     pub fn body(&self) -> Option<&Bytes> {
         self.body.as_ref()
     }
@@ -113,10 +113,10 @@ impl NanoRequest {
     }
 }
 
-/// WinterCG-compatible Response object
+/// WinterTC-compatible Response object
 ///
 /// Represents an HTTP response returned from the JavaScript handler.
-/// Contains all WinterCG Response properties: status, statusText, headers, body.
+/// Contains all WinterTC Response properties: status, statusText, headers, body.
 #[derive(Debug, Clone)]
 pub struct NanoResponse {
     status: u16,
@@ -168,21 +168,21 @@ impl NanoResponse {
     
     /// HTTP status code
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Response/status
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Response/status
     pub fn status(&self) -> u16 {
         self.status
     }
     
     /// HTTP status text
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Response/statusText
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Response/statusText
     pub fn status_text(&self) -> &str {
         &self.status_text
     }
     
     /// Response headers
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Response/headers
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Response/headers
     pub fn headers(&self) -> &NanoHeaders {
         &self.headers
     }
@@ -194,7 +194,7 @@ impl NanoResponse {
     
     /// Response body
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/Response/body
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/Response/body
     pub fn body(&self) -> Option<&Bytes> {
         self.body.as_ref()
     }

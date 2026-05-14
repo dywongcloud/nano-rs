@@ -1,4 +1,4 @@
-# Phase 02 Plan 03: WinterCG Request/Response Types Summary
+# Phase 02 Plan 03: WinterTC Request/Response Types Summary
 
 **Phase:** 02-http-server-core  
 **Plan:** 03  
@@ -7,7 +7,7 @@
 
 ## One-Liner
 
-Implemented WinterCG-compatible Request/Response/URL/Headers types that bridge Rust HTTP handling with JavaScript execution, including V8 serialization bridge.
+Implemented WinterTC-compatible Request/Response/URL/Headers types that bridge Rust HTTP handling with JavaScript execution, including V8 serialization bridge.
 
 ## Deliverables
 
@@ -15,24 +15,24 @@ Implemented WinterCG-compatible Request/Response/URL/Headers types that bridge R
 
 | File | Description | Exports |
 |------|-------------|---------|
-| `src/http/url.rs` | WinterCG URL and URLSearchParams | `NanoUrl`, `NanoUrlSearchParams` |
-| `src/http/headers.rs` | WinterCG Headers API | `NanoHeaders` |
+| `src/http/url.rs` | WinterTC URL and URLSearchParams | `NanoUrl`, `NanoUrlSearchParams` |
+| `src/http/headers.rs` | WinterTC Headers API | `NanoHeaders` |
 | `src/http/types.rs` | Request/Response types | `NanoRequest`, `NanoResponse` |
 | `src/http/v8_bridge.rs` | V8 serialization bridge | `serialize_request_to_json`, `serialize_response_to_json` |
-| `tests/http_wintercg_test.rs` | Integration tests | 9 compliance tests |
+| `tests/http_wintertc_test.rs` | Integration tests | 9 compliance tests |
 
 ### Modified Files
 
 | File | Changes |
 |------|---------|
 | `src/http/mod.rs` | Added new module exports |
-| `src/http/router.rs` | Integrated WinterCG types into routing |
+| `src/http/router.rs` | Integrated WinterTC types into routing |
 | `tests/http_routing_test.rs` | Updated for new handler type |
 | `Cargo.toml` | Added url, percent-encoding, bytes, base64 dependencies |
 
 ## Specification Compliance
 
-### WinterCG Requirements Met
+### WinterTC Requirements Met
 
 - ✅ **Request**: method, url, headers, body properties
 - ✅ **Response**: status, statusText, headers, body properties  
@@ -48,16 +48,16 @@ Implemented WinterCG-compatible Request/Response/URL/Headers types that bridge R
 | **D-06** | JSON serialization for V8 bridge |
 | **D-07** | Case-insensitive headers via lowercase HashMap keys |
 | **D-08** | Set-Cookie separate handling (not comma-combined) |
-| **D-09** | Full WinterCG URL compliance (all properties) |
+| **D-09** | Full WinterTC URL compliance (all properties) |
 | **D-10** | Lossy UTF-8 percent-decoding with U+FFFD replacement |
 
 ## Commits
 
 | Hash | Message |
 |------|---------|
-| 11b34e1 | feat(02-03): Implement WinterCG HTTP types |
-| 67ab6cf | feat(02-03): Integrate WinterCG types into router |
-| 18efce8 | test(02-03): Add WinterCG compliance integration tests |
+| 11b34e1 | feat(02-03): Implement WinterTC HTTP types |
+| 67ab6cf | feat(02-03): Integrate WinterTC types into router |
+| 18efce8 | test(02-03): Add WinterTC compliance integration tests |
 
 ## Test Results
 
@@ -105,7 +105,7 @@ test test_axum_conversion_roundtrip ... ok
 - Wraps the `url` crate for robust parsing
 - `NanoUrlSearchParams` parses query strings with percent-decoding
 - Invalid UTF-8 sequences become U+FFFD (replacement character) per D-10
-- Full WinterCG property coverage including origin and hash
+- Full WinterTC property coverage including origin and hash
 
 ### Request/Response Body
 - Small bodies (<1MB) buffered in memory as `Bytes` (D-05)
@@ -152,8 +152,8 @@ The virtual host router now:
 
 | Criterion | Status |
 |-----------|--------|
-| NanoUrl implements all WinterCG URL properties | ✅ |
-| NanoHeaders implements all WinterCG Headers methods | ✅ |
+| NanoUrl implements all WinterTC URL properties | ✅ |
+| NanoHeaders implements all WinterTC Headers methods | ✅ |
 | Case-insensitive header names (RFC 7230) | ✅ |
 | Set-Cookie values separate (browser behavior) | ✅ |
 | NanoUrlSearchParams implements all methods | ✅ |
@@ -166,13 +166,13 @@ The virtual host router now:
 ## Next Steps
 
 Phase 2 is now complete. Phase 3 will:
-- Execute JavaScript handlers using WinterCG types
+- Execute JavaScript handlers using WinterTC types
 - Implement Response parsing from V8 objects
-- Add full V8 integration for the WinterCG handler
+- Add full V8 integration for the WinterTC handler
 
 ## Notes
 
-- The `WinterCGHandler` variant replaces `JavaScriptEntrypoint` for clarity
+- The `WinterTCHandler` variant replaces `JavaScriptEntrypoint` for clarity
 - Actual JS execution happens in Phase 3 - current handler returns placeholder
 - Base64 encoding implemented internally to avoid extra dependency
 - All types follow Rust naming conventions (Nano* prefix to avoid conflicts)

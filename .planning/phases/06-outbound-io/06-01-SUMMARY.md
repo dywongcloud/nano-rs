@@ -104,7 +104,7 @@ libc = "0.2"
 
 - `RuntimeAPIs::bind_all()` now calls `bind_fetch()`
 - fetch() is available as global function in JavaScript
-- Response object has standard WinterCG properties
+- Response object has standard WinterTC properties
 
 ## Deviation from Plan
 

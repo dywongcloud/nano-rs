@@ -232,8 +232,8 @@ assert!(reset_time < Duration::from_millis(10));
 | Phase | Success Criteria | Status |
 |-------|-----------------|--------|
 | 1 | V8 initializes, EPT fix works, JS executes | ✅ Verified |
-| 2 | HTTP server, routing, WinterCG objects | ✅ Verified |
-| 3 | 10 WinterCG APIs functional | ✅ Verified |
+| 2 | HTTP server, routing, WinterTC objects | ✅ Verified |
+| 3 | 10 WinterTC APIs functional | ✅ Verified |
 | 4 | WorkerPool, context reset <10ms | ✅ Verified |
 | 5 | Config loading, limits, hot-reload | ⚠️ Partial (6 test failures) |
 

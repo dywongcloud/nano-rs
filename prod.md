@@ -45,7 +45,7 @@
 
   - Single-app HTTP server, one V8 isolate
   - fetch() handler interface (Edge Workers style)
-  - Request / Response objects (WinterCG)
+  - Request / Response objects (WinterTC)
   - console.log/warn/error
   - TextEncoder / TextDecoder
   - URL / URLSearchParams
@@ -124,9 +124,9 @@
   - Integration test harness
 
   ---
-  WinterCG Compliance
+  WinterTC Compliance
 
-  NANO targets the WinterCG Minimum Common API:
+  NANO targets the WinterTC Minimum Common API:
 
   ┌───────────────────────────┬─────────┬─────────────────────────────────────────────┐
   │            API            │ Status  │                    Notes                    │
@@ -224,13 +224,13 @@
   - No JSX/TypeScript transpilation
   - No package manager
   - Bun's V8-replacement (JavaScriptCore) is faster for single-app workloads
-  - Bun has more complete WinterCG coverage
+  - Bun has more complete WinterTC coverage
 
   vs. Vercel Edge Runtime / Next.js Edge
 
   Advantages of NANO:
   - Self-hosted, no framework dependency
-  - Any JS that fits the WinterCG surface runs
+  - Any JS that fits the WinterTC surface runs
   - No 4MB bundle size limit
 
   Disadvantages:
@@ -244,7 +244,7 @@
   1. Density: 10 apps × 10 worker threads = 100 isolates in one process. Each isolate ~10-20MB heap vs ~50-200MB per Docker container.
   2. Cold start: ~50-100ms cold (V8 init) → ~2-5ms with snapshot. 
   3. Isolation: V8 isolates are security boundaries. No shared heap. No shared globals. Cryptographic keys don't leak between apps.
-  4. WinterCG portable: Apps written to WinterCG spec run on Edge Workers, Deno Deploy, and NANO without changes.
+  4. WinterTC portable: Apps written to WinterTC spec run on Edge Workers, Deno Deploy, and NANO without changes.
   5. Operational simplicity: One binary, one config file, no container orchestration.
   6. Resource governance: Per-app memory limits and timeouts enforced at the isolate level.
   7. WebSocket density: Many concurrent WS connections across many apps, all in one process.
@@ -258,7 +258,7 @@
   assumptions (EPT space structure, segment sizes) are implicit.
   3. Debugging V8 crashes: EPT crashes, DCHECK failures, incremental GC races — all require deep V8 source knowledge to diagnose. LLDB shows raw V8 internals with no symbolic
   type information for template classes.
-  4. Feature lag: WinterCG additions (e.g., atob, queueMicrotask, ReadableStream.tee) require manual implementation against V8 C API. No automatic platform updates.
+  4. Feature lag: WinterTC additions (e.g., atob, queueMicrotask, ReadableStream.tee) require manual implementation against V8 C API. No automatic platform updates.
   5. No npm: Apps are single-file index.js. Bundling is the user's responsibility. No import resolution.
   6. Zig instability: Zig is pre-1.0. API breaks between minor versions. std.math.big.int.Managed breaking changes (v1.5-03 spent significant time on API misuse from version
   drift).
@@ -331,7 +331,7 @@
   - EPT Space initialization bug (AP-02): This is a V8 internal issue, not a binding issue. rusty_v8 uses the same V8 underneath. The array_buffer_sweeper_space vs
   external_pointer_space distinction still exists. The fix (strong v8::Global<Value> for dummy ArrayBuffer) is the same concept in Rust.
   - V8 background GC: Same 9 DefaultWorker threads, same behavior.
-  - WinterCG APIs: Must still be implemented by hand. rusty_v8 gives you V8 primitives, not WinterCG.
+  - WinterTC APIs: Must still be implemented by hand. rusty_v8 gives you V8 primitives, not WinterTC.
   - ArrayBuffer backing store semantics: Same V8 behavior, different Rust API.
 
   Migration Risk Map
@@ -341,7 +341,7 @@
   ├─────────────────────────────────────────────────┼──────────┼────────────────────────────────────────────────────────────────────────────────────┤
   │ rusty_v8 API surface narrower than raw V8 C API │ Medium   │ Some C API calls not exposed; can add via raw unsafe FFI or contribute to rusty_v8 │
   ├─────────────────────────────────────────────────┼──────────┼────────────────────────────────────────────────────────────────────────────────────┤
-  │ WinterCG re-implementation effort               │ High     │ ~3-4 months. All 20+ APIs must be rewritten. Existing Zig code is not portable.    │
+  │ WinterTC re-implementation effort               │ High     │ ~3-4 months. All 20+ APIs must be rewritten. Existing Zig code is not portable.    │
   ├─────────────────────────────────────────────────┼──────────┼────────────────────────────────────────────────────────────────────────────────────┤
   │ WorkerPool thread model                         │ Low      │ std::thread + tokio::sync::mpsc maps directly to current design                    │
   ├─────────────────────────────────────────────────┼──────────┼────────────────────────────────────────────────────────────────────────────────────┤
@@ -359,9 +359,9 @@
   Phase 1 — Skeleton (2 weeks)
   - Rust project with rusty_v8
   - Platform init, single isolate, fetch() handler, HTTP server (hyper/axum)
-  - No WinterCG APIs yet — just "hello world" from JS
+  - No WinterTC APIs yet — just "hello world" from JS
 
-  Phase 2 — Core WinterCG (6 weeks)
+  Phase 2 — Core WinterTC (6 weeks)
   - Request / Response / Headers / URL
   - TextEncoder / TextDecoder
   - console
@@ -374,7 +374,7 @@
   - Virtual host routing
   - Context reset between requests
 
-  Phase 4 — Extended WinterCG (4 weeks)
+  Phase 4 — Extended WinterTC (4 weeks)
   - Streams (ReadableStream, WritableStream, TransformStream)
   - crypto.subtle (AES-GCM, ECDSA, RSA-PSS) — reuse Rust crypto crates (ring, p256, rsa)
   - CompressionStream / DecompressionStream (flate2 crate)
@@ -386,7 +386,7 @@
   - V8 startup snapshot
   - Integration test parity
 
-  Total estimate: ~4 months to functional parity. The biggest cost is re-implementing 20+ WinterCG APIs, not the V8 binding layer itself.
+  Total estimate: ~4 months to functional parity. The biggest cost is re-implementing 20+ WinterTC APIs, not the V8 binding layer itself.
 
   Critical Decision: Rust Crypto vs V8 Crypto
 
@@ -402,7 +402,7 @@
   ---
   Summary Judgment
 
-  NANO as a concept is sound. The density proposition (one process, many isolated apps, millisecond cold start, WinterCG portable) has genuine value that no existing runtime
+  NANO as a concept is sound. The density proposition (one process, many isolated apps, millisecond cold start, WinterTC portable) has genuine value that no existing runtime
   delivers. Edge Workers delivers this, but only as a vendor-locked hosted service.
 
   The Zig implementation is a liability:
@@ -411,7 +411,7 @@
   - Zig stdlib instability adds maintenance tax
   - V8 crash debugging from Zig is expensive (days per EPT bug, as evidenced)
 
-  The Rust + rusty_v8 path resolves all three root causes (build time, binding maintenance, stdlib stability) while preserving the architecture entirely. The WinterCG
+  The Rust + rusty_v8 path resolves all three root causes (build time, binding maintenance, stdlib stability) while preserving the architecture entirely. The WinterTC
   re-implementation is the actual cost — 3-4 months of engineering — but it buys a platform that can be maintained sustainably.
 
   The EPT initialization complexity (AP-02 class bugs) will follow you to Rust. It is a V8 internal behavior, not a Zig problem. Document the fix pattern (strong

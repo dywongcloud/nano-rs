@@ -40,7 +40,7 @@ async function handleAbout(request) {
   return new Response(JSON.stringify({
     app: 'NANO Framework Test',
     version: '1.0.0',
-    runtime: 'WinterCG-compatible'
+    runtime: 'WinterTC-compatible'
   }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' }
@@ -75,7 +75,7 @@ async function router(request) {
 const withCors = corsMiddleware(router);
 const withLogger = loggerMiddleware(withCors);
 
-// Standard WinterCG export pattern
+// Standard WinterTC export pattern
 export default {
   async fetch(request) {
     return withLogger(request);

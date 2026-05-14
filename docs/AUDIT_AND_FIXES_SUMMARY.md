@@ -15,8 +15,8 @@
 **Problem:** Handler returned placeholder text "JS handler (Phase 3)" instead of indicating an error condition.
 
 **Fix:** Changed to return proper 500 Internal Server Error with explanatory message:
-- `WinterCGHandler` → returns 500 error
-- `WinterCGSliverHandler` → returns 500 error
+- `WinterTCHandler` → returns 500 error
+- `WinterTCSliverHandler` → returns 500 error
 
 **Rationale:** These handlers should only be called via `dispatch_to_worker_pool()` which properly executes JavaScript through the WorkQueue. Direct calls to `RouteTarget::handle()` for JS handlers indicate a routing error.
 
@@ -111,8 +111,8 @@ HTTP Request → dispatch_to_worker_pool() → WorkQueue → Worker Thread →
 
 ## Terminology Updates
 
-Changed all references from "WinterCG" to "WinterTC":
-- WinterCG = Winter Community Group (the informal group)
+Changed all references from "WinterTC" to "WinterTC":
+- WinterTC = Winter Community Group (the informal group)
 - WinterTC = Winter Technical Committee (the formal standards body)
 
 This is the correct technical terminology per the actual specification.

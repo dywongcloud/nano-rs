@@ -1,7 +1,7 @@
 //! HTTP Request Handler for Sliver-based JS Execution
 //!
 //! This module bridges HTTP requests to the SliverWorkerPool for
-//! WinterCG-compatible JavaScript execution from heap snapshots.
+//! WinterTC-compatible JavaScript execution from heap snapshots.
 
 use axum::{
     body::Body,
@@ -26,7 +26,7 @@ pub struct SliverHandlerState {
 /// Handle HTTP request by dispatching to sliver worker pool
 ///
 /// This handler:
-/// 1. Converts axum request to NanoRequest (WinterCG format)
+/// 1. Converts axum request to NanoRequest (WinterTC format)
 /// 2. Creates a HandlerTask with the request
 /// 3. Dispatches to SliverWorkerPool
 /// 4. Waits for JS execution result

@@ -126,7 +126,7 @@ Score: 100% (9/9 tests)
 - CRUD Operations: 100% (6/6 tests)
 - WebCrypto: 100% (all algorithms working)
 - Cloudflare Worker: 100% (7/7 tests)
-- WinterCG APIs: 100% (26/26 tests)
+- WinterTC APIs: 100% (26/26 tests)
 
 ### ✅ New Features (v1.4.0)
 - **CPU Time Limits:** 100% (4/4 tests) — Prevents resource exhaustion

@@ -173,7 +173,7 @@ new DOMException("msg", "AbortError").name === "AbortError"  // true
 With Plan 04 complete, Phase 3 now has:
 - **Plans 03-01 to 03-04**: All executed
 - **Requirements API-01 to API-10**: All implemented
-- **Core runtime APIs**: Complete WinterCG environment ready
+- **Core runtime APIs**: Complete WinterTC environment ready
 
 Remaining for v1:
 - Phase 4: HTTP Client (fetch API)

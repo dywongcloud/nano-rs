@@ -1,21 +1,21 @@
 //! URL and URLSearchParams implementation
 //!
-//! WinterCG-compliant URL parsing and query parameter handling.
-//! Implements all WinterCG URL properties and URLSearchParams API.
+//! WinterTC-compliant URL parsing and query parameter handling.
+//! Implements all WinterTC URL properties and URLSearchParams API.
 //!
 //! # Decisions
 //!
-//! - **D-09:** Full WinterCG URL compliance (not basic parsing only)
+//! - **D-09:** Full WinterTC URL compliance (not basic parsing only)
 //! - **D-10:** Percent-decode with lossy UTF-8 replacement (U+FFFD for invalid sequences)
 
 use percent_encoding::percent_decode_str;
 use std::collections::HashMap;
 use url::Url;
 
-/// WinterCG-compliant URL type
+/// WinterTC-compliant URL type
 ///
-/// Wraps the `url` crate with WinterCG-specific properties and methods.
-/// All URL operations are per the WinterCG specification.
+/// Wraps the `url` crate with WinterTC-specific properties and methods.
+/// All URL operations are per the WinterTC specification.
 #[derive(Debug, Clone)]
 pub struct NanoUrl {
     inner: Url,
@@ -52,56 +52,56 @@ impl NanoUrl {
 
     /// The full URL as a string
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URL/href
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URL/href
     pub fn href(&self) -> String {
         self.inner.to_string()
     }
 
     /// The origin of the URL (scheme + host + port)
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URL/origin
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URL/origin
     pub fn origin(&self) -> String {
         self.inner.origin().ascii_serialization()
     }
 
     /// The protocol/scheme of the URL with colon
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URL/protocol
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URL/protocol
     pub fn protocol(&self) -> String {
         format!("{}:", self.inner.scheme())
     }
 
     /// The host (hostname + optional port)
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URL/host
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URL/host
     pub fn host(&self) -> String {
         self.inner.host_str().unwrap_or("").to_string()
     }
 
     /// The hostname without port
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URL/hostname
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URL/hostname
     pub fn hostname(&self) -> String {
         self.inner.host_str().unwrap_or("").to_string()
     }
 
     /// The port number (if any)
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URL/port
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URL/port
     pub fn port(&self) -> Option<u16> {
         self.inner.port()
     }
 
     /// The path component of the URL
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URL/pathname
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URL/pathname
     pub fn pathname(&self) -> String {
         self.inner.path().to_string()
     }
 
     /// The query string with leading ?
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URL/search
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URL/search
     pub fn search(&self) -> String {
         self.inner
             .query()
@@ -111,7 +111,7 @@ impl NanoUrl {
 
     /// The fragment/hash with leading #
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URL/hash
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URL/hash
     pub fn hash(&self) -> String {
         self.inner
             .fragment()
@@ -121,14 +121,14 @@ impl NanoUrl {
 
     /// The search parameters for this URL
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URL/searchParams
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URL/searchParams
     pub fn search_params(&self) -> &NanoUrlSearchParams {
         &self.search_params
     }
 
 }
 
-/// WinterCG-compliant URLSearchParams type
+/// WinterTC-compliant URLSearchParams type
 ///
 /// Handles query string parsing with percent-decoding per D-10.
 /// All values are stored as decoded strings, with invalid UTF-8
@@ -170,7 +170,7 @@ impl NanoUrlSearchParams {
 
     /// Get the first value for a parameter name
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/get
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/get
     ///
     /// # Arguments
     ///
@@ -185,7 +185,7 @@ impl NanoUrlSearchParams {
 
     /// Get all values for a parameter name
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/getAll
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/getAll
     ///
     /// # Arguments
     ///
@@ -200,7 +200,7 @@ impl NanoUrlSearchParams {
 
     /// Check if a parameter exists
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/has
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/has
     ///
     /// # Arguments
     ///
@@ -215,7 +215,7 @@ impl NanoUrlSearchParams {
 
     /// Set a parameter to a single value (replaces any existing values)
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/set
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/set
     ///
     /// # Arguments
     ///
@@ -228,7 +228,7 @@ impl NanoUrlSearchParams {
 
     /// Append a value to a parameter (preserving existing values)
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/append
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/append
     ///
     /// # Arguments
     ///
@@ -243,7 +243,7 @@ impl NanoUrlSearchParams {
 
     /// Delete all values for a parameter name
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/delete
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/delete
     ///
     /// # Arguments
     ///
@@ -254,7 +254,7 @@ impl NanoUrlSearchParams {
 
     /// Serialize to query string format
     ///
-    /// Per WinterCG: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/toString
+    /// Per WinterTC: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/toString
     ///
     /// # Returns
     ///

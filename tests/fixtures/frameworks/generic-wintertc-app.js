@@ -1,5 +1,5 @@
-// Generic WinterCG-compatible application
-// No framework — just raw WinterCG APIs
+// Generic WinterTC-compatible application
+// No framework — just raw WinterTC APIs
 
 export default {
   async fetch(request) {
@@ -11,9 +11,9 @@ export default {
     
     // Simple routing
     if (url.pathname === '/') {
-      // Test various WinterCG APIs
+      // Test various WinterTC APIs
       const data = {
-        message: 'Generic WinterCG app',
+        message: 'Generic WinterTC app',
         timestamp: Date.now(),
         url: request.url,
         method: method,

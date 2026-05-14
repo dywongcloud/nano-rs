@@ -230,7 +230,7 @@ fn test_function_constructor_blocked() {
 
 /// Test importScripts not exposed
 /// Attack: importScripts() to load external code
-/// Mitigation: importScripts is not a WinterCG API
+/// Mitigation: importScripts is not a WinterTC API
 #[test]
 fn test_import_scripts_blocked() {
     init_platform();

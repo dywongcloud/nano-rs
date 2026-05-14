@@ -15,11 +15,11 @@
 |--------|-------------|----------|
 | Auto-detect by entrypoint analysis | Parse JS to detect imports/patterns. Zero-config but complex. | |
 | Explicit config flag per app | Add 'framework' field to config. Simple but requires user input. | |
-| Standardize on single pattern | Require all apps to export WinterCG handler. Reduces compatibility. | |
-| **Standard WinterCG only** | **No framework detection — frameworks adapt to runtime like CF Workers/Deno** | ✓ |
+| Standardize on single pattern | Require all apps to export WinterTC handler. Reduces compatibility. | |
+| **Standard WinterTC only** | **No framework detection — frameworks adapt to runtime like CF Workers/Deno** | ✓ |
 
-**User's choice:** Standard WinterCG only
-**Notes:** User insight — "how does other runtimes do that? they don't know the frameworks, we should be the same." This led to the key realization that edge runtimes don't detect frameworks; frameworks export WinterCG handlers when configured for edge deployment.
+**User's choice:** Standard WinterTC only
+**Notes:** User insight — "how does other runtimes do that? they don't know the frameworks, we should be the same." This led to the key realization that edge runtimes don't detect frameworks; frameworks export WinterTC handlers when configured for edge deployment.
 
 ---
 

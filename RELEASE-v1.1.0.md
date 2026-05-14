@@ -90,10 +90,10 @@ myapp         2.4MB   2026-04-20 13:45    myapp.example.com
 
 ## Framework Compatibility
 
-✅ **Hono.js** — Lightweight, WinterCG-native  
+✅ **Hono.js** — Lightweight, WinterTC-native  
 ✅ **Next.js static export** — HTML/CSS/JS assets serve correctly  
 ✅ **Astro static build** — Islands architecture preserved  
-✅ **Generic WinterCG** — Any spec-compliant framework
+✅ **Generic WinterTC** — Any spec-compliant framework
 
 ---
 

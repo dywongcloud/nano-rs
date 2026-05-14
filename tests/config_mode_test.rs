@@ -109,7 +109,7 @@ fn test_config_loading_basic() {
                 "hostname": "api.example.com",
                 "entrypoint": "/apps/api.js",
                 "env_vars": {"API_KEY": "secret123"},
-                "limits": {"memory_mb": 256, "timeout_secs": 60, "workers": 8}
+                "limits": {"memory_mb": 256, "timeout_secs": 30, "workers": 8}
             }
         ],
         "server": {"port": 8080, "host": "0.0.0.0"}
@@ -121,7 +121,7 @@ fn test_config_loading_basic() {
     assert_eq!(config.apps[0].hostname, "api.example.com");
     assert_eq!(config.apps[0].entrypoint, "/apps/api.js");
     assert_eq!(config.apps[0].limits.memory_mb, 256);
-    assert_eq!(config.apps[0].limits.timeout_secs, 60);
+    assert_eq!(config.apps[0].limits.timeout_secs, 30);
     assert_eq!(config.apps[0].limits.workers, 8);
     assert_eq!(config.server.port, 8080);
     assert_eq!(config.server.host, "0.0.0.0");
@@ -201,7 +201,7 @@ fn test_config_with_sliver_app() {
                 "hostname": "sliver.example.com",
                 "entrypoint": "/apps/index.js",
                 "sliver": "/apps/app.sliver",
-                "limits": {"memory_mb": 512, "timeout_secs": 120, "workers": 16}
+                "limits": {"memory_mb": 256, "timeout_secs": 30, "workers": 16}
             }
         ],
         "server": {"port": 3000, "host": "127.0.0.1"}
@@ -213,7 +213,7 @@ fn test_config_with_sliver_app() {
     assert_eq!(config.apps[0].hostname, "sliver.example.com");
     assert!(config.apps[0].sliver.is_some());
     assert_eq!(config.apps[0].sliver.as_ref().unwrap(), "/apps/app.sliver");
-    assert_eq!(config.apps[0].limits.memory_mb, 512);
+    assert_eq!(config.apps[0].limits.memory_mb, 256);
     assert_eq!(config.apps[0].limits.workers, 16);
 }
 
@@ -301,7 +301,7 @@ fn test_virtual_host_router_from_config() {
     for app in &config.apps {
         let target = nano::http::router::RouteTarget {
             hostname: app.hostname.clone(),
-            handler_type: nano::http::router::HandlerType::WinterCGHandler(
+            handler_type: nano::http::router::HandlerType::WinterTCHandler(
                 app.entrypoint.clone()
             ),
         };

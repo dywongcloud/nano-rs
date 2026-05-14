@@ -80,9 +80,9 @@ pub fn digest(algorithm: &str, data: &[u8]) -> Result<Vec<u8>, CryptoError> {
 1. ✅ VFS: Nano.fs.writeFile
 2. ✅ VFS: Nano.fs.readFile
 3. ✅ VFS: Node.js fs module compatibility
-4. ✅ WinterCG: Headers API
-5. ✅ WinterCG: URL API
-6. ✅ WinterCG: ReadableStream/WritableStream
+4. ✅ WinterTC: Headers API
+5. ✅ WinterTC: URL API
+6. ✅ WinterTC: ReadableStream/WritableStream
 7. ✅ Node.js: setTimeout/setInterval
 8. ✅ WebCrypto: SHA-256 hashing
 
@@ -135,7 +135,7 @@ Tests: SHA-256 test passing, **90%+ score achieved**
 Phase 21 complete! The project now has:
 - ✅ 90%+ test score (production ready)
 - ✅ Full VFS JavaScript API
-- ✅ WinterCG Headers, URL, Streams APIs
+- ✅ WinterTC Headers, URL, Streams APIs
 - ✅ Node.js fs and timers compatibility
 - ✅ WebCrypto SHA-256 support
 

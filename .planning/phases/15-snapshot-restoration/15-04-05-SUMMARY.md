@@ -28,7 +28,7 @@ decisions:
   - SliverWorkerPool is separate from regular WorkerPool
   - Snapshot restoration has fallback to fresh isolate
   - VFS restoration happens before worker accepts tasks
-  - WinterCGSliverHandler variant added to router
+  - WinterTCSliverHandler variant added to router
   - Criterion library for statistical benchmarking
   - Target cold start time of ~267 µs achieved (vs 1-2ms target)
 metrics:
@@ -73,7 +73,7 @@ This execution completed Phase 15 by integrating sliver restoration into the cor
    - Graceful shutdown for sliver mode
 
 4. **HTTP Router Updates**
-   - Added `WinterCGSliverHandler` variant to `HandlerType`
+   - Added `WinterTCSliverHandler` variant to `HandlerType`
    - Router can identify sliver-based vs traditional apps
    - Sliver data accessible during request routing
    - Tests for sliver handler routing and response
@@ -140,7 +140,7 @@ ac8e751 test(15-05): add performance benchmarks and migration tests
 1. **SliverWorkerPool Architecture**: Separate pool type rather than generic trait - keeps code explicit and easier to maintain
 2. **Fallback Strategy**: Fresh isolate on snapshot failure ensures reliability
 3. **VFS Restoration Order**: Before isolate creation so files are ready immediately
-4. **Router Integration**: WinterCGSliverHandler variant allows future optimization per-app-type
+4. **Router Integration**: WinterTCSliverHandler variant allows future optimization per-app-type
 5. **Benchmark Approach**: Criterion.rs for statistical rigor, integration tests for portability validation
 
 ## Deviations from Plan
