@@ -521,9 +521,8 @@ impl NanoIsolate {
     /// Set V8 heap limits for memory constraint enforcement
     ///
     /// Configures a near-heap-limit callback that triggers when V8's heap
-    /// approaches the configured max limit. The callback initially increases
-    /// the heap limit slightly to give GC a chance to run. After several
-    /// consecutive callbacks, it forces an OOM to prevent runaway memory.
+    /// approaches the configured max limit. The callback immediately terminates
+    /// execution to prevent runaway memory consumption.
     ///
     /// # Arguments
     ///
@@ -533,8 +532,15 @@ impl NanoIsolate {
     /// # Behavior
     ///
     /// When the heap approaches `max_bytes`, V8 invokes the callback:
-    /// 1. First 2 invocations: increase limit by 16MB and log a warning
-    /// 2. 3rd invocation: force OOM by returning current limit unchanged
+    /// 1. Log a warning with current/initial limit details
+    /// 2. Immediately terminate execution via `terminate_execution()`
+    /// 3. Return current_limit (do not increase)
+    ///
+    /// # Security
+    ///
+    /// This prevents memory DoS attacks by terminating execution as soon as
+    /// the heap limit is approached, rather than extending the limit which would
+    /// allow attackers to consume unlimited memory.
     ///
     /// # Errors
     ///
@@ -567,45 +573,21 @@ impl NanoIsolate {
         // Store the configured limit
         self.heap_limit_bytes = max_bytes as u32;
 
-        // Counter for how many times the near-heap-limit callback has fired
-        let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-
-        // Maximum number of times to extend the heap limit before forcing OOM
-        const MAX_HEAP_LIMIT_EXTENSIONS: usize = 2;
-        // Amount to increase the heap limit each time (16MB)
-        const HEAP_LIMIT_INCREMENT: usize = 16 * 1024 * 1024;
-
         self.add_near_heap_limit_callback(move |current_limit, initial_limit| {
-            let count = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let new_count = count + 1;
-
-            if new_count > MAX_HEAP_LIMIT_EXTENSIONS {
-                tracing::error!(
-                    "Isolate heap limit callback fired {} times (max={}). \
-                     Heap cannot be contained. Forcing OOM. \
-                     current_limit={}MB, initial_limit={}MB",
-                    new_count,
-                    MAX_HEAP_LIMIT_EXTENSIONS,
-                    current_limit / (1024 * 1024),
-                    initial_limit / (1024 * 1024),
-                );
-                // Return current_limit to force OOM (V8 treats non-increase as OOM)
-                return current_limit;
-            }
-
             tracing::warn!(
-                "Isolate approaching heap limit ({}/{} extensions used). \
-                 current_limit={}MB, initial_limit={}MB. \
-                 Increasing limit by {}MB to allow GC to run.",
-                new_count,
-                MAX_HEAP_LIMIT_EXTENSIONS,
+                "Isolate approaching heap limit - terminating execution. \
+                 current_limit={}MB, initial_limit={}MB",
                 current_limit / (1024 * 1024),
                 initial_limit / (1024 * 1024),
-                HEAP_LIMIT_INCREMENT / (1024 * 1024),
             );
 
-            // Increase the limit to give GC a chance to reclaim memory
-            current_limit.saturating_add(HEAP_LIMIT_INCREMENT)
+            // Terminate execution immediately to prevent memory DoS
+            // This is the key security fix - we terminate instead of extending the limit
+            self.isolate.terminate_execution();
+
+            // Return current_limit without increase
+            // V8 may invoke this callback again; terminate_execution is idempotent
+            current_limit
         });
     }
 
