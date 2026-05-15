@@ -335,6 +335,22 @@ impl WorkQueue {
         vfs_disk_config: Option<VfsDiskConfig>,
         app_registry: Option<Arc<AppRegistry>>,
     ) -> Self {
+        let mut control_plane = ControlPlane::new();
+
+        // Pre-register all tenants from app_registry
+        if let Some(ref registry) = app_registry {
+            for hostname in registry.all_hostnames() {
+                let limits = crate::control_plane::TenantLimits {
+                    max_script_size: 10 * 1024 * 1024, // 10MB max (per execution limit)
+                    max_timeout_ms: 30000,             // 30s default
+                    max_batch_size: 100,               // 100 req default
+                    allowed_methods: vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string()],
+                };
+                control_plane.register_tenant(hostname, limits);
+                tracing::debug!("Pre-registered tenant in control plane at startup");
+            }
+        }
+
         Self {
             pools: HashMap::new(),
             workers_per_pool,
@@ -342,7 +358,7 @@ impl WorkQueue {
             stats: QueueStats::new(),
             vfs_disk_config,
             app_registry,
-            control_plane: Some(ControlPlane::new()),
+            control_plane: Some(control_plane),
         }
     }
 
@@ -383,6 +399,22 @@ impl WorkQueue {
 
         if !self.pools.contains_key(&hash) {
             tracing::info!("Creating new EntrypointWorkerPool for hostname: {}", hostname);
+
+            // Register tenant in control plane if available
+            if let Some(ref mut control_plane) = self.control_plane {
+                if let Some(ref registry) = self.app_registry {
+                    if let Some(app_config) = registry.get(hostname) {
+                        let limits = crate::control_plane::TenantLimits {
+                            max_script_size: 10 * 1024 * 1024, // 10MB max (per execution limit)
+                            max_timeout_ms: 30000,             // 30s default
+                            max_batch_size: 100,               // 100 req default
+                            allowed_methods: vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string()],
+                        };
+                        control_plane.register_tenant(hostname.to_string(), limits);
+                        tracing::debug!("Registered tenant {} in control plane", hostname);
+                    }
+                }
+            }
 
             // Check for per-app VFS configuration from AppRegistry first
             let pool = if let Some(ref registry) = self.app_registry {

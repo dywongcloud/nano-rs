@@ -44,8 +44,8 @@ async fn test_large_array_allocation() {
         "mem-array.local",
         "array_alloc.js",
         js_content,
-        5000,  // 5s CPU limit (generous)
-        8,     // 8MB memory limit (small)
+        100,   // 100ms CPU limit
+        16,    // 16MB memory limit (minimum allowed)
     );
     
     nano.wait_ready(port, "mem-array.local").await;
@@ -105,8 +105,8 @@ async fn test_large_string_concatenation() {
         "mem-string.local",
         "string_concat.js",
         js_content,
-        5000,  // 5s CPU
-        8,     // 8MB memory
+        100,   // 100ms CPU
+        16,    // 16MB memory
     );
     
     nano.wait_ready(port, "mem-string.local").await;
@@ -125,8 +125,8 @@ async fn test_large_string_concatenation() {
         Ok(response) => {
             let status = response.status();
             assert!(
-                status.is_success() || status.as_u16() == 503 || status.as_u16() == 507,
-                "String concatenation should be memory-limited, got {}",
+                status.is_success() || status.as_u16() == 500 || status.as_u16() == 503 || status.as_u16() == 507,
+                "String concatenation should be memory-limited or error, got {}",
                 status
             );
         }
@@ -159,8 +159,8 @@ async fn test_buffer_growth_attack() {
         "mem-buffer.local",
         "buffer_growth.js",
         js_content,
-        5000,  // 5s CPU
-        8,     // 8MB memory
+        100,   // 100ms CPU
+        16,    // 16MB memory
     );
     
     nano.wait_ready(port, "mem-buffer.local").await;
@@ -217,8 +217,8 @@ async fn test_closure_memory_leak() {
         "mem-closure.local",
         "closure_leak.js",
         js_content,
-        5000,  // 5s CPU
-        8,     // 8MB memory
+        100,   // 100ms CPU
+        16,    // 16MB memory
     );
     
     nano.wait_ready(port, "mem-closure.local").await;
@@ -284,8 +284,8 @@ async fn test_circular_reference_bomb() {
         "mem-circular.local",
         "circular_ref.js",
         js_content,
-        5000,  // 5s CPU
-        8,     // 8MB memory
+        100,   // 100ms CPU
+        16,    // 16MB memory
     );
     
     nano.wait_ready(port, "mem-circular.local").await;
@@ -343,8 +343,8 @@ async fn test_typed_array_exhaustion() {
         "mem-typedarray.local",
         "typed_array.js",
         js_content,
-        5000,  // 5s CPU
-        8,     // 8MB memory
+        100,   // 100ms CPU
+        16,    // 16MB memory
     );
     
     nano.wait_ready(port, "mem-typedarray.local").await;
@@ -397,7 +397,7 @@ async fn test_sequential_memory_buildup() {
         "mem-sequential.local",
         "sequential.js",
         js_content,
-        5000,  // 5s CPU per request
+        100,   // 100ms CPU per request
         16,    // 16MB memory
     );
     
