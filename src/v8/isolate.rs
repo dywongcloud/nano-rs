@@ -104,6 +104,11 @@ pub struct NanoIsolate {
 
     /// Heap size limit in bytes
     heap_limit_bytes: u32,
+
+    /// Whether the near-heap-limit callback has been registered
+    /// V8 only allows one callback per isolate, so we track this to avoid
+    /// registration failures on subsequent calls to set_heap_limits
+    heap_callback_registered: bool,
 }
 
 /// Callback to allow WebAssembly code generation
@@ -236,6 +241,7 @@ impl NanoIsolate {
             state: IsolateState::Creating,
             creation_thread_id,
             heap_limit_bytes: HEAP_SIZE_BYTES_PER_ISOLATE,
+            heap_callback_registered: false,
         })
     }
 
@@ -358,6 +364,7 @@ impl NanoIsolate {
             state: IsolateState::Ready,
             creation_thread_id,
             heap_limit_bytes: HEAP_SIZE_BYTES_PER_ISOLATE,
+            heap_callback_registered: false,
         })
     }
 
@@ -515,6 +522,7 @@ impl NanoIsolate {
             state: IsolateState::Creating,
             creation_thread_id: std::thread::current().id(),
             heap_limit_bytes: HEAP_SIZE_BYTES_PER_ISOLATE,
+            heap_callback_registered: false,
         })
     }
 
@@ -541,6 +549,12 @@ impl NanoIsolate {
     /// This prevents memory DoS attacks by terminating execution as soon as
     /// the heap limit is approached, rather than extending the limit which would
     /// allow attackers to consume unlimited memory.
+    ///
+    /// # Limitations
+    ///
+    /// This method can only be called once per isolate. V8 only supports a single
+    /// near-heap-limit callback per isolate. Subsequent calls will only update
+    /// the stored limit value but won't re-register the callback.
     ///
     /// # Errors
     ///
@@ -573,6 +587,14 @@ impl NanoIsolate {
         // Store the configured limit
         self.heap_limit_bytes = max_bytes as u32;
 
+        // V8 only allows one near-heap-limit callback per isolate.
+        // Register the callback only on first call to this method.
+        // Subsequent calls only update the stored limit value.
+        if self.heap_callback_registered {
+            tracing::debug!("Heap limit callback already registered for this isolate, only updating limit value to {}MB", max_bytes / (1024 * 1024));
+            return;
+        }
+
         // Capture a raw pointer to the isolate for the callback
         // SAFETY: The callback is only valid while the isolate exists, and the
         // isolate is never moved (it's pinned in NanoIsolate). terminate_execution
@@ -599,6 +621,9 @@ impl NanoIsolate {
             // V8 may invoke this callback again; terminate_execution is idempotent
             current_limit
         });
+
+        self.heap_callback_registered = true;
+        tracing::debug!("Registered near-heap-limit callback with limit {}MB", max_bytes / (1024 * 1024));
     }
 
     /// Get V8 heap statistics
