@@ -6,7 +6,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::metrics::types::{CounterVec, GaugeVec, HistogramVec};
+use crate::metrics::types::{Counter, CounterVec, GaugeVec, HistogramVec};
 use crate::metrics::REQUEST_DURATION_BUCKETS;
 
 /// Global metrics registry for NANO runtime
@@ -25,6 +25,8 @@ use crate::metrics::REQUEST_DURATION_BUCKETS;
 /// | `nano_isolates_active` | Gauge | Number of active isolates per hostname/worker |
 /// | `nano_memory_bytes` | Gauge | Memory usage in bytes per hostname/isolate |
 /// | `nano_worker_utilization` | Gauge | Worker utilization percentage |
+/// | `nano_heap_limit_hits_total` | Counter | Total heap limit enforcement events |
+/// | `nano_cpu_timeout_total` | Counter | Total CPU timeout enforcement events |
 #[derive(Debug)]
 pub struct MetricsRegistry {
     /// Total HTTP requests by hostname and status code
@@ -39,6 +41,10 @@ pub struct MetricsRegistry {
     pub memory_bytes: GaugeVec,
     /// Worker utilization percentage by hostname and worker_id
     pub worker_utilization: GaugeVec,
+    /// Total heap limit enforcement events
+    pub heap_limit_hits_total: Counter,
+    /// Total CPU timeout enforcement events
+    pub cpu_timeout_total: Counter,
     /// Total runtime uptime in seconds (monotonic)
     uptime_seconds: AtomicU64,
     /// Timestamp when registry was created (for uptime calculation)
@@ -58,6 +64,8 @@ impl MetricsRegistry {
             isolates_active: GaugeVec::new(vec!["hostname", "worker_id"]),
             memory_bytes: GaugeVec::new(vec!["hostname", "isolate_id"]),
             worker_utilization: GaugeVec::new(vec!["hostname", "worker_id"]),
+            heap_limit_hits_total: Counter::new(),
+            cpu_timeout_total: Counter::new(),
             uptime_seconds: AtomicU64::new(0),
             start_time: std::time::Instant::now(),
         }
@@ -143,6 +151,22 @@ impl MetricsRegistry {
             .set(vec![hostname, worker_id], clamped);
     }
 
+    /// Record a heap limit enforcement event
+    ///
+    /// Increments the counter when an isolate is terminated due to
+    /// exceeding its heap memory limit.
+    pub fn record_heap_limit_hit(&self) {
+        self.heap_limit_hits_total.inc();
+    }
+
+    /// Record a CPU timeout enforcement event
+    ///
+    /// Increments the counter when a JavaScript execution is terminated
+    /// due to exceeding its CPU time limit.
+    pub fn record_cpu_timeout(&self) {
+        self.cpu_timeout_total.inc();
+    }
+
     /// Update uptime counter
     ///
     /// Should be called periodically (e.g., every second) to update
@@ -181,6 +205,16 @@ impl MetricsRegistry {
                 "Worker utilization percentage",
             ),
             ("nano_uptime_seconds", "gauge", "Runtime uptime in seconds"),
+            (
+                "nano_heap_limit_hits_total",
+                "counter",
+                "Total heap limit enforcement events",
+            ),
+            (
+                "nano_cpu_timeout_total",
+                "counter",
+                "Total CPU timeout enforcement events",
+            ),
         ]
     }
 }

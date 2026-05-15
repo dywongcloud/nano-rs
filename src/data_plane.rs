@@ -10,6 +10,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
@@ -122,26 +123,29 @@ pub fn read_code_cached(entrypoint: &str) -> Result<Arc<str>> {
 // Thread-local storage for isolate termination request.
 // This is checked by the main thread during execution to determine
 // if the timer thread has requested termination.
-thread_local! {
-    static TERMINATION_REQUESTED: RefCell<bool> = RefCell::new(false);
-    static TERMINATION_ISOLATE_PTR: RefCell<*mut v8::Isolate> = RefCell::new(std::ptr::null_mut());
-}
+// Global atomic state for cross-thread isolate termination
+// Timer thread needs to access the isolate pointer stored by the main thread
+static TERMINATION_REQUESTED: AtomicBool = AtomicBool::new(false);
+static TERMINATION_ISOLATE_PTR: AtomicPtr<v8::Isolate> = AtomicPtr::new(std::ptr::null_mut());
 
 /// Request termination of the current V8 isolate.
 ///
 /// Called by the timer thread when CPU timeout is reached.
 fn request_isolate_termination() {
-    TERMINATION_REQUESTED.with(|req| {
-        *req.borrow_mut() = true;
-    });
-    TERMINATION_ISOLATE_PTR.with(|ptr| {
-        let isolate_ptr = *ptr.borrow();
-        if !isolate_ptr.is_null() {
-            unsafe {
-                (*isolate_ptr).terminate_execution();
+    TERMINATION_REQUESTED.store(true, Ordering::SeqCst);
+
+    let ptr = TERMINATION_ISOLATE_PTR.load(Ordering::SeqCst);
+    if !ptr.is_null() {
+        // SAFETY: Pointer is non-null and valid (set by CpuTimeoutGuard::new)
+        // Terminate execution is safe to call even if already terminating
+        unsafe {
+            if let Some(isolate) = ptr.as_ref() {
+                isolate.terminate_execution();
             }
         }
-    });
+        // Record CPU timeout enforcement event
+        crate::metrics::METRICS.record_cpu_timeout();
+    }
 }
 
 /// Guard that sets up CPU timeout enforcement for V8 execution.
@@ -161,12 +165,8 @@ impl CpuTimeoutGuard {
     /// * `limit_ms` - Wall time limit in milliseconds (used as approximation for CPU time)
     pub fn new(isolate: &mut v8::Isolate, limit_ms: u32) -> Self {
         let isolate_ptr: *mut v8::Isolate = isolate as *mut _;
-        TERMINATION_ISOLATE_PTR.with(|ptr| {
-            *ptr.borrow_mut() = isolate_ptr;
-        });
-        TERMINATION_REQUESTED.with(|req| {
-            *req.borrow_mut() = false;
-        });
+        TERMINATION_ISOLATE_PTR.store(isolate_ptr, Ordering::SeqCst);
+        TERMINATION_REQUESTED.store(false, Ordering::SeqCst);
 
         let timer_thread = std::thread::spawn(move || {
             let limit_duration = std::time::Duration::from_millis(limit_ms as u64);
@@ -185,12 +185,8 @@ impl Drop for CpuTimeoutGuard {
         if let Some(thread) = self.timer_thread.take() {
             let _ = thread.join();
         }
-        TERMINATION_ISOLATE_PTR.with(|ptr| {
-            *ptr.borrow_mut() = std::ptr::null_mut();
-        });
-        TERMINATION_REQUESTED.with(|req| {
-            *req.borrow_mut() = false;
-        });
+        TERMINATION_ISOLATE_PTR.store(std::ptr::null_mut(), Ordering::SeqCst);
+        TERMINATION_REQUESTED.store(false, Ordering::SeqCst);
     }
 }
 
@@ -350,6 +346,8 @@ pub fn execute_with_context_manager(
                 memory_limit,
                 handler_ctx.hostname
             );
+            // Record heap limit enforcement event
+            crate::metrics::METRICS.record_heap_limit_hit();
             Ok(NanoResponse::with_status(507)
                 .with_header("Content-Type", "application/json")
                 .with_body(r#"{"error":"Memory limit exceeded"}"#))

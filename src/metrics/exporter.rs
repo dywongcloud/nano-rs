@@ -99,7 +99,37 @@ impl PrometheusExporter {
         // Export uptime_seconds gauge
         self.export_uptime(&mut output, registry);
 
+        // Export heap_limit_hits_total counter
+        self.export_counter(
+            &mut output,
+            "nano_heap_limit_hits_total",
+            "Total heap limit enforcement events",
+            registry.heap_limit_hits_total.get(),
+        );
+
+        // Export cpu_timeout_total counter
+        self.export_counter(
+            &mut output,
+            "nano_cpu_timeout_total",
+            "Total CPU timeout enforcement events",
+            registry.cpu_timeout_total.get(),
+        );
+
         output
+    }
+
+    /// Export a simple Counter as Prometheus format
+    fn export_counter(
+        &self,
+        output: &mut String,
+        name: &str,
+        help: &str,
+        value: u64,
+    ) {
+        writeln!(output, "# HELP {} {}", name, help).unwrap();
+        writeln!(output, "# TYPE {} counter", name).unwrap();
+        writeln!(output, "{} {}", name, value).unwrap();
+        writeln!(output).unwrap();
     }
 
     /// Export a CounterVec as Prometheus format
