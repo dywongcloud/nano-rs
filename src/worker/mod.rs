@@ -199,6 +199,8 @@ pub struct HandlerTask {
     pub cpu_time_limit_ms: u32,
     /// Request ID for distributed tracing (e.g., "req_abc123")
     pub request_id: String,
+    /// Memory limit per request in MB (0 = use default 16MB)
+    pub memory_limit_mb: u32,
 }
 
 // Safety: NanoRequest is Clone + contains String/Bytes which are Send
@@ -226,6 +228,7 @@ impl HandlerTask {
             start_time: std::time::Instant::now(),
             cpu_time_limit_ms: 0,
             request_id: format!("req_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
+            memory_limit_mb: 0,
         }
     }
 
@@ -253,6 +256,7 @@ impl HandlerTask {
             start_time: std::time::Instant::now(),
             cpu_time_limit_ms: 0,
             request_id,
+            memory_limit_mb: 0,
         }
     }
 
@@ -278,6 +282,7 @@ impl HandlerTask {
             start_time: std::time::Instant::now(),
             cpu_time_limit_ms: 0,
             request_id: format!("req_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
+            memory_limit_mb: 0,
         }
     }
 
@@ -307,6 +312,7 @@ impl HandlerTask {
             start_time: std::time::Instant::now(),
             cpu_time_limit_ms,
             request_id,
+            memory_limit_mb: 0,
         }
     }
 
@@ -319,6 +325,12 @@ impl HandlerTask {
     /// Set CPU time limit
     pub fn with_cpu_limit(mut self, cpu_time_limit_ms: u32) -> Self {
         self.cpu_time_limit_ms = cpu_time_limit_ms;
+        self
+    }
+
+    /// Set memory limit per request in MB
+    pub fn with_memory_limit(mut self, memory_limit_mb: u32) -> Self {
+        self.memory_limit_mb = memory_limit_mb;
         self
     }
 }

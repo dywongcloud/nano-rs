@@ -190,6 +190,8 @@ async fn execute_js_standalone(entrypoint: String, request: NanoRequest) -> Nano
         let context = crate::runtime::HandlerContext {
             entrypoint,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
         
         crate::runtime::execute_handler(&mut isolate, context)
@@ -899,6 +901,7 @@ pub async fn dispatch_to_worker_pool(
         start_time: std::time::Instant::now(),
         cpu_time_limit_ms,
         request_id: request_id.clone(),
+        memory_limit_mb: 0,
     };
 
     // Get request path for access log

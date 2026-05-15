@@ -19,6 +19,10 @@ pub struct HandlerContext {
     pub entrypoint: String,
     /// The incoming HTTP request
     pub request: NanoRequest,
+    /// Memory limit per request in MB (0 = use default 16MB)
+    pub memory_limit_mb: u32,
+    /// Hostname (tenant identifier) for logging and metrics
+    pub hostname: String,
 }
 
 /// Execute a JavaScript handler in a V8 isolate
@@ -533,6 +537,8 @@ mod tests {
         let context = HandlerContext {
             entrypoint: "/app/index.js".to_string(),
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         assert_eq!(context.entrypoint, "/app/index.js");

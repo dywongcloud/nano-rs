@@ -573,6 +573,12 @@ impl NanoIsolate {
         // Store the configured limit
         self.heap_limit_bytes = max_bytes as u32;
 
+        // Capture a raw pointer to the isolate for the callback
+        // SAFETY: The callback is only valid while the isolate exists, and the
+        // isolate is never moved (it's pinned in NanoIsolate). terminate_execution
+        // is safe to call even if the isolate is already terminating.
+        let isolate_ptr: *mut v8::Isolate = &mut *self.isolate;
+
         self.add_near_heap_limit_callback(move |current_limit, initial_limit| {
             tracing::warn!(
                 "Isolate approaching heap limit - terminating execution. \
@@ -583,7 +589,11 @@ impl NanoIsolate {
 
             // Terminate execution immediately to prevent memory DoS
             // This is the key security fix - we terminate instead of extending the limit
-            self.isolate.terminate_execution();
+            // SAFETY: isolate_ptr is valid as long as NanoIsolate exists, and
+            // terminate_execution is safe to call multiple times (idempotent)
+            unsafe {
+                (*isolate_ptr).terminate_execution();
+            }
 
             // Return current_limit without increase
             // V8 may invoke this callback again; terminate_execution is idempotent

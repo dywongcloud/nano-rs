@@ -4,7 +4,6 @@
 //! each owning a V8 isolate. Tasks are dispatched via MPSC channels
 //! and responses are returned via oneshot channels.
 
-use crate::http::NanoResponse;
 use crate::runtime::HandlerContext;
 use crate::v8::{initialize_platform, NanoIsolate};
 use crate::worker::context::ContextManager;
@@ -406,15 +405,17 @@ impl WorkerPool {
                                 id, request_id, isolate_id, isolate_age
                             );
 
-                            // Create handler context
+                            // Create handler context with memory limit and hostname
                             let handler_ctx = HandlerContext {
                                 entrypoint: task.entrypoint,
                                 request: task.request,
+                                memory_limit_mb: task.memory_limit_mb,
+                                hostname: hostname.clone(),
                             };
 
                             // Execute handler with fresh context scope
                             // CPU timeout enforcement uses timer-based termination if cpu_time_limit_ms > 0
-                            // No per-request memory tracking in basic WorkQueue mode (use WorkerPool for full limits)
+                            // Per-request memory tracking is handled in execute_with_context_manager
                             let mut result =
                                 execute_with_context_manager(&mut context_manager, &handler_ctx, task.cpu_time_limit_ms);
 
@@ -1177,61 +1178,30 @@ impl WorkerPool {
                                 .as_ref()
                                 .map(|p| p.to_string_lossy().to_string())
                                 .unwrap_or_else(|| task.entrypoint.clone());
+                            
+                            // Determine memory limit: use task limit or default 16MB
+                            let per_request_limit_mb = if task.memory_limit_mb > 0 {
+                                task.memory_limit_mb
+                            } else {
+                                RequestMemoryTracker::DEFAULT_LIMIT_MB
+                            };
+                            
+                            // Create handler context with memory limit and hostname
+                            // Memory tracking is now handled inside execute_with_context_manager
                             let handler_ctx = HandlerContext {
                                 entrypoint,
                                 request: task.request,
+                                memory_limit_mb: per_request_limit_mb,
+                                hostname: hostname.clone(),
                             };
 
-                            // Per-request memory tracking to prevent memory DoS
-                            // Default limit: 16MB per request (prevents large array allocations)
-                            let per_request_limit_mb = 16u32;
-                            let mut request_memory_tracker = RequestMemoryTracker::new(
-                                per_request_limit_mb,
-                                hostname.clone()
-                            );
-                            
-                            // Start tracking memory before request execution
-                            let isolate_ref = context_manager.isolate_mut().isolate();
-                            request_memory_tracker.start(isolate_ref);
-
                             // Execute handler with CPU timeout enforcement
-                            // Per-request memory limit is checked after execution
+                            // Per-request memory tracking and limit enforcement is handled in execute_with_context_manager
                             let mut result = execute_with_context_manager(
                                 &mut context_manager,
                                 &handler_ctx,
                                 task.cpu_time_limit_ms,
                             );
-                            
-                            // Also check if request exceeded per-request memory limit after execution
-                            // This catches synchronous allocations that happen too fast for mid-execution checks
-                            let isolate_ref = context_manager.isolate_mut().isolate();
-                            match request_memory_tracker.exceeded_limit(isolate_ref) {
-                                Ok(growth_mb) => {
-                                    if growth_mb > 0 {
-                                        tracing::debug!(
-                                            "Request {} allocated {}MB (limit: {}MB)",
-                                            request_id,
-                                            growth_mb / (1024 * 1024),
-                                            per_request_limit_mb
-                                        );
-                                    }
-                                }
-                                Err(oom_error) => {
-                                    tracing::warn!(
-                                        "Request {} exceeded per-request memory limit: {} (limit: {}MB)",
-                                        request_id,
-                                        oom_error,
-                                        per_request_limit_mb
-                                    );
-                                    // Return 503 for memory limit violation
-                                    result = Ok(NanoResponse::with_status(503)
-                                        .with_header("Content-Type", "application/json")
-                                        .with_body(format!(
-                                            r#"{{"error":"MemoryLimitExceeded","message":"Request exceeded {}MB memory limit","type":"per_request_limit"}}"#,
-                                            per_request_limit_mb
-                                        )));
-                                }
-                            }
 
                             // Calculate request duration
                             let duration_ms = request_start.elapsed().as_millis() as u64;

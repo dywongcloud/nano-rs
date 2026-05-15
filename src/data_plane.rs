@@ -23,6 +23,7 @@ use crate::runtime::apis::RuntimeAPIs;
 use crate::v8::module::{is_esm_module, transform_module_code};
 use crate::worker::context::ContextManager;
 use crate::worker::HandlerTask;
+use crate::worker::limits::RequestMemoryTracker;
 
 // Thread-local storage for the worker thread's Tokio runtime handle.
 // This allows fetch() and other async operations to access the runtime.
@@ -221,6 +222,8 @@ impl DataPlane {
         let handler_ctx = HandlerContext {
             entrypoint: task.entrypoint.clone(),
             request: task.request.clone(),
+            memory_limit_mb: task.memory_limit_mb,
+            hostname: task.hostname.clone(),
         };
         execute_with_context_manager(context_manager, &handler_ctx, task.cpu_time_limit_ms)
     }
@@ -248,6 +251,8 @@ impl DataPlane {
             let handler_ctx = HandlerContext {
                 entrypoint: task.entrypoint.clone(),
                 request: task.request.clone(),
+                memory_limit_mb: task.memory_limit_mb,
+                hostname: task.hostname.clone(),
             };
             let result = execute_with_context_manager(context_manager, &handler_ctx, task.cpu_time_limit_ms);
             results.push(result);
@@ -282,6 +287,19 @@ pub fn execute_with_context_manager(
         None
     };
 
+    // Set up per-request memory tracking
+    // Use configured limit or default 16MB, hostname from handler context
+    let memory_limit = if handler_ctx.memory_limit_mb > 0 {
+        handler_ctx.memory_limit_mb
+    } else {
+        RequestMemoryTracker::DEFAULT_LIMIT_MB
+    };
+    let mut memory_tracker = RequestMemoryTracker::new(
+        memory_limit,
+        &handler_ctx.hostname,
+    );
+    memory_tracker.start(isolate);
+
     // Set up VFS context for Nano.fs API
     let vfs_ref = Arc::new(vfs_opt.unwrap_or_else(|| {
         crate::vfs::IsolateVfs::new(
@@ -292,7 +310,7 @@ pub fn execute_with_context_manager(
     crate::runtime::vfs_bindings::set_current_vfs(Some(vfs_ref));
 
     // v147 API: HandleScope requires pin! + init pattern
-    unsafe {
+    let result = unsafe {
         let mut scope_storage = v8::HandleScope::new(isolate);
         let scope_pin = Pin::new_unchecked(&mut scope_storage);
 
@@ -307,7 +325,7 @@ pub fn execute_with_context_manager(
         let mut context_scope: v8::ContextScope<'static, 'static, v8::HandleScope<'static, v8::Context>> =
             std::mem::transmute(v8::ContextScope::new(&mut handle_scope, v8_context));
 
-        let result = execute_handler_code(
+        let exec_result = execute_handler_code(
             std::mem::transmute(&mut context_scope),
             std::mem::transmute(v8_context),
             handler_ctx
@@ -317,7 +335,25 @@ pub fn execute_with_context_manager(
         drop(handle_scope);
         drop(scope_storage);
 
-        result
+        exec_result
+    };
+
+    // Check memory limit after execution
+    // This catches synchronous allocations that happen during the handler
+    let isolate = context_manager.isolate_mut().isolate();
+    match memory_tracker.check_limit(isolate) {
+        Ok(_growth) => result,
+        Err(_oom_error) => {
+            // Memory limit exceeded - return HTTP 507 Insufficient Storage
+            tracing::warn!(
+                "Request exceeded memory limit: {}MB for {}",
+                memory_limit,
+                handler_ctx.hostname
+            );
+            Ok(NanoResponse::with_status(507)
+                .with_header("Content-Type", "application/json")
+                .with_body(r#"{"error":"Memory limit exceeded"}"#))
+        }
     }
 }
 
