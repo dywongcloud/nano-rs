@@ -935,17 +935,18 @@ impl WorkerPool {
                 let mut eviction_manager = EvictionManager::new();
 
                 // Create VFS for this worker with shared backend
-                // For entrypoint apps with DiskBackend, use empty namespace to avoid
-                // creating subdirectory - files are already organized by base_dir
+                // For entrypoint apps with DiskBackend, use hostname namespace
+                // (files are already organized by base_dir, namespace provides isolation)
                 let is_disk_backend = matches!(&worker_vfs_backend, crate::vfs::VfsBackendEnum::Disk(_));
                 let is_entrypoint = matches!(&worker_source, crate::worker::AppSource::Entrypoint { .. });
                 let namespace = if is_disk_backend && is_entrypoint {
-                    // Empty namespace for entrypoint+DiskBackend - paths map directly
+                    // Use hostname namespace for entrypoint+DiskBackend
+                    // Empty namespace would violate NanoIsolate assertion (namespace must not be empty)
                     tracing::info!(
-                        "Using empty VFS namespace for entrypoint+DiskBackend (worker: {}, hostname: {})",
+                        "Using hostname VFS namespace for entrypoint+DiskBackend (worker: {}, hostname: {})",
                         id, worker_hostname
                     );
-                    crate::vfs::VfsNamespace::from_hostname("")
+                    VfsNamespace::from_hostname(&worker_hostname)
                 } else {
                     // Use hostname namespace for memory backends or sliver apps
                     tracing::info!(
