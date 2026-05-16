@@ -2,6 +2,7 @@
 //!
 //! This module provides helper functions for creating V8 scopes
 //! in tests using the v147 API patterns.
+#![allow(dead_code)]
 
 /// Creates a test V8 isolate with default settings
 pub fn create_test_isolate() -> v8::OwnedIsolate {

@@ -6,13 +6,10 @@
 //! - Async handlers
 //! - Backward compatibility with classic scripts
 
-use nano::http::{NanoHeaders, NanoRequest, NanoResponse, NanoUrl};
-use nano::runtime::HandlerContext;
+use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
 use nano::v8::{initialize_platform, is_esm_module, NanoIsolate, transform_module_code};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::oneshot;
 
 /// Helper to execute code with V8 v147 scope pattern
 fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R

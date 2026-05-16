@@ -148,6 +148,12 @@ impl SubtleCrypto {
         format: &str,
         key: &CryptoKey,
     ) -> Result<Vec<u8>, CryptoError> {
+        // Check extractable flag before any export operation
+        // WebCrypto spec: non-extractable keys must not be exportable
+        if !key.extractable {
+            return Err(CryptoError::InvalidAccess);
+        }
+
         if format != "jwk" {
             return Err(CryptoError::NotSupported);
         }

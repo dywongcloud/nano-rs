@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, ResourceLimits, VfsBackendEnum};
+use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, VfsBackendEnum};
 use nano::runtime::fs_polyfill::set_current_vfs;
 use nano::runtime::vfs_bindings::set_current_vfs as set_nano_vfs;
 use nano::v8::platform;

@@ -229,6 +229,7 @@ fn nano_binary_path() -> PathBuf {
 }
 
 /// Create temporary test directory
+#[allow(dead_code)]
 fn create_test_dir(name: &str) -> PathBuf {
     use std::time::{SystemTime, UNIX_EPOCH};
     let timestamp = SystemTime::now()
@@ -243,6 +244,7 @@ fn create_test_dir(name: &str) -> PathBuf {
 }
 
 /// Cleanup test directory
+#[allow(dead_code)]
 fn cleanup_test_dir(path: &PathBuf) {
     fs::remove_dir_all(path).ok();
 }

@@ -5,7 +5,7 @@
 //! 2. Async handlers with await resolve correctly
 //! 3. Request body is readable
 
-use nano::http::{NanoHeaders, NanoRequest, NanoResponse, NanoUrl};
+use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
 use nano::worker::{HandlerTask, WorkerPool};
 use std::fs;
 use std::io::Write;

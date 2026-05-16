@@ -4,7 +4,7 @@
 //! Simulates creating a sliver on "Instance A", transferring it,
 //! and restoring it on "Instance B".
 
-use nano::sliver::{pack_sliver, SliverMetadata, UnpackedSliver, unpack_sliver, validate_sliver};
+use nano::sliver::{pack_sliver, SliverMetadata, unpack_sliver, validate_sliver};
 use nano::vfs::{VfsFile, VfsPath};
 
 /// Test scenario: Pack on Instance A, transfer to Instance B, verify identical
