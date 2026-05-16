@@ -1,14 +1,24 @@
-# V8 Isolate Context Reset Bug - Deep Dive Analysis
+# V8 Isolate Reuse Bug - Deep Dive Analysis
 
 **Date:** 2026-05-16  
-**Status:** Root Cause Identified  
-**Severity:** Architectural
+**Updated:** 2026-05-16  
+**Status:** PERSISTENT - Context reset removed, bug still present  
+**Severity:** Critical - Requires architecture change
 
 ---
 
 ## Executive Summary
 
-The isolate reuse bug is caused by a **fundamental architectural mismatch** between how nano-rs uses V8 and how V8 is designed to be used. nano-rs disposes and recreates V8 contexts within the same isolate for each request, which is not a supported pattern in V8.
+**CRITICAL UPDATE:** Context reset has been removed from the worker loop, but the isolate reuse bug persists. This indicates the issue is deeper than just context reset - it appears to be a fundamental problem with V8 isolate state after multiple request executions.
+
+The original analysis identified context reset as the problem. While context reset IS problematic (not supported by V8), removing it did not fix the bug. This suggests V8 isolate state corruption occurs from repeated script execution, not just context disposal.
+
+### Key Finding
+
+**Deno, Chrome, and Cloudflare Workers do NOT share isolates across requests within the same tenant.** They use:
+1. One context per isolate for the isolate's entire lifetime (no request-to-request sharing)
+2. Fresh isolates per request (complete isolation)
+3. Isolate-per-tenant with context persistence (NOT request isolation via context reset)
 
 ### Key Finding
 
@@ -18,16 +28,45 @@ The isolate reuse bug is caused by a **fundamental architectural mismatch** betw
 
 ---
 
-## What nano-rs Does (WRONG)
+## Update: Context Reset Removed - Bug Persists
+
+### Test Results After Context Reset Removal
+
+```
+Request 1: PASSED - Body: 'Hello from worker'
+Request 2: PASSED - Body: 'Hello from worker'
+Request 3: PASSED - Body: 'Hello from worker'
+Request 4: PASSED - Body: 'Hello from worker'
+Request 5: FAILED - HTTP 500 (Script execution failed)
+Request 6-10: FAILED - HTTP 500
+```
+
+**Finding:** Even with context reset removed, the V8 isolate fails after ~4 requests.
+
+### What This Means
+
+The issue is NOT just about context reset. The V8 isolate itself becomes corrupted after multiple script executions, even with:
+- Same context throughout isolate lifetime
+- No context disposal/recreation
+- Fresh HandleScope for each request
+
+**Hypothesis:** V8 isolate internal state (compilation cache, hidden classes, heap structures) becomes corrupted after repeated script executions, or there's a memory/GC issue that accumulates over requests.
+
+---
+
+## What nano-rs Did (WRONG - NOW REMOVED)
 
 ```rust
-// Worker loop - called for EVERY request
+// OLD CODE - Context reset before each request (REMOVED)
+// loop {
+//     context_manager.reset_context();  // REMOVED - caused V8 issues
+//     execute_with_context_manager(...);
+// }
+
+// NEW CODE - No context reset (STILL HAS BUG)
 loop {
-    // POOL-04: Reset context before each request
-    context_manager.reset_context();  // Disposes old context, creates new one
-    
-    // Execute handler in the new context
-    execute_with_context_manager(&mut context_manager, ...);
+    // Context persists across requests
+    execute_with_context_manager(...);  // Still fails after ~4 requests
 }
 ```
 
