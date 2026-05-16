@@ -351,32 +351,9 @@ impl WorkerPool {
                             // Entrypoint is available in task if needed for logging/debugging
                             let _entrypoint = &task.entrypoint;
 
-                            // POOL-04: Reset context before each request
-                            let reset_elapsed = match context_manager.reset_context() {
-                                Ok(elapsed) => {
-                                    let ms = elapsed.as_secs_f64() * 1000.0;
-                                    if ms > 10.0 {
-                                        warn!(
-                                            "Worker {} context reset took {:.2}ms (target <10ms)",
-                                            id, ms
-                                        );
-                                    } else {
-                                        debug!("Worker {} context reset took {:.2}ms", id, ms);
-                                    }
-                                    // Record context reset in metrics if hostname is set
-                                    if !hostname.is_empty() {
-                                        crate::metrics::TENANT_METRICS.record_context_reset(&hostname);
-                                    }
-                                    elapsed
-                                }
-                                Err(e) => {
-                                    error!("Worker {} context reset failed: {}", id, e);
-                                    let _ =
-                                        task.response_tx.send(Err(anyhow!("Context reset failed")));
-                                    eviction_manager.mark_complete(&isolate_id);
-                                    continue;
-                                }
-                            };
+                            // NOTE: Context reset removed - isolates now persist across requests
+                            // This matches Cloudflare/Deno Deploy architecture
+                            // Isolates are recycled after MAX_REQUESTS_PER_ISOLATE or OOM
 
                             // Extract request info for logging before moving task.request
                             let request_method = task.request.method().to_string();
@@ -515,67 +492,68 @@ impl WorkerPool {
                                     );
                                 }
 
-                                // METRICS-02: Record per-tenant metrics with memory data
-                                if !hostname.is_empty() {
-                                    let result_type = match &result {
-                                        Ok(_) => crate::metrics::tenant::RequestResult::Success,
-                                        Err(e) => {
-                                            if e.to_string().contains("timeout") {
-                                                crate::metrics::tenant::RequestResult::Timeout
-                                            } else {
-                                                crate::metrics::tenant::RequestResult::Error
-                                            }
-                                        }
-                                    };
+                                 // METRICS-02: Record per-tenant metrics with memory data
+                                 if !hostname.is_empty() {
+                                     let result_type = match &result {
+                                         Ok(_) => crate::metrics::tenant::RequestResult::Success,
+                                         Err(e) => {
+                                             if e.to_string().contains("timeout") {
+                                                 crate::metrics::tenant::RequestResult::Timeout
+                                             } else {
+                                                 crate::metrics::tenant::RequestResult::Error
+                                             }
+                                         }
+                                     };
 
-                                    // Estimate CPU time from context reset duration (microseconds)
-                                    let cpu_us = reset_elapsed.as_micros() as u64;
+                                     // CPU time: placeholder (context reset removed)
+                                     let cpu_us = 0u64;
 
-                                    crate::metrics::TENANT_METRICS.record_request(
-                                        &hostname,
-                                        result_type,
-                                        cpu_us,
-                                        snapshot.total_memory_bytes() as usize,
-                                        duration_ms,
-                                    );
+                                     crate::metrics::TENANT_METRICS.record_request(
+                                         &hostname,
+                                         result_type,
+                                         cpu_us,
+                                         snapshot.total_memory_bytes() as usize,
+                                         duration_ms,
+                                     );
 
-                                    // Update current memory gauge
-                                    crate::metrics::TENANT_METRICS.update_memory(
-                                        &hostname,
-                                        snapshot.heap_used as usize,
-                                        snapshot.external as usize,
-                                    );
-
-                                    // Record pressure events if applicable
-                                    if snapshot.pressure_level > crate::worker::memory_monitor::MemoryPressureLevel::Normal {
-                                        crate::metrics::TENANT_METRICS.record_pressure_event(
-                                            &hostname,
-                                            snapshot.pressure_level,
-                                        );
-                                    }
-                                }
-                            } else if !hostname.is_empty() {
-                                // METRICS-02: Record metrics without memory data (when memory monitoring is disabled)
-                                let result_type = match &result {
-                                    Ok(_) => crate::metrics::tenant::RequestResult::Success,
-                                    Err(e) => {
-                                        if e.to_string().contains("timeout") {
-                                            crate::metrics::tenant::RequestResult::Timeout
-                                        } else {
-                                            crate::metrics::tenant::RequestResult::Error
-                                        }
-                                    }
-                                };
-
-                                let cpu_us = reset_elapsed.as_micros() as u64;
-
-                                crate::metrics::TENANT_METRICS.record_request(
-                                    &hostname,
-                                    result_type,
-                                    cpu_us,
-                                    0, // Memory data not available
-                                    duration_ms,
-                                );
+                                     // Update current memory gauge
+                                     crate::metrics::TENANT_METRICS.update_memory(
+                                         &hostname,
+                                         snapshot.heap_used as usize,
+                                         snapshot.external as usize,
+                                     );
+ 
+                                     // Record pressure events if applicable
+                                     if snapshot.pressure_level > crate::worker::memory_monitor::MemoryPressureLevel::Normal {
+                                         crate::metrics::TENANT_METRICS.record_pressure_event(
+                                             &hostname,
+                                             snapshot.pressure_level,
+                                         );
+                                     }
+                                 }
+                             } else if !hostname.is_empty() {
+                                 // METRICS-02: Record metrics without memory data (when memory monitoring is disabled)
+                                 let result_type = match &result {
+                                     Ok(_) => crate::metrics::tenant::RequestResult::Success,
+                                     Err(e) => {
+                                         if e.to_string().contains("timeout") {
+                                             crate::metrics::tenant::RequestResult::Timeout
+                                         } else {
+                                             crate::metrics::tenant::RequestResult::Error
+                                         }
+                                     }
+                                 };
+ 
+                                 // CPU time: placeholder (context reset removed)
+                                 let cpu_us = 0u64;
+ 
+                                 crate::metrics::TENANT_METRICS.record_request(
+                                     &hostname,
+                                     result_type,
+                                     cpu_us,
+                                     0, // Memory data not available
+                                     duration_ms,
+                                 );
                             }
 
                             // Post-request OOM check (optional - catches runaway memory during request)
