@@ -388,8 +388,15 @@ fn execute_handler_code<'a>(
     let code_str = v8::String::new(scope, &transformed_code)
         .ok_or_else(|| anyhow!("Failed to create code string"))?;
     let script = v8::Script::compile(scope, code_str, None)
-        .ok_or_else(|| anyhow!("Script compilation failed"))?;
-    script.run(scope);
+        .ok_or_else(|| anyhow!("Script compilation failed for entrypoint: {}", handler_ctx.entrypoint))?;
+
+    // Execute script and check for exceptions
+    let script_result = script.run(scope);
+    if script_result.is_none() {
+        tracing::error!("Script execution threw exception for entrypoint: {}", handler_ctx.entrypoint);
+        return Err(anyhow!("Script execution failed - handler may not be defined"));
+    }
+    tracing::debug!("Script executed successfully for entrypoint: {}", handler_ctx.entrypoint);
 
     // Get global and look for the user's handler function
     let global = v8_context.global(scope);
@@ -409,10 +416,13 @@ fn execute_handler_code<'a>(
                     val
                 }
                 _ => {
-                    tracing::warn!("No handler function found");
-                    return Ok(NanoResponse::ok()
+                    tracing::warn!(
+                        "No handler function found for entrypoint: {}",
+                        handler_ctx.entrypoint
+                    );
+                    return Ok(NanoResponse::with_status(500)
                         .with_header("Content-Type", "text/plain")
-                        .with_body("Handler executed (no handler function defined)"));
+                        .with_body("Error: No handler function defined. The entrypoint script must export a 'fetch' function."));
                 }
             }
         }
