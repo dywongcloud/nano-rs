@@ -7,6 +7,10 @@
 //! - Requests 1-4: PASS (one per worker, fresh isolates)
 //! - Requests 5+: Currently fail with HTTP 500 (script execution exception)
 //!
+//! **Update (2026-05-16):** Code refactoring completed to inline handler execution
+//! and eliminate transmute across function boundaries. Bug persists - appears to
+//! be a V8 isolate-level issue rather than Rust lifetime management.
+//!
 //! When the bug is fixed, all requests should pass.
 
 use std::process::{Command, Stdio};
