@@ -9,7 +9,6 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
@@ -271,13 +270,11 @@ pub fn execute_with_context_manager(
     handler_ctx: &HandlerContext,
     cpu_time_limit_ms: u32,
 ) -> Result<NanoResponse> {
-    // Clone the Global<Context> (cheap - just a handle reference)
+    // FIX: Clone context FIRST before any mutable borrows
     let global_ctx = context_manager.clone_context();
-
-    // Get VFS reference BEFORE the mutable borrow for isolate access
     let vfs_opt = context_manager.vfs().cloned();
 
-    // Now get the isolate pointer - this borrows context_manager mutably
+    // Now get isolate - this mutably borrows context_manager
     let isolate = context_manager.isolate_mut().isolate();
 
     // Set up CPU timeout enforcement if requested
@@ -288,7 +285,6 @@ pub fn execute_with_context_manager(
     };
 
     // Set up per-request memory tracking
-    // Use configured limit or default 16MB, hostname from handler context
     let memory_limit = if handler_ctx.memory_limit_mb > 0 {
         handler_ctx.memory_limit_mb
     } else {
@@ -309,10 +305,46 @@ pub fn execute_with_context_manager(
     }));
     crate::runtime::vfs_bindings::set_current_vfs(Some(vfs_ref));
 
-    // v147 API: HandleScope requires pin! + init pattern
-    let result = unsafe {
+    // Execute with the cloned context
+    // SAFETY: global_ctx is a Global which is valid across HandleScopes
+    let result = execute_with_context(isolate, global_ctx, handler_ctx);
+
+    // Check memory limit after execution
+    let isolate = context_manager.isolate_mut().isolate();
+    match memory_tracker.check_limit(isolate) {
+        Ok(_growth) => result,
+        Err(_oom_error) => {
+            tracing::warn!(
+                "Request exceeded memory limit: {}MB for {}",
+                memory_limit,
+                handler_ctx.hostname
+            );
+            crate::metrics::METRICS.record_heap_limit_hit();
+            Ok(NanoResponse::with_status(507)
+                .with_header("Content-Type", "application/json")
+                .with_body(r#"{"error":"Memory limit exceeded"}"#))
+        }
+    }
+}
+
+/// Execute with a specific context, properly managing V8 scopes.
+///
+/// FIX: This function uses the same scope pattern as the original but with
+/// all handler logic inlined to avoid lifetime issues from passing scopes
+/// across function boundaries.
+fn execute_with_context(
+    isolate: &mut v8::Isolate,
+    global_ctx: Option<v8::Global<v8::Context>>,
+    handler_ctx: &HandlerContext,
+) -> Result<NanoResponse> {
+    use crate::http::NanoHeaders;
+
+    // Execute all V8 operations within a single unsafe block to ensure
+    // proper scope lifetime management. The transmute to 'static is safe
+    // because we drop all scopes before returning.
+    unsafe {
         let mut scope_storage = v8::HandleScope::new(isolate);
-        let scope_pin = Pin::new_unchecked(&mut scope_storage);
+        let scope_pin = std::pin::Pin::new_unchecked(&mut scope_storage);
 
         let mut handle_scope: v8::PinnedRef<'static, v8::HandleScope> =
             std::mem::transmute(scope_pin.init());
@@ -325,283 +357,267 @@ pub fn execute_with_context_manager(
         let mut context_scope: v8::ContextScope<'static, 'static, v8::HandleScope<'static, v8::Context>> =
             std::mem::transmute(v8::ContextScope::new(&mut handle_scope, v8_context));
 
-        let exec_result = execute_handler_code(
-            std::mem::transmute(&mut context_scope),
-            std::mem::transmute(v8_context),
-            handler_ctx
-        );
+        // ===== BEGIN: Handler execution logic (inlined) =====
 
-        drop(context_scope);
-        drop(handle_scope);
-        drop(scope_storage);
+        // Bind all WinterTC APIs (URL, fetch, etc.) to the context
+        RuntimeAPIs::bind_all(&mut context_scope, v8_context);
+        tracing::debug!("Bound WinterTC APIs to handler context");
 
-        exec_result
-    };
+        // Read the handler code from cache or disk
+        let code = read_code_cached(&handler_ctx.entrypoint)?;
 
-    // Check memory limit after execution
-    // This catches synchronous allocations that happen during the handler
-    //
-    // NOTE: Mid-execution memory checks are handled by V8's near-heap-limit callback
-    // (see src/v8/isolate.rs). The add_near_heap_limit_callback terminates execution
-    // when heap growth exceeds limits during JavaScript execution. This post-execution
-    // check catches any final growth and provides consistent HTTP 507 responses.
-    let isolate = context_manager.isolate_mut().isolate();
-    match memory_tracker.check_limit(isolate) {
-        Ok(_growth) => result,
-        Err(_oom_error) => {
-            // Memory limit exceeded - return HTTP 507 Insufficient Storage
-            tracing::warn!(
-                "Request exceeded memory limit: {}MB for {}",
-                memory_limit,
-                handler_ctx.hostname
-            );
-            // Record heap limit enforcement event
-            crate::metrics::METRICS.record_heap_limit_hit();
-            Ok(NanoResponse::with_status(507)
-                .with_header("Content-Type", "application/json")
-                .with_body(r#"{"error":"Memory limit exceeded"}"#))
+        // Transform ES6 module syntax if this is an ESM module
+        let transformed_code: String = if is_esm_module(&code) {
+            transform_module_code(&code)
+        } else {
+            code.to_string()
+        };
+
+        // Compile and run script to define fetch function
+        let code_str = v8::String::new(&mut context_scope, &transformed_code)
+            .ok_or_else(|| anyhow!("Failed to create code string"))?;
+        let script = v8::Script::compile(&mut context_scope, code_str, None)
+            .ok_or_else(|| anyhow!("Script compilation failed for entrypoint: {}", handler_ctx.entrypoint))?;
+
+        // Execute script and check for exceptions
+        let script_result = script.run(&mut context_scope);
+        if script_result.is_none() {
+            tracing::error!("Script execution threw exception for entrypoint: {}", handler_ctx.entrypoint);
+            return Err(anyhow!("Script execution failed - handler may not be defined"));
         }
-    }
-}
+        tracing::debug!("Script executed successfully for entrypoint: {}", handler_ctx.entrypoint);
 
-/// Execute the actual handler code within an established context scope.
-fn execute_handler_code<'a>(
-    scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
-    v8_context: v8::Local<'a, v8::Context>,
-    handler_ctx: &HandlerContext,
-) -> Result<NanoResponse> {
-    // Bind all WinterTC APIs (URL, fetch, etc.) to the context
-    RuntimeAPIs::bind_all(scope, v8_context);
-    tracing::debug!("Bound WinterTC APIs to handler context");
-
-    // Read the handler code from cache or disk
-    let code = read_code_cached(&handler_ctx.entrypoint)?;
-
-    // Transform ES6 module syntax if this is an ESM module
-    let transformed_code: String = if is_esm_module(&code) {
-        transform_module_code(&code)
-    } else {
-        code.to_string()
-    };
-
-    // Compile and run script to define fetch function
-    let code_str = v8::String::new(scope, &transformed_code)
-        .ok_or_else(|| anyhow!("Failed to create code string"))?;
-    let script = v8::Script::compile(scope, code_str, None)
-        .ok_or_else(|| anyhow!("Script compilation failed for entrypoint: {}", handler_ctx.entrypoint))?;
-
-    // Execute script and check for exceptions
-    let script_result = script.run(scope);
-    if script_result.is_none() {
-        tracing::error!("Script execution threw exception for entrypoint: {}", handler_ctx.entrypoint);
-        return Err(anyhow!("Script execution failed - handler may not be defined"));
-    }
-    tracing::debug!("Script executed successfully for entrypoint: {}", handler_ctx.entrypoint);
-
-    // Get global and look for the user's handler function
-    let global = v8_context.global(scope);
-    let handler_key = v8::String::new(scope, "__nano_user_fetch")
-        .ok_or_else(|| anyhow!("Failed to create handler key string"))?;
-    let handler_val = match global.get(scope, handler_key.into()) {
-        Some(val) if val.is_function() => {
-            tracing::debug!("Found user handler function in global scope");
-            val
-        }
-        _ => {
-            let fetch_key = v8::String::new(scope, "fetch")
-                .ok_or_else(|| anyhow!("Failed to create fetch key string"))?;
-            match global.get(scope, fetch_key.into()) {
-                Some(val) if val.is_function() => {
-                    tracing::debug!("Found handler via 'fetch' global");
-                    val
-                }
-                _ => {
-                    tracing::warn!(
-                        "No handler function found for entrypoint: {}",
-                        handler_ctx.entrypoint
-                    );
-                    return Ok(NanoResponse::with_status(500)
-                        .with_header("Content-Type", "text/plain")
-                        .with_body("Error: No handler function defined. The entrypoint script must export a 'fetch' function."));
-                }
+        // Get global and look for the user's handler function
+        let global = v8_context.global(&mut context_scope);
+        let handler_key = v8::String::new(&mut context_scope, "__nano_user_fetch")
+            .ok_or_else(|| anyhow!("Failed to create handler key string"))?;
+        let handler_val = match global.get(&mut context_scope, handler_key.into()) {
+            Some(val) if val.is_function() => {
+                tracing::debug!("Found user handler function in global scope");
+                val
             }
-        }
-    };
-
-    let handler_fn = handler_val.cast::<v8::Function>();
-
-    // Create Request object using the Request constructor
-    let request_url = v8::String::new(scope, &handler_ctx.request.url().href())
-        .ok_or_else(|| anyhow!("Failed to create request URL string"))?;
-
-    // Build options object with method and headers
-    let options_obj = v8::Object::new(scope);
-
-    // Set method
-    let method_key = v8::String::new(scope, "method")
-        .ok_or_else(|| anyhow!("Failed to create method key string"))?;
-    let method_val = v8::String::new(scope, handler_ctx.request.method())
-        .ok_or_else(|| anyhow!("Failed to create method value string"))?;
-    options_obj.set(scope, method_key.into(), method_val.into());
-
-    // Set headers using Headers constructor
-    let headers_key = v8::String::new(scope, "headers")
-        .ok_or_else(|| anyhow!("Failed to create headers key string"))?;
-    let headers_ctor_key = v8::String::new(scope, "Headers")
-        .ok_or_else(|| anyhow!("Failed to create Headers constructor key"))?;
-    let headers_ctor_val = global.get(scope, headers_ctor_key.into())
-        .filter(|v| v.is_function())
-        .ok_or_else(|| anyhow!("Headers constructor not found or not a function"))?;
-    let headers_ctor = headers_ctor_val.cast::<v8::Function>();
-
-    let headers_init = v8::Object::new(scope);
-    for (name, values) in handler_ctx.request.headers().entries() {
-        let value = values.join(", ");
-        // Skip headers that can't be converted to V8 strings (e.g., too large)
-        let key = match v8::String::new(scope, name) {
-            Some(k) => k,
-            None => {
-                tracing::warn!("Skipping header '{}' - failed to create V8 string", name);
-                continue;
+            _ => {
+                let fetch_key = v8::String::new(&mut context_scope, "fetch")
+                    .ok_or_else(|| anyhow!("Failed to create fetch key string"))?;
+                match global.get(&mut context_scope, fetch_key.into()) {
+                    Some(val) if val.is_function() => {
+                        tracing::debug!("Found handler via 'fetch' global");
+                        val
+                    }
+                    _ => {
+                        tracing::warn!(
+                            "No handler function found for entrypoint: {}",
+                            handler_ctx.entrypoint
+                        );
+                        drop(context_scope);
+                        drop(handle_scope);
+                        drop(scope_storage);
+                        return Ok(NanoResponse::with_status(500)
+                            .with_header("Content-Type", "text/plain")
+                            .with_body("Error: No handler function defined. The entrypoint script must export a 'fetch' function."));
+                    }
+                }
             }
         };
-        let val = match v8::String::new(scope, &value) {
-            Some(v) => v,
-            None => {
-                tracing::warn!("Skipping header '{}' value - failed to create V8 string", name);
-                continue;
-            }
-        };
-        headers_init.set(scope, key.into(), val.into());
-    }
 
-    let headers_obj = headers_ctor.new_instance(scope, &[headers_init.into()])
-        .ok_or_else(|| anyhow!("Failed to create Headers object"))?;
-    options_obj.set(scope, headers_key.into(), headers_obj.into());
+        let handler_fn = handler_val.cast::<v8::Function>();
 
-    // Set body if present (base64 encoded for proper handling in JS)
-    if let Some(body) = handler_ctx.request.body() {
-        let body_key = v8::String::new(scope, "body")
-            .ok_or_else(|| anyhow!("Failed to create body key string"))?;
-        let base64_body = base64::engine::general_purpose::STANDARD.encode(body);
-        let body_val = v8::String::new(scope, &base64_body)
-            .ok_or_else(|| anyhow!("Failed to create body value string"))?;
-        options_obj.set(scope, body_key.into(), body_val.into());
-    }
+        // Create Request object using the Request constructor
+        let request_url = v8::String::new(&mut context_scope, &handler_ctx.request.url().href())
+            .ok_or_else(|| anyhow!("Failed to create request URL string"))?;
 
-    // Call Request constructor
-    let request_ctor_key = v8::String::new(scope, "Request")
-        .ok_or_else(|| anyhow!("Failed to create Request constructor key"))?;
-    let request_ctor_val = global.get(scope, request_ctor_key.into())
-        .filter(|v| v.is_function())
-        .ok_or_else(|| anyhow!("Request constructor not found or not a function"))?;
-    let request_ctor = request_ctor_val.cast::<v8::Function>();
+        // Build options object with method and headers
+        let options_obj = v8::Object::new(&mut context_scope);
 
-    let js_request = request_ctor.new_instance(scope, &[request_url.into(), options_obj.into()])
-        .ok_or_else(|| anyhow!("Failed to create Request object"))?;
+        // Set method
+        let method_key = v8::String::new(&mut context_scope, "method")
+            .ok_or_else(|| anyhow!("Failed to create method key string"))?;
+        let method_val = v8::String::new(&mut context_scope, handler_ctx.request.method())
+            .ok_or_else(|| anyhow!("Failed to create method value string"))?;
+        options_obj.set(&mut context_scope, method_key.into(), method_val.into());
 
-    // Call the user's handler function with the request
-    let result = handler_fn.call(scope, global.into(), &[js_request.into()]);
+        // Set headers using Headers constructor
+        let headers_key = v8::String::new(&mut context_scope, "headers")
+            .ok_or_else(|| anyhow!("Failed to create headers key string"))?;
+        let headers_ctor_key = v8::String::new(&mut context_scope, "Headers")
+            .ok_or_else(|| anyhow!("Failed to create Headers constructor key"))?;
+        let headers_ctor_val = global.get(&mut context_scope, headers_ctor_key.into())
+            .filter(|v| v.is_function())
+            .ok_or_else(|| anyhow!("Headers constructor not found or not a function"))?;
+        let headers_ctor = headers_ctor_val.cast::<v8::Function>();
 
-    // Resolve the result using async support
-    let resolved = match result {
-        Some(response) => {
-            if response.is_promise() {
-                match async_support::resolve_promise_with_async(
-                    scope,
-                    response.cast::<v8::Promise>()
-                ) {
-                    Ok(value) => Some(value),
-                    Err(e) => return Err(e),
+        let headers_init = v8::Object::new(&mut context_scope);
+        for (name, values) in handler_ctx.request.headers().entries() {
+            let value = values.join(", ");
+            let key = match v8::String::new(&mut context_scope, name) {
+                Some(k) => k,
+                None => {
+                    tracing::warn!("Skipping header '{}' - failed to create V8 string", name);
+                    continue;
                 }
-            } else {
-                Some(response)
-            }
+            };
+            let val = match v8::String::new(&mut context_scope, &value) {
+                Some(v) => v,
+                None => {
+                    tracing::warn!("Skipping header '{}' value - failed to create V8 string", name);
+                    continue;
+                }
+            };
+            headers_init.set(&mut context_scope, key.into(), val.into());
         }
-        None => None,
-    };
 
-    // Extract response
-    match resolved {
-        Some(response) => extract_js_response(scope, response),
-        None => Err(anyhow!("Handler returned None")),
-    }
-}
+        let headers_obj = headers_ctor.new_instance(&mut context_scope, &[headers_init.into()])
+            .ok_or_else(|| anyhow!("Failed to create Headers object"))?;
+        options_obj.set(&mut context_scope, headers_key.into(), headers_obj.into());
 
-/// Extract a NanoResponse from a V8 JavaScript object.
-fn extract_js_response(
-    scope: &mut v8::ContextScope<v8::HandleScope>,
-    js_response: v8::Local<v8::Value>,
-) -> Result<NanoResponse> {
-    use crate::http::NanoHeaders;
+        // Set body if present
+        if let Some(body) = handler_ctx.request.body() {
+            let body_key = v8::String::new(&mut context_scope, "body")
+                .ok_or_else(|| anyhow!("Failed to create body key string"))?;
+            let base64_body = base64::engine::general_purpose::STANDARD.encode(body);
+            let body_val = v8::String::new(&mut context_scope, &base64_body)
+                .ok_or_else(|| anyhow!("Failed to create body value string"))?;
+            options_obj.set(&mut context_scope, body_key.into(), body_val.into());
+        }
 
-    let obj = match js_response.to_object(scope) {
-        Some(o) => o,
-        None => return Err(anyhow!("Response is not an object")),
-    };
+        // Call Request constructor
+        let request_ctor_key = v8::String::new(&mut context_scope, "Request")
+            .ok_or_else(|| anyhow!("Failed to create Request constructor key"))?;
+        let request_ctor_val = global.get(&mut context_scope, request_ctor_key.into())
+            .filter(|v| v.is_function())
+            .ok_or_else(|| anyhow!("Request constructor not found or not a function"))?;
+        let request_ctor = request_ctor_val.cast::<v8::Function>();
 
-    let status_key = v8::String::new(scope, "status")
-        .ok_or_else(|| anyhow!("Failed to create status key string"))?;
-    let status = match obj.get(scope, status_key.into()) {
-        Some(val) if !val.is_null() && !val.is_undefined() => match val.to_integer(scope) {
-            Some(int) => int.value() as u16,
-            None => 200,
-        },
-        _ => 200,
-    };
+        let js_request = request_ctor.new_instance(&mut context_scope, &[request_url.into(), options_obj.into()])
+            .ok_or_else(|| anyhow!("Failed to create Request object"))?;
 
-    let mut nano_headers = NanoHeaders::new();
-    let headers_key = v8::String::new(scope, "headers")
-        .ok_or_else(|| anyhow!("Failed to create headers key string"))?;
+        // Call the user's handler function
+        let result = handler_fn.call(&mut context_scope, global.into(), &[js_request.into()]);
 
-    if let Some(headers_val) = obj.get(scope, headers_key.into()) {
-        if let Some(headers_obj) = headers_val.to_object(scope) {
-            let internal_headers_key = v8::String::new(scope, "__headers__")
-                .ok_or_else(|| anyhow!("Failed to create internal headers key"))?;
-            let headers_source = headers_obj.get(scope, internal_headers_key.into())
-                .and_then(|v| v.to_object(scope))
-                .unwrap_or(headers_obj);
+        // Resolve the result
+        let resolved = match result {
+            Some(response) => {
+                if response.is_promise() {
+                    match async_support::resolve_promise_with_async(
+                        &mut context_scope,
+                        response.cast::<v8::Promise>()
+                    ) {
+                        Ok(value) => Some(value),
+                        Err(e) => {
+                            drop(context_scope);
+                            drop(handle_scope);
+                            drop(scope_storage);
+                            return Err(e);
+                        }
+                    }
+                } else {
+                    Some(response)
+                }
+            }
+            None => None,
+        };
 
-            if let Some(names) = headers_source.get_own_property_names(scope, Default::default()) {
-                let len = names.length();
-                for i in 0..len {
-                    if let Some(key) = names.get_index(scope, i) {
-                        if let Some(key_str) = key.to_string(scope) {
-                            let key_name = key_str.to_rust_string_lossy(scope);
-                            if key_name.starts_with("__") || key_name == "set" || key_name == "get" || key_name == "forEach" {
-                                continue;
-                            }
-                            if let Some(value) = headers_source.get(scope, key.into()) {
-                                if !value.is_function() {
-                                    if let Some(value_str) = value.to_string(scope) {
-                                        let value_string = value_str.to_rust_string_lossy(scope);
-                                        nano_headers.set(&key_name, &value_string);
+        // Extract response
+        let nano_response = match resolved {
+            Some(response) => {
+                let obj = match response.to_object(&mut context_scope) {
+                    Some(o) => o,
+                    None => {
+                        drop(context_scope);
+                        drop(handle_scope);
+                        drop(scope_storage);
+                        return Err(anyhow!("Response is not an object"));
+                    }
+                };
+
+                let status_key = v8::String::new(&mut context_scope, "status")
+                    .ok_or_else(|| anyhow!("Failed to create status key string"))?;
+                let status = match obj.get(&mut context_scope, status_key.into()) {
+                    Some(val) if !val.is_null() && !val.is_undefined() => match val.to_integer(&mut context_scope) {
+                        Some(int) => int.value() as u16,
+                        None => 200,
+                    },
+                    _ => 200,
+                };
+
+                let mut nano_headers = NanoHeaders::new();
+                let headers_key = v8::String::new(&mut context_scope, "headers")
+                    .ok_or_else(|| anyhow!("Failed to create headers key string"))?;
+
+                if let Some(headers_val) = obj.get(&mut context_scope, headers_key.into()) {
+                    if let Some(headers_obj) = headers_val.to_object(&mut context_scope) {
+                        let internal_headers_key = v8::String::new(&mut context_scope, "__headers__")
+                            .ok_or_else(|| anyhow!("Failed to create internal headers key"))?;
+                        let headers_source = headers_obj.get(&mut context_scope, internal_headers_key.into())
+                            .and_then(|v| v.to_object(&mut context_scope))
+                            .unwrap_or(headers_obj);
+
+                        if let Some(names) = headers_source.get_own_property_names(&mut context_scope, Default::default()) {
+                            let len = names.length();
+                            for i in 0..len {
+                                if let Some(key) = names.get_index(&mut context_scope, i) {
+                                    if let Some(key_str) = key.to_string(&mut context_scope) {
+                                        let key_name = key_str.to_rust_string_lossy(&mut context_scope);
+                                        if key_name.starts_with("__") || key_name == "set" || key_name == "get" || key_name == "forEach" {
+                                            continue;
+                                        }
+                                        if let Some(value) = headers_source.get(&mut context_scope, key.into()) {
+                                            if !value.is_function() {
+                                                if let Some(value_str) = value.to_string(&mut context_scope) {
+                                                    let value_string = value_str.to_rust_string_lossy(&mut context_scope);
+                                                    nano_headers.set(&key_name, &value_string);
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
-        }
-    }
 
-    let body_key = v8::String::new(scope, "body")
-        .ok_or_else(|| anyhow!("Failed to create body key string"))?;
-    let body = match obj.get(scope, body_key.into()) {
-        Some(val) if !val.is_null() && !val.is_undefined() => {
-            match val.to_string(scope) {
-                Some(s) => {
-                    let body_str = s.to_rust_string_lossy(scope);
-                    Some(Bytes::from(body_str))
+                let body_key = v8::String::new(&mut context_scope, "body")
+                    .ok_or_else(|| anyhow!("Failed to create body key string"))?;
+                let body = match obj.get(&mut context_scope, body_key.into()) {
+                    Some(val) if !val.is_null() && !val.is_undefined() => {
+                        match val.to_string(&mut context_scope) {
+                            Some(s) => {
+                                let body_str = s.to_rust_string_lossy(&mut context_scope);
+                                Some(Bytes::from(body_str))
+                            }
+                            None => None,
+                        }
+                    }
+                    _ => None,
+                };
+
+                let mut response = NanoResponse::with_status(status);
+                for (name, values) in nano_headers.entries() {
+                    for value in values {
+                        response = response.with_header(&name, value);
+                    }
                 }
-                None => None,
+                if let Some(body) = body {
+                    response = response.with_body_bytes(body.to_vec());
+                }
+                response
             }
-        }
-        _ => None,
-    };
+            None => {
+                drop(context_scope);
+                drop(handle_scope);
+                drop(scope_storage);
+                return Err(anyhow!("Handler returned None"));
+            }
+        };
 
-    Ok(NanoResponse::new(status, nano_headers, body))
+        // ===== END: Handler execution logic =====
+
+        drop(context_scope);
+        drop(handle_scope);
+        drop(scope_storage);
+
+        Ok(nano_response)
+    }
 }
 
 // Lookup table for HTTP status lines (eliminates branching)
