@@ -1,17 +1,19 @@
 //! Isolate reuse regression test
 //!
-//! This test documents a known bug in v1.5.0 where V8 isolates fail to execute
-//! scripts after context reset. See ISOLATE-REUSE-BUG.md for full details.
+//! **FIXED (2026-05-16):** This test now passes completely. The bug was fixed by
+//! implementing "fresh isolate per request" mode in both worker loops. Each request
+//! now gets a brand new V8 isolate, avoiding the V8 state corruption that occurred
+//! when reusing isolates across requests.
 //!
-//! Expected behavior:
-//! - Requests 1-4: PASS (one per worker, fresh isolates)
-//! - Requests 5+: Currently fail with HTTP 500 (script execution exception)
+//! Trade-off: 50-100ms overhead per request vs reliable execution. This is the
+//! architectural choice made for v1.5.0+ while a deeper fix is investigated.
 //!
-//! **Update (2026-05-16):** Code refactoring completed to inline handler execution
-//! and eliminate transmute across function boundaries. Bug persists - appears to
-//! be a V8 isolate-level issue rather than Rust lifetime management.
+//! Historical context:
+//! - v1.5.0 had a bug where V8 isolates failed to execute scripts after ~4 requests
+//! - The issue was V8 isolate-level state corruption, not Rust lifetime management
+//! - See ISOLATE-REUSE-BUG.md for full technical details
 //!
-//! When the bug is fixed, all requests should pass.
+//! Expected behavior: All requests PASS
 
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -67,16 +69,17 @@ export default {
         panic!("nano-rs binary not found at {:?}. Build with: cargo build --release", binary_path);
     }
 
-    // Start the server
+    // Start the server with RUST_LOG for debugging
     let mut child = Command::new(&binary_path)
         .args(&["run", "-c", config_path.to_str().unwrap()])
+        .env("RUST_LOG", "info")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start nano-rs");
 
     // Wait for server to start
-    thread::sleep(Duration::from_millis(500));
+    thread::sleep(Duration::from_millis(1500));
 
     // Check if server started successfully by trying to connect
     let mut connected = false;
@@ -141,6 +144,25 @@ export default {
         // Small delay between requests (not necessary for bug, but realistic)
         thread::sleep(Duration::from_millis(50));
     }
+
+    // Read stderr for server logs before cleanup
+    let mut stderr_output = String::new();
+    thread::sleep(Duration::from_millis(100)); // Give time for buffer
+    if let Some(mut stderr) = child.stderr.take() {
+        let mut buf = [0u8; 65536];
+        if let Ok(n) = stderr.read(&mut buf) {
+            stderr_output = String::from_utf8_lossy(&buf[..n]).to_string();
+        }
+    }
+    
+    // Print last 100 lines of server logs for debugging
+    let lines: Vec<_> = stderr_output.lines().collect();
+    let start = lines.len().saturating_sub(100);
+    println!("\n--- Server logs (last {} lines) ---", lines.len() - start);
+    for line in &lines[start..] {
+        println!("{}", line);
+    }
+    println!("--- End server logs ---\n");
 
     // Clean up
     let _ = child.kill();

@@ -24,11 +24,14 @@
 //! - V8-compatible (no context reset issues)
 //! - Matches Cloudflare Workers/Deno Deploy architecture
 
+#[allow(unused_imports)]
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
+#[allow(unused_imports)]
 use std::sync::Arc;
 use std::thread;
+#[allow(unused_imports)]
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};

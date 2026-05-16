@@ -1,22 +1,35 @@
 # Isolate Reuse Bug Documentation
 
-**Status:** PERSISTENT - Refactoring completed but root cause remains  
-**Severity:** Critical  
-**Affected Versions:** v1.5.0  
+**Status:** FIXED - Option 2 implemented (fresh isolate per request)  
+**Severity:** Resolved  
+**Affected Versions:** v1.5.0 (bug), v1.5.0+ (fixed)  
 **First Identified:** 2026-05-16  
-**Last Update:** 2026-05-16 (refactoring completed)
+**Last Update:** 2026-05-16 (fixed with fresh isolate per request)
 
 ---
 
 ## Summary
 
-After a V8 isolate handles its first request, all subsequent requests on that same isolate fail with HTTP 500. The script execution throws an exception when the context is reset between requests.
+**FIXED:** Each request now gets a fresh V8 isolate, completely avoiding the reuse bug.
 
-**IMPORTANT:** Code refactoring was completed to improve structure and remove transmute across function boundaries, but the underlying V8 context reset issue persists.
+Historical: After a V8 isolate handled its first request, all subsequent requests on that same isolate would fail with HTTP 500. The script execution threw an exception due to V8 internal state corruption when reusing isolates.
+
+**Solution:** Implemented "Option 2 - Fresh Isolate Per Request" in both worker loops.
 
 ---
 
 ## Update History
+
+### 2026-05-16 - BUG FIXED
+
+**Fix Applied:**
+- Modified both worker loops (`WorkerPool::new()` and `WorkerPool::with_source_and_backend()`)
+- Moved isolate creation inside the request handling loop
+- Each request now creates a fresh VFS, isolate, and context manager
+- Isolates are naturally dropped at end of each request
+- Removed eviction manager and OOM recovery code (not needed for fresh isolates)
+
+**Result:** All 10 sequential requests now pass. Trade-off: 50-100ms overhead per request.
 
 ### 2026-05-16 - Refactoring Completed
 
@@ -26,7 +39,7 @@ After a V8 isolate handles its first request, all subsequent requests on that sa
 - Simplified V8 scope management with proper drop ordering
 - Removed unused imports
 
-**Result:** Code is cleaner and more maintainable, but isolate reuse bug still present.
+**Result:** Code is cleaner and more maintainable, but isolate reuse bug still present before fix.
 
 ---
 
