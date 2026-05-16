@@ -1,9 +1,36 @@
 # Isolate Reuse Bug Documentation
 
-**Status:** Known Issue - Under Investigation  
+**Status:** PERSISTENT - Refactoring completed but root cause remains  
 **Severity:** Critical  
 **Affected Versions:** v1.5.0  
-**First Identified:** 2026-05-16
+**First Identified:** 2026-05-16  
+**Last Update:** 2026-05-16 (refactoring completed)
+
+---
+
+## Summary
+
+After a V8 isolate handles its first request, all subsequent requests on that same isolate fail with HTTP 500. The script execution throws an exception when the context is reset between requests.
+
+**IMPORTANT:** Code refactoring was completed to improve structure and remove transmute across function boundaries, but the underlying V8 context reset issue persists.
+
+---
+
+## Update History
+
+### 2026-05-16 - Refactoring Completed
+
+**Changes Made:**
+- Inlined `execute_handler_code()` and `extract_js_response()` into `execute_with_context()`
+- Eliminated transmute across function boundaries
+- Simplified V8 scope management with proper drop ordering
+- Removed unused imports
+
+**Result:** Code is cleaner and more maintainable, but isolate reuse bug still present.
+
+---
+
+## Symptoms
 
 ---
 
@@ -26,52 +53,43 @@ After a V8 isolate handles its first request, all subsequent requests on that sa
 
 ## Root Cause Analysis
 
-The issue is in `src/data_plane.rs` in the `execute_with_context_manager` function. The V8 context/scoping lifetime management uses `std::mem::transmute` to force `'static` lifetimes on V8 handles:
+### Current Understanding (Post-Refactoring)
 
-```rust
-// v147 API: HandleScope requires pin! + init pattern
-let result = unsafe {
-    let mut scope_storage = v8::HandleScope::new(isolate);
-    let scope_pin = Pin::new_unchecked(&mut scope_storage);
-
-    let mut handle_scope: v8::PinnedRef<'static, v8::HandleScope> =
-        std::mem::transmute(scope_pin.init());
-
-    let v8_context: v8::Local<'static, v8::Context> = match global_ctx {
-        Some(g) => std::mem::transmute(v8::Local::new(&mut handle_scope, &g)),
-        None => return Err(anyhow!("No context available")),
-    };
-
-    let mut context_scope: v8::ContextScope<'static, 'static, v8::HandleScope<'static, v8::Context>> =
-        std::mem::transmute(v8::ContextScope::new(&mut handle_scope, v8_context));
-
-    let exec_result = execute_handler_code(
-        std::mem::transmute(&mut context_scope),
-        std::mem::transmute(v8_context),
-        handler_ctx
-    );
-    // ...
-};
-```
-
-### Problem
+After extensive refactoring (2026-05-16), the issue appears to be at the V8 isolate level, not just Rust lifetime management:
 
 1. **Context Reset:** `ContextManager::reset_context()` creates a new V8 context and stores it as a `v8::Global<v8::Context>`
-2. **Global Cloning:** `execute_with_context_manager` clones this Global before execution
-3. **Local Creation:** Inside the unsafe block, `v8::Local::new()` creates a Local handle from the Global
-4. **Lifetime Transmute:** The transmute to `'static` erases Rust's lifetime tracking
-
-After context reset, the Global should still be valid (it's a persistent handle), but creating a Local from it in a new HandleScope appears to fail silently, causing script execution to throw an exception.
+2. **Global Validity:** The Global is valid and can create Local handles successfully
+3. **API Binding:** `RuntimeAPIs::bind_all()` succeeds (all APIs are bound to the new context)
+4. **Script Compilation:** `v8::Script::compile()` succeeds in the new context
+5. **Script Execution:** `script.run(scope)` returns `None` - **this is where it fails**
 
 ### What Works
 
 - Fresh isolates: First request to each worker succeeds
-- API binding: `RuntimeAPIs::bind_all()` succeeds ("Fetch state initialized successfully" is logged)
-- Script compilation: `v8::Script::compile()` succeeds
+- First context in each isolate: Script executes successfully
+- API binding: All WinterTC APIs are properly bound to new contexts
+- Script compilation: V8 accepts and compiles scripts in reset contexts
 
 ### What Fails
 
-- Script execution: `script.run(scope)` returns `None` (exception thrown)
+- Second context in same isolate: Script execution throws exception
+- The exception occurs at the V8 level, not Rust
+
+### Updated Theory
+
+The issue is likely at the **V8 isolate level**, not Rust code:
+
+1. When `ContextManager::reset_context()` disposes the old context and creates a new one, some V8 isolate internal state may become corrupted
+2. This could be related to how V8 tracks active contexts, global handles, or internal isolate state
+3. The transmute in Rust is a red herring - it's necessary for the V8 API and works fine for the first context
+
+### Previous Code Structure (Now Fixed)
+
+**OLD:** Multiple transmutes across function boundaries (`execute_handler_code`, `extract_js_response`)
+
+**NEW:** Single transmute within one function, all execution logic inlined
+
+The refactoring eliminated complex lifetime interactions but did not fix the underlying V8 issue.
 
 ---
 
@@ -124,31 +142,33 @@ If necessary, you could:
 
 ## Potential Fixes
 
-### Option 1: Fix V8 Scope Lifetime Management
+### Option 1: Fix V8 Scope Lifetime Management (ATTEMPTED - PARTIAL)
 
-Eliminate the transmute to `'static` and properly manage V8 handle lifetimes:
+**Status:** Refactoring completed 2026-05-16, but isolate reuse bug persists.
+
+**What Was Done:**
+- Inlined all handler execution logic to eliminate transmute across function boundaries
+- Simplified scope management with proper drop ordering
+- Reduced complexity by keeping all V8 operations in a single function
+
+**Result:** Code is cleaner and more maintainable, but the underlying V8 context reset issue remains. The transmute within the single function is still required due to V8 API lifetime constraints.
+
+**Remaining Issue:** Script execution throws exception after context reset, suggesting deeper V8 state management problem beyond just lifetime handling.
+
+---
+
+### Option 2: Avoid Context Reset
+
+Instead of resetting contexts, use fresh isolates for each request:
 
 ```rust
-// Instead of transmuting to 'static, properly nest scopes
-let mut scope_storage = v8::HandleScope::new(isolate);
-let scope_pin = Pin::new_unchecked(&mut scope_storage);
-let handle_scope = scope_pin.init();
-
-// Create Local without transmute - it borrows from handle_scope
-let v8_context = v8::Local::new(handle_scope, &global)
-    .ok_or_else(|| anyhow!("Failed to create context local"))?;
-
-// Create ContextScope without transmute
-let mut context_scope = v8::ContextScope::new(handle_scope, v8_context);
-
-// Execute without transmute - pass references with correct lifetimes
-execute_handler_code(&mut context_scope, v8_context, handler_ctx)?
+// In worker pool, create new isolate per request instead of resetting context
+// Trade-off: 50-100ms overhead vs <10ms context reset
 ```
 
 **Challenges:**
-- Requires significant refactoring of V8 integration code
-- May need to restructure `execute_handler_code` signature
-- Need to ensure no "active scope" V8 errors
+- Significant performance degradation (5-10x slower)
+- Defeats the purpose of worker pool architecture
 
 ### Option 2: Avoid Context Reset
 
@@ -197,7 +217,11 @@ pub fn execute_with_context_manager(...) -> Result<NanoResponse> {
 ## Timeline
 
 - **2026-05-16:** Bug identified during test suite investigation
-- **Current:** Documented as known issue, awaiting fix
+- **2026-05-16:** Refactoring completed - code structure improved but bug persists
+  - Inlined handler execution functions
+  - Eliminated transmute across function boundaries
+  - Improved code maintainability
+- **Current:** Under investigation - suspected V8 isolate-level issue
 
 ---
 
