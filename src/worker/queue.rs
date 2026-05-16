@@ -403,7 +403,7 @@ impl WorkQueue {
             // Register tenant in control plane if available
             if let Some(ref mut control_plane) = self.control_plane {
                 if let Some(ref registry) = self.app_registry {
-                    if let Some(app_config) = registry.get(hostname) {
+                    if let Some(_app_config) = registry.get(hostname) {
                         let limits = crate::control_plane::TenantLimits {
                             max_script_size: 10 * 1024 * 1024, // 10MB max (per execution limit)
                             max_timeout_ms: 30000,             // 30s default

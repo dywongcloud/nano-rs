@@ -118,29 +118,6 @@ pub fn validate_sliver_name(input: &str) -> CliResult<()> {
     Ok(())
 }
 
-/// Combined validation for sliver creation args
-/// 
-/// Note: This is the primary validation entry point. Other validation functions
-/// are inlined here to avoid unused function warnings while keeping the logic
-/// available for future CLI enhancements.
-pub fn validate_sliver_create_args(
-    hostname: &str,
-    name: Option<&str>,
-    tag: Option<&str>,
-) -> CliResult<()> {
-    validate_hostname(hostname)?;
-
-    if let Some(n) = name {
-        validate_sliver_name(n)?;
-    }
-
-    if let Some(t) = tag {
-        validate_tag(t)?;
-    }
-
-    Ok(())
-}
-
 /// Check if a string is a valid tag
 pub fn validate_tag(tag: &str) -> CliResult<()> {
     if tag.len() > 32 {
