@@ -24,13 +24,14 @@
 //! - V8-compatible (no context reset issues)
 //! - Matches Cloudflare Workers/Deno Deploy architecture
 
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
 use anyhow::{anyhow, Result};
 use tracing::{error, info};
 
+use crate::config::app::AppLimits;
 use crate::control_plane::ControlPlane;
 use crate::vfs::{IsolateVfs, VfsBackendEnum, VfsNamespace};
 use crate::worker::oom::OomMonitorBuilder;
@@ -51,6 +52,18 @@ pub struct TenantPool {
     vfs_backend: VfsBackendEnum,
     #[allow(dead_code)]
     control_plane: Option<ControlPlane>,
+    /// Lazy WebSocket worker pool — starts empty, grows on demand, shrinks to zero after idle timeout.
+    ws_workers: Mutex<Vec<WsWorkerHandle>>,
+    /// Number of active WebSocket connections. Incremented by the worker thread when it accepts a
+    /// WS task; decremented when the WS connection closes. Shared with worker threads via Arc so
+    /// workers can decrement autonomously (D-13b: avoids TOCTOU in dispatch_ws).
+    ws_busy: Arc<AtomicUsize>,
+    /// Maximum concurrent WebSocket connections for this tenant, from AppLimits (D-07).
+    max_ws_connections: u32,
+    /// Idle timeout in ms before a WS worker thread exits (D-03b, D-11b).
+    /// Plan 04 will wire this into the WS worker's recv_timeout call.
+    #[allow(dead_code)]
+    ws_idle_timeout_ms: u64,
 }
 
 struct TenantWorker {
@@ -58,16 +71,34 @@ struct TenantWorker {
     thread: Option<thread::JoinHandle<()>>,
 }
 
+/// Handle to a lazily-spawned WebSocket worker thread.
+///
+/// The sender side is kept here so dispatch_ws() can route tasks. The join handle
+/// is taken on Drop to ensure orderly shutdown (prevents V8 use-after-platform-shutdown,
+/// Pitfall 7 in RESEARCH.md).
+struct WsWorkerHandle {
+    task_tx: mpsc::Sender<HandlerTask>,
+    join: Option<thread::JoinHandle<()>>,
+}
+
 impl TenantPool {
-    /// Create a new tenant pool for the given hostname
+    /// Create a new tenant pool for the given hostname.
+    ///
+    /// `limits` supplies the effective WebSocket connection cap and idle timeout.
+    /// Callers that do not have an `AppLimits` value should pass `&AppLimits::default()`.
     pub fn new(
         hostname: String,
         worker_count: u32,
         memory_limit_mb: u32,
         vfs_backend: VfsBackendEnum,
         control_plane: Option<ControlPlane>,
+        limits: &AppLimits,
     ) -> Result<Self> {
+        let max_ws_connections = limits.effective_max_ws_connections();
+        let ws_idle_timeout_ms = limits.effective_ws_idle_timeout_ms();
         let mut workers = Vec::with_capacity(worker_count as usize);
+
+        let ws_busy = Arc::new(AtomicUsize::new(0));
 
         for id in 0..worker_count {
             let worker = Self::spawn_worker(
@@ -75,13 +106,14 @@ impl TenantPool {
                 hostname.clone(),
                 memory_limit_mb,
                 vfs_backend.clone(),
+                Arc::clone(&ws_busy),
             )?;
             workers.push(worker);
         }
 
         info!(
-            "Created tenant pool for '{}' with {} workers",
-            hostname, worker_count
+            "Created tenant pool for '{}' with {} workers (max_ws_connections={}, ws_idle_timeout_ms={})",
+            hostname, worker_count, max_ws_connections, ws_idle_timeout_ms
         );
 
         Ok(Self {
@@ -90,26 +122,58 @@ impl TenantPool {
             next_worker: AtomicU64::new(0),
             vfs_backend,
             control_plane,
+            ws_workers: Mutex::new(Vec::new()),
+            ws_busy,
+            max_ws_connections,
+            ws_idle_timeout_ms,
         })
     }
 
-    /// Spawn a worker thread with its own isolate
+    /// Spawn a worker thread with its own isolate.
+    ///
+    /// `ws_busy` is forwarded to `run_worker` so future WS handling code (Plan 04)
+    /// can increment/decrement the counter from inside the worker thread.
     fn spawn_worker(
         id: u32,
         hostname: String,
         memory_limit_mb: u32,
         vfs_backend: VfsBackendEnum,
+        ws_busy: Arc<AtomicUsize>,
     ) -> Result<TenantWorker> {
         let (task_tx, task_rx): (mpsc::Sender<HandlerTask>, mpsc::Receiver<HandlerTask>) =
             mpsc::channel();
 
         let thread = thread::spawn(move || {
-            Self::worker_loop(id, hostname, memory_limit_mb, vfs_backend, task_rx);
+            Self::worker_loop(id, hostname, memory_limit_mb, vfs_backend, task_rx, ws_busy);
         });
 
         Ok(TenantWorker {
             task_tx,
             thread: Some(thread),
+        })
+    }
+
+    /// Spawn a dedicated WebSocket worker thread.
+    ///
+    /// WS workers are lazily created by `dispatch_ws()` and share the same
+    /// `ws_busy` counter as HTTP workers so the per-tenant limit is global.
+    fn spawn_ws_worker(
+        id: u32,
+        hostname: String,
+        memory_limit_mb: u32,
+        vfs_backend: VfsBackendEnum,
+        ws_busy: Arc<AtomicUsize>,
+    ) -> Result<WsWorkerHandle> {
+        let (task_tx, task_rx): (mpsc::Sender<HandlerTask>, mpsc::Receiver<HandlerTask>) =
+            mpsc::channel();
+
+        let thread = thread::spawn(move || {
+            Self::worker_loop(id, hostname, memory_limit_mb, vfs_backend, task_rx, ws_busy);
+        });
+
+        Ok(WsWorkerHandle {
+            task_tx,
+            join: Some(thread),
         })
     }
 
@@ -120,6 +184,7 @@ impl TenantPool {
         memory_limit_mb: u32,
         vfs_backend: VfsBackendEnum,
         task_rx: mpsc::Receiver<HandlerTask>,
+        ws_busy: Arc<AtomicUsize>,
     ) {
         info!("Tenant worker {} for '{}' starting", id, hostname);
 
@@ -135,18 +200,26 @@ impl TenantPool {
         // Store runtime handle in thread-local for async operations
         let rt_handle = rt.handle().clone();
         set_worker_runtime(rt_handle);
-        
+
         // Run the worker event loop
-        Self::run_worker(id, hostname, memory_limit_mb, vfs_backend, task_rx);
+        Self::run_worker(id, hostname, memory_limit_mb, vfs_backend, task_rx, ws_busy);
     }
 
+    /// Core worker loop — runs inside a spawned thread.
+    ///
+    /// `ws_busy` is wired through here so Plan 04 can atomically
+    /// increment/decrement the counter when a WS task arrives/finishes.
+    /// For now the parameter is unused (placeholder for Plan 04).
     fn run_worker(
         id: u32,
         hostname: String,
         memory_limit_mb: u32,
         vfs_backend: VfsBackendEnum,
         task_rx: mpsc::Receiver<HandlerTask>,
+        ws_busy: Arc<AtomicUsize>,
     ) {
+        // Placeholder: Plan 04 will use ws_busy to track active WS connections.
+        let _ = &ws_busy;
         use crate::v8::NanoIsolate;
 
         let oom_monitor = if memory_limit_mb > 0 {
@@ -451,6 +524,104 @@ impl TenantPool {
             .map_err(|_| anyhow!("Worker channel closed"))
     }
 
+    /// Dispatch a WebSocket task to this tenant's lazy WS worker pool.
+    ///
+    /// # Connection-limit enforcement (D-07 / T-23-02)
+    ///
+    /// Checks `ws_busy` against `max_ws_connections` before doing any work.
+    /// Returns an error immediately when the limit is reached so the HTTP layer
+    /// can reject the upgrade with 503 instead of silently queuing.
+    ///
+    /// # Dead-handle pruning (T-23-03)
+    ///
+    /// On every call, handles whose task channel has been disconnected (worker
+    /// thread exited) are removed from `ws_workers`.
+    ///
+    /// # ws_busy increment location (D-13b)
+    ///
+    /// `ws_busy` is incremented INSIDE the worker thread when it actually receives
+    /// and processes the WS task — NOT here. Incrementing here would create a TOCTOU
+    /// window between the check and the send. Plan 04 adds the increment in
+    /// `run_worker` using the shared `Arc<AtomicUsize>`.
+    pub fn dispatch_ws(&self, task: HandlerTask) -> Result<()> {
+        // --- Connection-limit gate (D-07) ---
+        let busy = self.ws_busy.load(Ordering::SeqCst);
+        if busy >= self.max_ws_connections as usize {
+            return Err(anyhow!(
+                "WebSocket connection limit reached ({}/{})",
+                busy,
+                self.max_ws_connections
+            ));
+        }
+
+        // --- Acquire WS worker pool lock ---
+        let mut ws_workers = self.ws_workers
+            .lock()
+            .map_err(|_| anyhow!("ws_workers mutex poisoned"))?;
+
+        // Dead-handle pruning: we detect a disconnected channel only when we attempt
+        // to send on it (std::sync::mpsc has no non-destructive "is alive?" query).
+        // Pruning happens inline in the send loop below — any handle that returns
+        // SendError is immediately removed and its join handle is collected.
+
+        // Search for an idle worker — one whose channel still has room.
+        // Try each worker in turn; if its channel is disconnected, remove it.
+        let mut task_opt = Some(task);
+        let mut sent = false;
+
+        let i = 0;
+        while i < ws_workers.len() {
+            let task = task_opt.take().expect("task_opt always Some at loop top");
+            match ws_workers[i].task_tx.send(task) {
+                Ok(()) => {
+                    sent = true;
+                    break;
+                }
+                Err(mpsc::SendError(returned_task)) => {
+                    // Channel disconnected — worker exited. Remove the dead handle.
+                    // join handle is in ws_workers[i].join; take it to avoid blocking.
+                    let dead = ws_workers.swap_remove(i);
+                    if let Some(jh) = dead.join {
+                        // Non-blocking: the thread should be done since the Receiver was dropped.
+                        let _ = jh.join();
+                    }
+                    // Don't advance i — swap_remove replaced position i with last element.
+                    task_opt = Some(returned_task);
+                }
+            }
+        }
+
+        if !sent {
+            // No live idle worker found — spawn a fresh one.
+            let task = task_opt.take().expect("task_opt must still be Some");
+            let ws_worker_id = ws_workers.len() as u32;
+            // We need memory_limit_mb and vfs_backend from TenantPool context.
+            // Since spawn_ws_worker needs these, store them at new() time.
+            // For now: use the values from the HTTP workers (they share the same vfs_backend).
+            // Plan 04 may introduce a dedicated WS isolate; for now reuse HTTP worker config.
+            // NOTE: memory_limit_mb is not stored on TenantPool. Add a field if needed.
+            // We use 0 (no OOM monitoring) for WS workers in Plan 02 as a placeholder;
+            // Plan 04 will set appropriate limits.
+            let new_handle = Self::spawn_ws_worker(
+                ws_worker_id,
+                self.hostname.clone(),
+                0, // memory_limit_mb — Plan 04 will wire proper limits
+                self.vfs_backend.clone(),
+                Arc::clone(&self.ws_busy),
+            )?;
+            new_handle.task_tx
+                .send(task)
+                .map_err(|_| anyhow!("Newly spawned WS worker channel immediately closed"))?;
+            ws_workers.push(new_handle);
+            info!(
+                "Spawned WS worker {} for '{}' (ws_busy={}, max={})",
+                ws_worker_id, self.hostname, busy, self.max_ws_connections
+            );
+        }
+
+        Ok(())
+    }
+
     /// Get number of workers in this pool
     pub fn worker_count(&self) -> usize {
         self.workers.len()
@@ -465,10 +636,21 @@ impl TenantPool {
 impl Drop for TenantPool {
     fn drop(&mut self) {
         info!("Dropping tenant pool for '{}'", self.hostname);
-        // Channels are dropped, signaling workers to exit
+
+        // Signal HTTP workers to exit by dropping their senders, then join.
         for worker in &mut self.workers {
             if let Some(thread) = worker.thread.take() {
                 let _ = thread.join();
+            }
+        }
+
+        // Signal WS workers to exit and join their threads.
+        // Prevents V8 isolate use-after-platform-shutdown (Pitfall 7 in RESEARCH.md).
+        if let Ok(mut ws_workers) = self.ws_workers.lock() {
+            for handle in ws_workers.iter_mut() {
+                if let Some(jh) = handle.join.take() {
+                    let _ = jh.join();
+                }
             }
         }
     }

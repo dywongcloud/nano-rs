@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Remediation 🚧
 status: completed
-last_updated: "2026-05-17T11:56:37.542Z"
+last_updated: "2026-05-17T21:19:36Z"
 progress:
   total_phases: 8
   completed_phases: 6
-  total_plans: 21
-  completed_plans: 20
-  percent: 75
+  total_plans: 26
+  completed_plans: 21
+  percent: 81
 ---
 
 # NANO Project State — v1.5 Milestone
@@ -548,4 +548,9 @@ Implement WebSocket support:
   - Root cause fixed: CpuTimeoutGuard::drop() now calls cancel_terminate_execution()
   - Security: set_allow_generation_from_strings(false) at all Context::new() sites
   - Files: src/data_plane.rs, src/worker/pool.rs, src/worker/tenant_pool.rs, src/runtime/apis.rs, tests/isolate_endurance_test.rs
-- 📋 Next: Phase 42 (Phase 23) — WebSocket Server (v2.0.0-alpha)
+- 🚧 In progress: Phase 23 — WebSocket Server (v2.0.0-alpha), Plan 01 COMPLETE (2c6bc92f)
+  - Plan 01: axum ws feature, WsChannels, HandlerTask extension, AppLimits WS config ✅
+  - Plan 02: TenantPool WS pool fields, dispatch_ws method, lazy worker spawn 📋
+  - Plan 03: axum WebSocket upgrade route, tokio relay task, 32 MiB limit 📋
+  - Plan 04: Worker ws_messages loop, thread-locals, per-message CpuTimeoutGuard/OOM 📋
+  - Plan 05: WebSocketPair V8 binding, integration tests 📋
