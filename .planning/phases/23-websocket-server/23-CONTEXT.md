@@ -63,7 +63,7 @@ for the connection's duration and drains fully before recycling.
 ### Claude's Discretion
 - Wire protocol framing: use `tokio-tungstenite` (already in Cargo.toml)
 - axum WebSocket extractor vs raw tungstenite upgrade — use axum's `ws::WebSocketUpgrade` for cleaner integration with existing axum routing
-- Internal channel type for routing WS frames to/from JS: `tokio::sync::mpsc` (unbounded, single-producer single-consumer per connection)
+- Internal channel type for routing WS frames to/from JS: `std::sync::mpsc` (SyncSender/Receiver — REQUIRED for `recv_timeout()` on blocking worker threads; `tokio::sync::mpsc` has no `recv_timeout()` so idle shrink-to-zero is impossible with it; this supersedes the initial tokio mpsc choice)
 - Thread join strategy when WS worker exits: existing TenantWorker join handle pattern
 
 </decisions>

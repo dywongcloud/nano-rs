@@ -337,7 +337,15 @@
   1. HTTP server supports WebSocket upgrade
   2. JS can handle WebSocket connections
   3. Per-isolate connection limits enforced
-**Plans**: TBD  
+**Plans:** 5 plans
+
+Plans:
+- [ ] 23-01-PLAN.md -- Wave 0: axum ws feature, WsChannels type, HandlerTask extension, AppLimits WS config
+- [ ] 23-02-PLAN.md -- Wave 1: TenantPool WS pool fields, dispatch_ws method, lazy worker spawn
+- [ ] 23-03-PLAN.md -- Wave 1: axum WebSocket upgrade route, tokio relay task, 32 MiB limit
+- [ ] 23-04-PLAN.md -- Wave 2: Worker ws_messages loop, thread-locals, per-message CpuTimeoutGuard/OOM
+- [ ] 23-05-PLAN.md -- Wave 3: WebSocketPair V8 binding, integration tests
+
 **UI hint**: no
 
 ### Phase 24: Advanced Crypto
