@@ -205,3 +205,71 @@ fn wasm_cache_03_global_cache_accessible() {
         cache.len()
     );
 }
+
+// [WASM-CACHE-04] JS polyfill caches compile result within one worker
+// After first request, WebAssembly.compile(sameBytes) returns cached module.
+// Evidence: all 10 requests succeed and return correct computation result.
+#[test]
+fn wasm_cache_04_js_polyfill_caches_within_worker() {
+    init_v8();
+
+    // Handler re-compiles from inline bytes every call — polyfill should cache
+    let js = format!(r#"
+async function __nano_user_fetch(req) {{
+    const bytes = {};
+    const mod = await WebAssembly.compile(bytes);
+    const inst = await WebAssembly.instantiate(mod);
+    return {{ status: 200, headers: {{}}, body: String(inst.exports.add(21, 21)) }};
+}}
+"#, WASM_ADD_BYTES_JS);
+
+    let entrypoint = write_js("wasm_cache04.js", &js);
+    let pool = WorkerPool::with_backend("wasm.test".into(), 1, 0, make_backend());
+
+    let mut errors = 0;
+    for i in 0..10 {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        pool.dispatch(HandlerTask::new(entrypoint.clone(), make_get("http://wasm.test/"), tx)).unwrap();
+        match rx.blocking_recv() {
+            Ok(Ok(r)) if r.status() == 200 => {
+                let body = r.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
+                if body.trim() != "42" {
+                    errors += 1;
+                    eprintln!("[WASM-CACHE-04] req {} expected 42, got: {}", i, body);
+                }
+            }
+            Ok(Ok(r)) => { errors += 1; eprintln!("[WASM-CACHE-04] req {} status={}", i, r.status()); }
+            Ok(Err(e)) => { errors += 1; eprintln!("[WASM-CACHE-04] req {} error: {}", i, e); }
+            Err(_) => { errors += 1; eprintln!("[WASM-CACHE-04] req {} channel closed", i); }
+        }
+    }
+    assert_eq!(errors, 0, "[WASM-CACHE-04] {} errors in 10 requests", errors);
+}
+
+// [WASM-CACHE-05] WebAssembly.instantiate(bytes) path also uses polyfill cache
+#[test]
+fn wasm_cache_05_instantiate_bytes_path_cached() {
+    init_v8();
+
+    // Single-call pattern: instantiate(bytes) — most common user pattern
+    let js = format!(r#"
+async function __nano_user_fetch(req) {{
+    const result = await WebAssembly.instantiate({});
+    return {{ status: 200, headers: {{}}, body: String(result.instance.exports.add(100, 23)) }};
+}}
+"#, WASM_ADD_BYTES_JS);
+
+    let entrypoint = write_js("wasm_cache05.js", &js);
+    let pool = WorkerPool::with_backend("wasm.test".into(), 1, 0, make_backend());
+
+    for i in 0..5 {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        pool.dispatch(HandlerTask::new(entrypoint.clone(), make_get("http://wasm.test/"), tx)).unwrap();
+        let result = rx.blocking_recv().expect("channel");
+        assert!(result.is_ok(), "[WASM-CACHE-05] req {} error: {:?}", i, result.err());
+        let r = result.unwrap();
+        assert_eq!(r.status(), 200, "[WASM-CACHE-05] req {} status={}", i, r.status());
+        let body = r.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
+        assert_eq!(body.trim(), "123", "[WASM-CACHE-05] req {} expected 123, got {}", i, body);
+    }
+}

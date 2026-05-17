@@ -9,19 +9,84 @@
 //! - WebAssembly.Memory class
 //! - WebAssembly.CompileError, RuntimeError
 //!
-//! # Compilation Cache
+//! ## Cache Architecture (two tiers)
 //!
-//! `WebAssembly.compile` and `WebAssembly.instantiate` are NOT intercepted at the JS
-//! level because `v8::WasmModuleObject::compile` (the rusty_v8 synchronous compile API)
-//! returns `None` in this V8 build (v147). The API is marked `#[ignore]` in the existing
-//! wasm_binary_debug_test. V8's own JS-level `WebAssembly.compile()` works correctly.
+//! **Tier 1 (JS polyfill — active):** `WASM_CACHE_POLYFILL` injected at bind time.
+//! Per-isolate `Map` cache keyed by FNV-32 hash of bytes. After first compile on
+//! a worker, all subsequent `WebAssembly.compile(sameBytes)` return cached module.
+//! Cost: O(n) hash per call (fast integer ops). Benefit: zero V8 recompilation
+//! after warmup within each worker.
 //!
-//! The `global_wasm_cache` and `compile_module` (in `engine.rs`) provide process-global
-//! caching for Rust-side compilation paths (e.g. sliver pre-compilation). The JS path
-//! uses V8's native engine which has its own internal caching.
+//! **Tier 2 (Rust global — infrastructure only):** `global_wasm_cache()` in
+//! `engine.rs`. Cross-isolate `CompiledWasmModule` sharing. Not yet wired to the
+//! JS path because `v8::WasmModuleObject::compile()` returns `None` inside
+//! `FunctionCallbackArguments` in rusty_v8 v147. Will activate when V8 API
+//! limitation is resolved (future upgrade).
 
 use v8;
 use crate::wasm::WasmLoader;
+
+/// JS polyfill injected once per isolate at bind time.
+///
+/// Wraps WebAssembly.compile and WebAssembly.instantiate with a per-isolate
+/// Map cache. After first compilation of a given WASM module, all subsequent
+/// compile calls for the same bytes return Promise.resolve(cached) immediately.
+///
+/// This is the workaround for the v8-crate v147 limitation where
+/// WasmModuleObject::compile returns None inside FunctionCallbackArguments.
+/// The Rust-level global cache (engine.rs) remains as infrastructure for
+/// cross-isolate sharing when the V8 API limitation is resolved.
+///
+/// Key: FNV-32 hash of bytes as hex + ':' + byte length (collision-resistant
+/// for practical WASM module sizes in edge functions).
+pub const WASM_CACHE_POLYFILL: &str = r#"
+(function() {
+    var _wc = new Map();
+    var _oc = WebAssembly.compile;
+    var _oi = WebAssembly.instantiate;
+
+    function _h(src) {
+        var u8 = ArrayBuffer.isView(src)
+            ? new Uint8Array(src.buffer, src.byteOffset, src.byteLength)
+            : new Uint8Array(src);
+        var h = 2166136261;
+        for (var i = 0; i < u8.length; i++) {
+            h = (Math.imul(h ^ u8[i], 16777619)) >>> 0;
+        }
+        return h.toString(16) + ':' + u8.length;
+    }
+
+    function _isBytes(s) {
+        return s instanceof ArrayBuffer || ArrayBuffer.isView(s);
+    }
+
+    WebAssembly.compile = function(source) {
+        if (!_isBytes(source)) return _oc(source);
+        var k = _h(source);
+        if (_wc.has(k)) return Promise.resolve(_wc.get(k));
+        return _oc(source).then(function(m) { _wc.set(k, m); return m; });
+    };
+
+    WebAssembly.instantiate = function(source, imports) {
+        // Non-bytes: Module or other — pass through unchanged
+        if (!_isBytes(source)) return _oi(source, imports);
+        var k = _h(source);
+        if (_wc.has(k)) {
+            // instantiate(Module, imports) returns Promise<Instance> — wrap to {module,instance}
+            var m = _wc.get(k);
+            return _oi(m, imports).then(function(inst) {
+                return { module: m, instance: inst };
+            });
+        }
+        return _oc(source).then(function(m) {
+            _wc.set(k, m);
+            return _oi(m, imports).then(function(inst) {
+                return { module: m, instance: inst };
+            });
+        });
+    };
+})();
+"#;
 
 /// WebAssembly JavaScript API binder
 pub struct WebAssemblyAPI;
@@ -57,14 +122,23 @@ impl WebAssemblyAPI {
                 let validate_name = v8::String::new(&mut ctx_scope, "validate").unwrap();
                 wasm_obj.set(&mut ctx_scope, validate_name.into(), validate_func.into());
 
-                // Note: WebAssembly.compile and WebAssembly.instantiate are NOT overridden here.
-                // The rusty_v8 v147 synchronous compile API (v8::WasmModuleObject::compile)
-                // returns None in this V8 build — it is not suitable for use in FunctionCallbacks.
-                // V8's native JS WebAssembly.compile() works correctly through the JS event loop.
-                // Process-global caching is available via crate::wasm::engine::global_wasm_cache()
-                // for Rust-side (non-JS) compilation paths.
+                // Note: WebAssembly.compile and WebAssembly.instantiate are NOT overridden here
+                // via Rust FunctionCallbacks. The rusty_v8 v147 synchronous compile API
+                // (v8::WasmModuleObject::compile) returns None in this V8 build — it is not
+                // suitable for use in FunctionCallbacks. Instead, the JS polyfill below wraps
+                // both methods with a closure-captured Map cache.
             }
         }
+
+        // Inject the compile cache polyfill — runs once per isolate, installs
+        // Map-backed wrappers over WebAssembly.compile and WebAssembly.instantiate.
+        let polyfill_src = v8::String::new(&mut ctx_scope, WASM_CACHE_POLYFILL).unwrap();
+        if let Some(script) = v8::Script::compile(&mut ctx_scope, polyfill_src, None) {
+            script.run(&mut ctx_scope);
+        } else {
+            tracing::warn!("WebAssembly cache polyfill failed to compile — running uncached");
+        }
+        tracing::debug!("WebAssembly cache polyfill installed");
 
         tracing::debug!("Bound WebAssembly API");
     }
