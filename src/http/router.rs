@@ -902,6 +902,7 @@ pub async fn dispatch_to_worker_pool(
         cpu_time_limit_ms,
         request_id: request_id.clone(),
         memory_limit_mb: 0,
+        ws: None,
     };
 
     // Get request path for access log

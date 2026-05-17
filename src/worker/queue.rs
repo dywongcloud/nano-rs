@@ -797,6 +797,7 @@ mod tests {
             cpu_time_limit_ms: 0, // 0 means no limit for tests
             request_id: "req_test_002".to_string(),
             memory_limit_mb: 0, // 0 means use default
+            ws: None,
         };
 
         // Should succeed (channel is empty)

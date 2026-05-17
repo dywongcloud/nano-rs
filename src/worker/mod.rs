@@ -181,6 +181,27 @@ pub use timeout::{ExecutionTimer, TimeoutConfig, TimeoutError};
 use crate::http::{NanoRequest, NanoResponse};
 use tokio::sync::oneshot;
 
+/// Async-to-sync bridge channels for WebSocket connections.
+///
+/// Uses `std::sync::mpsc` (NOT `tokio::sync::mpsc`) because the worker side
+/// needs `Receiver::recv_timeout()` for idle shrink-to-zero. tokio's mpsc has
+/// no `recv_timeout`, making that pattern impossible (per D-06b, D-07b).
+///
+/// - `inbound_rx`: Worker receives frames arriving from the client
+/// - `outbound_tx`: Worker sends frames to be forwarded to the client
+pub struct WsChannels {
+    /// Frames received from the WebSocket client (worker reads these)
+    pub inbound_rx: std::sync::mpsc::Receiver<tungstenite::Message>,
+    /// Frames to send to the WebSocket client (worker writes these)
+    pub outbound_tx: std::sync::mpsc::SyncSender<tungstenite::Message>,
+}
+
+impl std::fmt::Debug for WsChannels {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WsChannels {{ .. }}")
+    }
+}
+
 /// Task sent to worker threads for JavaScript handler execution
 ///
 /// This struct is `Send` so it can safely cross thread boundaries via MPSC channels.
@@ -203,6 +224,8 @@ pub struct HandlerTask {
     pub request_id: String,
     /// Memory limit per request in MB (0 = use default 16MB)
     pub memory_limit_mb: u32,
+    /// WebSocket channels — Some means WS upgrade mode, None means normal HTTP
+    pub ws: Option<WsChannels>,
 }
 
 // Safety: NanoRequest is Clone + contains String/Bytes which are Send
@@ -231,6 +254,7 @@ impl HandlerTask {
             cpu_time_limit_ms: 0,
             request_id: format!("req_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
             memory_limit_mb: 0,
+            ws: None,
         }
     }
 
@@ -259,6 +283,7 @@ impl HandlerTask {
             cpu_time_limit_ms: 0,
             request_id,
             memory_limit_mb: 0,
+            ws: None,
         }
     }
 
@@ -285,6 +310,7 @@ impl HandlerTask {
             cpu_time_limit_ms: 0,
             request_id: format!("req_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
             memory_limit_mb: 0,
+            ws: None,
         }
     }
 
@@ -315,6 +341,7 @@ impl HandlerTask {
             cpu_time_limit_ms,
             request_id,
             memory_limit_mb: 0,
+            ws: None,
         }
     }
 

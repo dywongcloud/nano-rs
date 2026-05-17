@@ -55,6 +55,16 @@ pub struct AppLimits {
     /// Whether CPU time tracking is enabled (default: true)
     #[serde(default = "default_cpu_time_enabled")]
     pub cpu_time_enabled: bool,
+
+    /// Maximum concurrent WebSocket connections per tenant.
+    /// Default at runtime: floor(workers / 2). None means use default.
+    #[serde(default)]
+    pub max_ws_connections: Option<u32>,
+
+    /// Idle timeout for WS worker threads in ms before shrink-to-zero.
+    /// Default: 30000.
+    #[serde(default)]
+    pub ws_idle_timeout_ms: Option<u64>,
 }
 
 impl Default for AppLimits {
@@ -65,6 +75,8 @@ impl Default for AppLimits {
             workers: default_workers(),
             cpu_time_ms: default_cpu_time_ms(),
             cpu_time_enabled: default_cpu_time_enabled(),
+            max_ws_connections: None,
+            ws_idle_timeout_ms: None,
         }
     }
 }
@@ -100,6 +112,21 @@ impl AppLimits {
             wall_clock_limit_ms: self.timeout_secs * 1000,
             termination_grace_us: 100,
         }
+    }
+
+    /// Effective maximum concurrent WebSocket connections for this tenant.
+    ///
+    /// Returns the configured value, or floor(workers / 2) as the default per D-01b.
+    /// This ensures at least half of worker threads remain available for normal HTTP.
+    pub fn effective_max_ws_connections(&self) -> u32 {
+        self.max_ws_connections.unwrap_or(self.workers / 2)
+    }
+
+    /// Effective idle timeout for WS worker threads in milliseconds.
+    ///
+    /// Returns the configured value, or 30,000 ms (30 seconds) per D-03b.
+    pub fn effective_ws_idle_timeout_ms(&self) -> u64 {
+        self.ws_idle_timeout_ms.unwrap_or(30_000)
     }
 }
 
@@ -745,6 +772,7 @@ mod tests {
                 workers: 4,
                 cpu_time_ms: 50,
                 cpu_time_enabled: true,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -767,6 +795,7 @@ mod tests {
                 workers: 4,
                 cpu_time_ms: 50,
                 cpu_time_enabled: true,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -789,6 +818,7 @@ mod tests {
                 workers: 100, // too high
                 cpu_time_ms: 50,
                 cpu_time_enabled: true,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -1221,6 +1251,7 @@ mod tests {
                 workers: 4,
                 cpu_time_ms: 0, // too low
                 cpu_time_enabled: true,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -1243,6 +1274,7 @@ mod tests {
                 workers: 4,
                 cpu_time_ms: 2000, // too high
                 cpu_time_enabled: true,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -1265,6 +1297,7 @@ mod tests {
                 workers: 4,
                 cpu_time_ms: 50,
                 cpu_time_enabled: true,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -1281,6 +1314,7 @@ mod tests {
             workers: 4,
             cpu_time_ms: 100,
             cpu_time_enabled: true,
+            ..Default::default()
         };
 
         let timeout_config = limits.to_timeout_config();
@@ -1296,11 +1330,48 @@ mod tests {
             workers: 4,
             cpu_time_ms: 50,
             cpu_time_enabled: false,
+            ..Default::default()
         };
 
         let timeout_config = limits.to_timeout_config();
         // When disabled, uses 1000ms (1 second) as the effective limit
         assert_eq!(timeout_config.cpu_time_limit_ms, 1000);
         assert_eq!(timeout_config.wall_clock_limit_ms, 30_000);
+    }
+
+    #[test]
+    fn test_app_limits_ws_defaults() {
+        // Default AppLimits has max_ws_connections = None
+        let limits = AppLimits::default();
+        assert_eq!(limits.max_ws_connections, None);
+        assert_eq!(limits.ws_idle_timeout_ms, None);
+
+        // effective_max_ws_connections() with workers=4 returns 2 (floor(4/2))
+        assert_eq!(limits.effective_max_ws_connections(), 2);
+
+        // effective_ws_idle_timeout_ms() returns 30000
+        assert_eq!(limits.effective_ws_idle_timeout_ms(), 30_000);
+
+        // Custom workers value: floor(workers / 2)
+        let limits_8 = AppLimits { workers: 8, ..Default::default() };
+        assert_eq!(limits_8.effective_max_ws_connections(), 4);
+
+        // Configured values override defaults
+        let limits_custom = AppLimits {
+            max_ws_connections: Some(10),
+            ws_idle_timeout_ms: Some(60_000),
+            ..Default::default()
+        };
+        assert_eq!(limits_custom.effective_max_ws_connections(), 10);
+        assert_eq!(limits_custom.effective_ws_idle_timeout_ms(), 60_000);
+
+        // Backward compat: JSON without WS fields deserializes without error
+        // (deny_unknown_fields applies to extra fields, not missing ones with #[serde(default)])
+        let json = r#"{"memory_mb":128,"timeout_secs":30,"workers":4,"cpu_time_ms":50,"cpu_time_enabled":true}"#;
+        let deserialized: AppLimits = serde_json::from_str(json).unwrap();
+        assert_eq!(deserialized.max_ws_connections, None);
+        assert_eq!(deserialized.ws_idle_timeout_ms, None);
+        assert_eq!(deserialized.effective_max_ws_connections(), 2);
+        assert_eq!(deserialized.effective_ws_idle_timeout_ms(), 30_000);
     }
 }
