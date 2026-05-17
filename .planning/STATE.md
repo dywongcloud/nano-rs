@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Remediation 🚧
 status: completed
-last_updated: "2026-05-17T00:28:43.476Z"
+last_updated: "2026-05-17T11:56:37.542Z"
 progress:
-  total_phases: 27
-  completed_phases: 12
-  total_plans: 44
-  completed_plans: 39
-  percent: 44
+  total_phases: 8
+  completed_phases: 6
+  total_plans: 21
+  completed_plans: 20
+  percent: 75
 ---
 
 # NANO Project State — v1.5 Milestone
@@ -501,6 +501,7 @@ Implement WebSocket support:
 | v1.6.2 | 2026-05-12 | Plan 37-08: TODO/Placeholder Resolution — Zero technical debt ✅ |
 | v1.7.0 | 2026-05-12 | Full gap fix: snapshot loading, WinterTC rename, strict tests, dead code removal ✅ |
 | v1.7.1 | 2026-05-15 | Phase 41: Production Polish — heap/CPU enforcement, Prometheus metrics, adversarial tests ✅ |
+| v1.7.2 | 2026-05-17 | Phase 40: Pre-Phase-23 stability -- TryCatch RAII, cancel_terminate_execution, endurance tests ✅ |
 | v2.0.0 | — | Phase 42: WebSocket server |
 
 ---
@@ -539,4 +540,12 @@ Implement WebSocket support:
 **See:** `docs/TODO_RESOLUTION.md` for full resolution log
 
 - ✅ Phase 41 — Production Polish COMPLETE (heap/CPU enforcement, Prometheus metrics)
-- 📋 Next: Phase 42 — WebSocket Server (v2.0.0-alpha)
+- ✅ Phase 40 — Pre-Phase-23 Stability COMPLETE (v1.7.2):
+  - STAB-01: handler_local.call() never returns None -- proved by SCOPE-01 (1000 calls)
+  - STAB-02: Exception at request N does not break request N+1 -- ENDURE-01 (30 reqs)
+  - STAB-03: Module-level state documented as persistent (CF-Workers) -- ENDURE-02
+  - STAB-04: 10+ requests per worker with no degradation -- ENDURE-03 (15 reqs)
+  - Root cause fixed: CpuTimeoutGuard::drop() now calls cancel_terminate_execution()
+  - Security: set_allow_generation_from_strings(false) at all Context::new() sites
+  - Files: src/data_plane.rs, src/worker/pool.rs, src/worker/tenant_pool.rs, src/runtime/apis.rs, tests/isolate_endurance_test.rs
+- 📋 Next: Phase 42 (Phase 23) — WebSocket Server (v2.0.0-alpha)
