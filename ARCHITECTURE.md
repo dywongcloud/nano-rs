@@ -29,6 +29,8 @@ TCP accept loop on the main thread. Uses axum for HTTP handling.
 
 Request flow: TCP accept → Host header lookup → app routing → work queue dispatch.
 
+WebSocket upgrade path: HTTP GET with `Upgrade: websocket` → `detect_ws_upgrade()` → axum handshake (101) → tokio relay task bridges axum frames to `WsChannels` → `TenantPool::dispatch_ws()` → dedicated worker thread owns the `'ws_messages` loop for the connection lifetime.
+
 ### 2. V8 Integration (src/v8/)
 
 Manages V8 platform and isolates.
@@ -109,6 +111,7 @@ Configuration loading and watching.
 ## Request Lifecycle
 
 ```
+HTTP Request:
 1. TCP accept (main thread)
 2. Parse Host header
 3. Virtual host lookup → AppConfig
@@ -119,6 +122,17 @@ Configuration loading and watching.
 8. Call JS fetch() handler
 9. Serialize Response, write HTTP response
 10. Context reset for next request
+
+WebSocket Upgrade:
+1. TCP accept (main thread)
+2. Parse Host header + detect Upgrade: websocket
+3. axum WebSocket handshake (101 Switching Protocols)
+4. tokio relay task ↔ WsChannels (mpsc)
+5. TenantPool::dispatch_ws() → dedicated worker thread
+6. JS fetch() handler called (registers addEventListener callbacks)
+7. 'ws_messages loop: recv_timeout(idle_timeout_ms) per frame
+8. Per-frame: CpuTimeoutGuard + OOM check + JS event dispatch
+9. Close/Disconnect: set_ws_readystate(3), break 'requests → isolate recycled
 ```
 
 ## Security Model
@@ -179,7 +193,7 @@ Isolates never move between threads. Thread-local storage enforces this.
 ## Dependencies
 
 Key crates:
-- v8 (135): Pre-built V8 bindings
+- v8 (147): Pre-built V8 bindings
 - tokio (1.52): Async runtime
 - axum (0.8): HTTP server
 - ring (0.17): Cryptographic operations

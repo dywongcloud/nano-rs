@@ -1,7 +1,7 @@
 # NANO JavaScript API Reference
 
-**Version:** 1.5.0  
-**Last Updated:** 2026-05-02
+**Version:** v2.0a  
+**Last Updated:** 2026-05-17
 
 ---
 
@@ -12,6 +12,7 @@ NANO provides a WinterTC-compatible JavaScript runtime with additional NANO-spec
 **Quick Links:**
 - [WinterTC APIs](#wintertc-apis) — Standard web APIs
 - [WebCrypto](#webcrypto-api) — Cryptographic operations
+- [WebSocket](#websocket-api) — WebSocket upgrade and messaging
 - [NANO-Specific APIs](#nano-specific-apis) — Nano.fs.* for file access
 - [Node.js Compatibility](#nodejs-compatibility-polyfills) — Buffer, timers, fs
 
@@ -768,4 +769,55 @@ export default {
 
 ---
 
-*Last updated: 2026-05-02*
+## WebSocket API
+
+> **Status:** In Progress — Phase 23, v2.0a
+
+WebSocket support follows the [Cloudflare Workers WebSocket API](https://developers.cloudflare.com/workers/runtime-apis/websockets/).
+
+See [WebSocket Guide](WEBSOCKET.md) for full documentation including upgrade flow, limits, and architecture.
+
+### WebSocketPair
+
+```javascript
+const [client, server] = new WebSocketPair();
+```
+
+Returns two linked `WebSocket` objects. Pass `client` in the `Response`; use `server` to send/receive frames.
+
+### Example
+
+```javascript
+export default {
+  async fetch(request) {
+    if (request.headers.get('Upgrade') !== 'websocket') {
+      return new Response('Expected WebSocket', { status: 426 });
+    }
+    const [client, server] = new WebSocketPair();
+    server.addEventListener('message', (event) => {
+      server.send(`Echo: ${event.data}`);
+    });
+    server.accept();
+    return new Response(null, { status: 101, webSocket: client });
+  }
+};
+```
+
+### WebSocket Methods
+
+| Method | Description |
+|--------|-------------|
+| `send(data)` | Send text (string) or binary (ArrayBuffer) frame |
+| `close(code?, reason?)` | Send Close frame |
+| `accept()` | Accept the connection (required before sending) |
+| `addEventListener(type, fn)` | Register `message`, `close`, or `error` handler |
+
+### WebSocket Properties
+
+| Property | Values |
+|----------|--------|
+| `readyState` | 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED |
+
+---
+
+*Last updated: 2026-05-17*

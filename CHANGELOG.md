@@ -3,6 +3,58 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.0a] - 2026-05-17
+
+### Added
+
+#### WebSocket Server (Phase 23)
+
+- **HTTP upgrade detection** — `detect_ws_upgrade()` in `router.rs`; checks `Upgrade: websocket` and `Connection: Upgrade` headers
+- **axum WebSocket handshake** — 101 Switching Protocols via axum `ws` feature
+- **Relay task** — tokio task bridges axum WebSocket frames to `WsChannels` (mpsc channel pair)
+- **`WsChannels`** — `WsInbound` / `WsOutbound` channel pair in `tenant_pool.rs`
+- **`TenantPool::dispatch_ws()`** — Routes WebSocket request to dedicated worker thread (lazy spawn)
+- **`AppLimits` WebSocket config** — `ws_max_connections`, `ws_max_message_bytes` (32 MiB default), `ws_idle_timeout_ms` (60 000 ms default)
+- **`'ws_messages` loop** — Worker thread loop; `recv_timeout(idle_timeout_ms)` per frame with full frame arm handling
+- **Frame handling** — Text (string MessageEvent), Binary (ArrayBuffer MessageEvent), Close (CloseEvent), Ping/Pong (skip), Timeout/Disconnect (1006 error + close)
+- **Per-message resource enforcement** — `CpuTimeoutGuard` per frame (D-09b); OOM check per frame sends Close 1011 on heap limit
+- **Isolate lifecycle** — `break 'requests` after `'ws_messages` forces fresh isolate per connection (D-10b)
+- **WebSocket thread-locals** — `WS_OUTBOUND`, `WS_ACCEPTED`, `WS_MESSAGE_HANDLERS`, `WS_CLOSE_HANDLERS`, `WS_ERROR_HANDLERS`, `WS_SERVER_SOCKET`
+- **`readyState` management** — `set_ws_readystate(1)` on entry, `set_ws_readystate(3)` on close/disconnect
+- **`WebSocketPair` V8 binding** — `new WebSocketPair()` JS API (Plan 05)
+- **`ws_busy` counter** — Incremented by worker thread on WS entry, decremented on exit; served counter not incremented for WS connections
+
+#### Documentation
+
+- `docs/WEBSOCKET.md` — Phase 23 architecture, WebSocketPair API, upgrade flow, limits
+
+### Changed
+
+- Cargo.toml comment: `v139` → `v147` (comment already matched actual `v8 = "147"`)
+- README: version `1.4.2` → `v2.0a`, added WebSocket to API table and docs list
+- ARCHITECTURE.md: added WebSocket upgrade path to request lifecycle
+- docs/API.md: added WebSocket section with WebSocketPair API reference
+- docs/CLOUDFLARE_COMPATIBILITY.md: added WebSocket compatibility cross-reference
+
+## [1.7.2] - 2026-05-17
+
+### Added
+
+- Pre-Phase-23 stability (Phase 40): TryCatch RAII, `cancel_terminate_execution`, isolate endurance tests
+- `CpuTimeoutGuard::drop()` now calls `cancel_terminate_execution()` — fixes exception bleed between requests
+- `set_allow_generation_from_strings(false)` at all `Context::new()` sites
+- `tests/isolate_endurance_test.rs` — 4 endurance tests (SCOPE-01, ENDURE-01..03)
+
+## [1.7.1] - 2026-05-15
+
+### Added
+
+- Phase 41 Production Polish: heap limit enforcement, CPU time enforcement, Prometheus metrics
+- V8 near-heap-limit callback terminates isolate on OOM
+- Fixed cross-thread CPU termination bug (`thread_local!` → `AtomicPtr`)
+- `nano_heap_limit_hits_total` and `nano_cpu_timeout_total` Prometheus counters
+- Adversarial tests: 56/57 passing (98%)
+
 ## [1.2.4] - 2026-04-26
 
 ### Fixed

@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Remediation 🚧
 status: completed
-last_updated: "2026-05-17T21:25:14.218Z"
+last_updated: "2026-05-17T23:59:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 6
@@ -520,6 +520,7 @@ Implement WebSocket support:
 **Plan 04:** Worker thread ws_messages loop with JS dispatch and lifecycle ✅
 
 **Delivered in Plan 04:**
+
 - `'ws_messages` labeled loop inside `run_worker` entered when `task.ws.is_some()`
 - `recv_timeout` with `ws_idle_timeout_ms` for idle-timeout detection (D-11b)
 - All frame arms: Text (string MessageEvent), Binary (ArrayBuffer MessageEvent), Close (CloseEvent), Ping/Pong (skip), Timeout (break), Disconnected (1006 error+close)
@@ -531,6 +532,7 @@ Implement WebSocket support:
 - Commits: Task 1 `ba5c3191`, Task 2 `ab2c9400`
 
 **Key Decisions:**
+
 - ws_busy incremented by WORKER thread (not dispatch_ws) to avoid TOCTOU per D-13b
 - Dead-handle pruning uses send-time detection (SendError → swap_remove + join)
 - break 'requests after ws_messages mandatory for D-10b — fresh isolate per WS connection

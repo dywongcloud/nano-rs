@@ -1,7 +1,7 @@
 # NANO Runtime Technical Documentation
 
-Version: 1.4.2  
-Last Updated: 2026-05-03
+Version: v2.0a  
+Last Updated: 2026-05-17
 
 ## Executive Summary
 
@@ -104,6 +104,8 @@ Full HTTP server and client implementation:
 | Timeout handling | Implemented | Configurable per-request |
 | Redirect handling | Implemented | Configurable max redirects |
 | Response body limits | Implemented | 100MB default, configurable |
+| WebSocket upgrade | In Progress | Phase 23 — v2.0a |
+| WebSocketPair API | In Progress | Cloudflare Workers compatible |
 
 ### Sliver snapshot and encapsulation system
 
@@ -209,6 +211,7 @@ See [Performance Documentation](docs/PERFORMANCE.md) for benchmarks and tuning g
 ## Documentation
 
 - **[API Reference](docs/API.md)** — JavaScript globals, WebCrypto, WinterTC APIs
+- **[WebSocket](docs/WEBSOCKET.md)** — WebSocket upgrade flow, WebSocketPair API, limits
 - **[CLI Reference](docs/CLI.md)** — Command-line interface and commands
 - **[Configuration](docs/CONFIG.md)** — Configuration schema and options
 - **[Admin API](docs/ADMIN_API.md)** — Admin HTTP endpoints for monitoring

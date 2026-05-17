@@ -20,6 +20,7 @@
                 <div class="hidden md:flex items-center gap-8">
                     <a href="quickstart.html" class="text-slate-400 hover:text-white transition">Quick Start</a>
                     <a href="api.html" class="text-white">API</a>
+                    <a href="websocket.html" class="text-slate-400 hover:text-white transition">WebSocket</a>
                     <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers</a>
                     <a href="cli.html" class="text-slate-400 hover:text-white transition">CLI</a>
                     <a href="runtime.html" class="text-slate-400 hover:text-white transition">Runtime</a>
@@ -203,11 +204,60 @@ const encrypted = await crypto.subtle.encrypt(
                         </thead>
                         <tbody class="text-slate-400">
                             <tr><td class="py-2">SHA-256, SHA-384, SHA-512</td><td>digest</td></tr>
-                            <tr><td class="py-2">AES-GCM</td><td>encrypt, decrypt, generateKey</td></tr>
+                            <tr><td class="py-2">AES-GCM, AES-CTR, AES-CBC</td><td>encrypt, decrypt, generateKey</td></tr>
                             <tr><td class="py-2">HMAC</td><td>sign, verify, generateKey</td></tr>
-                            <tr><td class="py-2">PBKDF2</td><td>deriveKey</td></tr>
-                            <tr><td class="py-2">RSA-OAEP, RSA-PSS</td><td>v2.0</td></tr>
-                            <tr><td class="py-2">ECDSA (P-256, P-384)</td><td>v2.0</td></tr>
+                            <tr><td class="py-2">PBKDF2</td><td>deriveKey, deriveBits</td></tr>
+                            <tr><td class="py-2">HKDF</td><td>deriveKey, deriveBits</td></tr>
+                            <tr><td class="py-2">RSA-OAEP, RSA-PSS, RSASSA-PKCS1-v1_5</td><td>encrypt, decrypt, sign, verify</td></tr>
+                            <tr><td class="py-2">ECDSA (P-256, P-384)</td><td>sign, verify, importKey</td></tr>
+                            <tr><td class="py-2">ECDH (P-256, P-384)</td><td>deriveKey, deriveBits</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">WebSocket <span class="text-sm font-normal bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded ml-1">v2.0a</span></h2>
+                <p class="text-slate-400 mb-4">WebSocket support follows the Cloudflare Workers API. See the <a href="websocket.html" class="text-blue-400 hover:text-blue-300 underline">WebSocket guide</a> for full details.</p>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Echo Server Example</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">export default {
+  async fetch(request) {
+    if (request.headers.get('Upgrade') !== 'websocket') {
+      return new Response('Expected WebSocket', { status: 426 });
+    }
+    const [client, server] = new WebSocketPair();
+    server.addEventListener('message', (event) => {
+      server.send(`Echo: ${event.data}`);
+    });
+    server.addEventListener('close', (event) => {
+      console.log('Closed:', event.code, event.reason);
+    });
+    server.accept();
+    return new Response(null, { status: 101, webSocket: client });
+  }
+};</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold text-white mb-3">WebSocket API</h3>
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left py-2 text-white">Member</th>
+                                <th class="text-left py-2 text-white">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-slate-400">
+                            <tr><td class="py-2 font-mono text-blue-400">new WebSocketPair()</td><td>Returns [client, server] linked pair</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">server.accept()</td><td>Accept the connection (required before send)</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">server.send(data)</td><td>Send text string or ArrayBuffer</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">server.close(code?, reason?)</td><td>Send Close frame</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">server.addEventListener(type, fn)</td><td>Register message / close / error handler</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">server.readyState</td><td>0=CONNECTING 1=OPEN 2=CLOSING 3=CLOSED</td></tr>
                         </tbody>
                     </table>
                 </div>

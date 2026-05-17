@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket - NANO Documentation</title>
+    <meta name="description" content="WebSocket support in NANO runtime: WebSocketPair API, upgrade flow, per-connection isolation, and limits.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>body { font-family: 'Inter', sans-serif; } code, pre { font-family: 'JetBrains Mono', monospace; }</style>
+</head>
+<body class="bg-slate-950 text-slate-200">
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <a href="../index.html" class="flex items-center gap-2 text-white font-bold text-xl">
+                    <span class="text-blue-500 text-2xl">&#9670;</span>
+                    NANO
+                </a>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="quickstart.html" class="text-slate-400 hover:text-white transition">Quick Start</a>
+                    <a href="api.html" class="text-slate-400 hover:text-white transition">API</a>
+                    <a href="websocket.html" class="text-white">WebSocket</a>
+                    <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers</a>
+                    <a href="cli.html" class="text-slate-400 hover:text-white transition">CLI</a>
+                    <a href="runtime.html" class="text-slate-400 hover:text-white transition">Runtime</a>
+                    <a href="architecture.html" class="text-slate-400 hover:text-white transition">Architecture</a>
+                    <a href="compatibility.html" class="text-slate-400 hover:text-white transition">Compatibility</a>
+                    <a href="../index.html" class="text-slate-400 hover:text-white transition">Home</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto">
+            <div class="flex items-center gap-3 mb-4">
+                <h1 class="text-4xl font-bold text-white">WebSocket</h1>
+                <span class="bg-teal-500/20 text-teal-400 text-sm px-3 py-1 rounded-full">v2.0a</span>
+            </div>
+            <p class="text-lg text-slate-400 mb-8">WebSocket support with per-connection V8 isolate isolation and Cloudflare Workers compatible API.</p>
+
+            <!-- Status banner -->
+            <div class="bg-teal-900/30 border border-teal-700/50 rounded-lg p-4 mb-10">
+                <p class="text-teal-300 text-sm"><strong>Phase 23 — In Progress.</strong> Plans 01–04 complete (upgrade detection, relay, ws_messages loop). Plan 05 (WebSocketPair V8 binding) in progress.</p>
+            </div>
+
+            <!-- Overview -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Overview</h2>
+                <p class="text-slate-400 mb-4">NANO-RS supports WebSocket connections via HTTP Upgrade. Each WebSocket connection runs on a dedicated worker thread that owns a V8 isolate for the duration of the connection. When the connection closes, the isolate is recycled — ensuring no state leaks between clients.</p>
+                <p class="text-slate-400">JavaScript handlers use <code class="bg-slate-800 px-1.5 py-0.5 rounded text-blue-400">addEventListener</code> (Cloudflare Workers pattern) to register message, close, and error callbacks before the first frame arrives.</p>
+            </section>
+
+            <!-- Quick example -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Echo Server</h2>
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">handler.js</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">export default {
+  async fetch(request) {
+    // Reject non-WebSocket requests
+    if (request.headers.get('Upgrade') !== 'websocket') {
+      return new Response('Expected WebSocket upgrade', { status: 426 });
+    }
+
+    // Create linked pair: client goes in Response, server stays in handler
+    const [client, server] = new WebSocketPair();
+
+    server.addEventListener('message', (event) => {
+      // event.data is string for text frames, ArrayBuffer for binary
+      console.log('Received:', event.data);
+      server.send(`Echo: ${event.data}`);
+    });
+
+    server.addEventListener('close', (event) => {
+      console.log('Closed with code', event.code, event.reason);
+    });
+
+    server.addEventListener('error', (event) => {
+      console.error('Error:', event.message);
+    });
+
+    // Must call accept() before frames are dispatched
+    server.accept();
+
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+    });
+  }
+};</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- WebSocketPair -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">WebSocketPair</h2>
+                <p class="text-slate-400 mb-4"><code class="bg-slate-800 px-1.5 py-0.5 rounded text-blue-400">new WebSocketPair()</code> returns two linked <code class="bg-slate-800 px-1.5 py-0.5 rounded text-blue-400">WebSocket</code> objects as a destructured array.</p>
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">const [client, server] = new WebSocketPair();
+
+// client → pass in Response (sent to the browser)
+// server → keep in handler (send/receive frames)</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold text-white mb-3">WebSocket Methods &amp; Properties</h3>
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left py-2 text-white">Member</th>
+                                <th class="text-left py-2 text-white">Type</th>
+                                <th class="text-left py-2 text-white">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-slate-400 divide-y divide-slate-800">
+                            <tr>
+                                <td class="py-3 font-mono text-blue-400">accept()</td>
+                                <td class="py-3">method</td>
+                                <td class="py-3">Accept connection. Must call before <code class="bg-slate-800 px-1 rounded">send()</code>.</td>
+                            </tr>
+                            <tr>
+                                <td class="py-3 font-mono text-blue-400">send(data)</td>
+                                <td class="py-3">method</td>
+                                <td class="py-3">Send text (<code class="bg-slate-800 px-1 rounded">string</code>) or binary (<code class="bg-slate-800 px-1 rounded">ArrayBuffer</code>) frame.</td>
+                            </tr>
+                            <tr>
+                                <td class="py-3 font-mono text-blue-400">close(code?, reason?)</td>
+                                <td class="py-3">method</td>
+                                <td class="py-3">Send Close frame. Default code 1000.</td>
+                            </tr>
+                            <tr>
+                                <td class="py-3 font-mono text-blue-400">addEventListener(type, fn)</td>
+                                <td class="py-3">method</td>
+                                <td class="py-3">Register handler for <code class="bg-slate-800 px-1 rounded">message</code>, <code class="bg-slate-800 px-1 rounded">close</code>, or <code class="bg-slate-800 px-1 rounded">error</code>.</td>
+                            </tr>
+                            <tr>
+                                <td class="py-3 font-mono text-blue-400">readyState</td>
+                                <td class="py-3">property</td>
+                                <td class="py-3">0 CONNECTING · 1 OPEN · 2 CLOSING · 3 CLOSED</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Events -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Events</h2>
+
+                <div class="space-y-4">
+                    <div class="bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+                        <h3 class="font-semibold text-white mb-2 font-mono">message</h3>
+                        <p class="text-sm text-slate-400 mb-3">Fired when a frame arrives.</p>
+                        <table class="w-full text-sm">
+                            <tbody class="text-slate-400">
+                                <tr><td class="py-1 font-mono text-blue-400 pr-4">event.data</td><td><code class="bg-slate-800 px-1 rounded">string</code> for text frames · <code class="bg-slate-800 px-1 rounded">ArrayBuffer</code> for binary frames</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+                        <h3 class="font-semibold text-white mb-2 font-mono">close</h3>
+                        <p class="text-sm text-slate-400 mb-3">Fired when the connection closes.</p>
+                        <table class="w-full text-sm">
+                            <tbody class="text-slate-400">
+                                <tr><td class="py-1 font-mono text-blue-400 pr-4">event.code</td><td>WebSocket close code (1000 normal, 1001 going away, 1006 abnormal, …)</td></tr>
+                                <tr><td class="py-1 font-mono text-blue-400 pr-4">event.reason</td><td>Close reason string</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+                        <h3 class="font-semibold text-white mb-2 font-mono">error</h3>
+                        <p class="text-sm text-slate-400 mb-3">Fired on transport error or OOM termination.</p>
+                        <table class="w-full text-sm">
+                            <tbody class="text-slate-400">
+                                <tr><td class="py-1 font-mono text-blue-400 pr-4">event.message</td><td>Error description string</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Limits -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Limits</h2>
+                <p class="text-slate-400 mb-4">Configured in <code class="bg-slate-800 px-1.5 py-0.5 rounded text-blue-400">AppLimits</code> / <code class="bg-slate-800 px-1.5 py-0.5 rounded text-blue-400">config.json</code>:</p>
+
+                <div class="bg-slate-900 rounded-lg border border-slate-800 overflow-hidden">
+                    <table class="w-full text-sm">
+                        <thead class="bg-slate-800">
+                            <tr>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Limit</th>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Default</th>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Config Key</th>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Behavior on Breach</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800 text-slate-400">
+                            <tr>
+                                <td class="px-4 py-3">Max concurrent connections</td>
+                                <td class="px-4 py-3 font-mono">100</td>
+                                <td class="px-4 py-3 font-mono text-blue-400">ws_max_connections</td>
+                                <td class="px-4 py-3">503 Service Unavailable</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3">Max message size</td>
+                                <td class="px-4 py-3 font-mono">32 MiB</td>
+                                <td class="px-4 py-3 font-mono text-blue-400">ws_max_message_bytes</td>
+                                <td class="px-4 py-3">Close 1009 (message too large)</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3">Idle timeout</td>
+                                <td class="px-4 py-3 font-mono">60 000 ms</td>
+                                <td class="px-4 py-3 font-mono text-blue-400">ws_idle_timeout_ms</td>
+                                <td class="px-4 py-3">Close 1001 (going away)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mt-4 bg-slate-800/30 rounded-lg p-4 text-sm text-slate-400 border border-slate-700">
+                    <strong class="text-slate-300">Per-message enforcement:</strong> Each message also triggers a CPU timeout guard (same limit as HTTP requests) and an OOM check. If the isolate heap exceeds its limit during message handling, the connection is closed with code 1011 (internal error).
+                </div>
+            </section>
+
+            <!-- Architecture -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Upgrade Flow</h2>
+                <div class="bg-slate-900 border border-slate-800 rounded-lg p-6 font-mono text-sm text-slate-300 mb-4">
+                    <pre>HTTP GET /path
+  Upgrade: websocket
+  Connection: Upgrade
+        │
+        ▼  router.rs — detect_ws_upgrade()
+        │  axum 101 handshake
+        ▼
+  tokio relay task — WsChannels
+        │  WsInbound (client→worker)
+        │  WsOutbound (worker→client)
+        ▼
+  TenantPool::dispatch_ws()
+        │  lazy-spawn WS worker thread
+        ▼
+  Worker thread:
+    1. JS fetch() handler called
+       (registers addEventListener callbacks)
+    2. 'ws_messages loop starts
+       recv_timeout(idle_timeout_ms) per frame
+    3. Per frame:
+       • CpuTimeoutGuard started
+       • OOM check
+       • JS event dispatched (MessageEvent / CloseEvent)
+    4. On Close or Disconnect:
+       set_ws_readystate(3)
+       break 'requests  →  isolate recycled</pre>
+                </div>
+            </section>
+
+            <!-- Cloudflare compatibility -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Cloudflare Workers Compatibility</h2>
+                <p class="text-slate-400 mb-4">NANO-RS WebSocket matches the <a href="https://developers.cloudflare.com/workers/runtime-apis/websockets/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">Cloudflare Workers WebSocket API</a>:</p>
+                <ul class="space-y-2 text-sm text-slate-400 mb-6 list-disc list-inside">
+                    <li><code class="bg-slate-800 px-1.5 py-0.5 rounded text-blue-400">new WebSocketPair()</code> constructor</li>
+                    <li><code class="bg-slate-800 px-1.5 py-0.5 rounded text-blue-400">server.accept()</code> required before sending</li>
+                    <li><code class="bg-slate-800 px-1.5 py-0.5 rounded text-blue-400">addEventListener</code> for event registration</li>
+                    <li><code class="bg-slate-800 px-1.5 py-0.5 rounded text-blue-400">Response</code> with <code class="bg-slate-800 px-1.5 py-0.5 rounded text-blue-400">webSocket</code> property for upgrade response</li>
+                </ul>
+                <div class="bg-slate-800/30 rounded-lg p-4 text-sm text-slate-400 border border-slate-700">
+                    <strong class="text-slate-300">Not yet implemented:</strong> Hibernatable WebSockets (Durable Objects pattern), <code class="bg-slate-800 px-1 rounded">cf.webSocket</code> properties.
+                </div>
+            </section>
+
+            <div class="flex justify-between items-center mt-12">
+                <a href="api.html" class="text-slate-400 hover:text-white transition">&larr; API Reference</a>
+                <a href="architecture.html" class="text-slate-400 hover:text-white transition">Architecture &rarr;</a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-slate-900 border-t border-slate-800 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center text-sm text-slate-500">
+                <p>&copy; 2026 nano-rs project. Released under MIT License.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

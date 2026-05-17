@@ -1,7 +1,7 @@
 # Cloudflare Workers Compatibility Mode
 
-**Date:** 2026-05-06  
-**Version:** v1.5.3  
+**Date:** 2026-05-17  
+**Version:** v2.0a  
 **Status:** ✅ IMPLEMENTED
 
 ---
@@ -294,13 +294,25 @@ async fn test_crud_create() {
 
 ---
 
-## See Also
+## WebSocket Compatibility
 
-- [Architecture Decision Record: Context Reset](./ADR-003-context-reset.md)
-- [Durable Objects Analysis](./DURABLE_OBJECTS_ANALYSIS.md)
-- [API Documentation](../api/worker.md)
+NANO-RS WebSocket follows the Cloudflare Workers WebSocket API (`WebSocketPair`, `server.accept()`, `addEventListener`).
+
+See [WebSocket Guide](WEBSOCKET.md) for:
+- Upgrade flow and architecture
+- `WebSocketPair` API reference
+- Per-connection limits (`ws_max_connections`, `ws_max_message_bytes`, `ws_idle_timeout_ms`)
+
+**Status:** In Progress — Phase 23, v2.0a
 
 ---
 
-**Last Updated:** 2026-05-06  
+## See Also
+
+- [WebSocket Guide](WEBSOCKET.md) — WebSocket upgrade, API, limits
+- [API Reference](API.md) — Full JavaScript API docs
+
+---
+
+**Last Updated:** 2026-05-17  
 **Status:** ✅ Production Ready

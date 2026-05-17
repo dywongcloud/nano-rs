@@ -21,6 +21,7 @@
                 <div class="hidden md:flex items-center gap-8">
                     <a href="quickstart.html" class="text-slate-400 hover:text-white transition">Quick Start</a>
                     <a href="api.html" class="text-slate-400 hover:text-white transition">API</a>
+                    <a href="websocket.html" class="text-slate-400 hover:text-white transition">WebSocket</a>
                     <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers</a>
                     <a href="cli.html" class="text-slate-400 hover:text-white transition">CLI</a>
                     <a href="runtime.html" class="text-slate-400 hover:text-white transition">Runtime</a>
@@ -110,10 +111,50 @@ Result: 267ms cold start becomes 267us</pre>
                 </div>
             </section>
 
+            <!-- WebSocket Upgrade Path -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">WebSocket Upgrade Path <span class="text-sm font-normal bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded ml-1">v2.0a</span></h2>
+                <p class="text-slate-400 mb-4">WebSocket connections use a dedicated worker thread per connection. The isolate lifetime is bound to the connection — when the connection closes, the isolate is recycled.</p>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg p-6 font-mono text-sm text-slate-300 mb-4">
+                    <pre>HTTP GET + Upgrade: websocket
+        |
+        v
+  detect_ws_upgrade() — router.rs
+        |  axum 101 handshake
+        v
+  tokio relay task — WsChannels (mpsc)
+        |  WsInbound / WsOutbound
+        v
+  TenantPool::dispatch_ws()
+        |  lazy-spawn WS worker thread
+        v
+  JS fetch() handler (registers addEventListener)
+        |
+        v
+  'ws_messages loop
+        |  recv_timeout(idle_timeout_ms) per frame
+        |  CpuTimeoutGuard + OOM check per message
+        v
+  Close/Disconnect → break 'requests → isolate recycled</pre>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold text-white mb-3">Key Properties</h3>
+                    <ul class="space-y-2 text-sm text-slate-400">
+                        <li><strong class="text-slate-300">One isolate per connection:</strong> Worker thread dedicated to single WS connection</li>
+                        <li><strong class="text-slate-300">Isolate recycled on close:</strong> Fresh isolate for next connection — no state leakage</li>
+                        <li><strong class="text-slate-300">Per-frame enforcement:</strong> CPU timeout guard and OOM check on every message</li>
+                        <li><strong class="text-slate-300">Idle timeout:</strong> Connection closed after <code class="bg-slate-700 px-1 rounded">ws_idle_timeout_ms</code> with no frames (default 60s)</li>
+                        <li><strong class="text-slate-300">Max message size:</strong> 32 MiB default (<code class="bg-slate-700 px-1 rounded">ws_max_message_bytes</code>)</li>
+                    </ul>
+                </div>
+            </section>
+
             <!-- Navigation -->
             <div class="flex justify-between items-center mt-12">
                 <a href="runtime.html" class="text-slate-400 hover:text-white transition">&larr; Runtime</a>
-                <a href="../index.html" class="text-slate-400 hover:text-white transition">Home &rarr;</a>
+                <a href="websocket.html" class="text-slate-400 hover:text-white transition">WebSocket &rarr;</a>
             </div>
         </div>
     </main>

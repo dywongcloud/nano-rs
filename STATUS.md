@@ -1,11 +1,11 @@
-# NANO Runtime v1.4.2 Technical Summary
+# NANO Runtime v2.0a Technical Summary
 
-Date: 2026-05-03
-Status: Production Ready - v1.4.2 Released
+Date: 2026-05-17
+Status: In Progress — Phase 23 WebSocket Server
 
 ## Release Overview
 
-v1.4.2 is a cleanup release following v1.4.0 production multi-tenancy. All partial implementations removed, dead code eliminated, codebase cleaned.
+v2.0a adds WebSocket server support (Phase 23). HTTP upgrade detection, relay task, worker `'ws_messages` loop, and `WebSocketPair` V8 binding in progress. Prior milestones (v1.7.x) are stable.
 
 ### Key Highlights
 
@@ -14,7 +14,21 @@ v1.4.2 is a cleanup release following v1.4.0 production multi-tenancy. All parti
 - **Code cleanup complete** - removed partial implementations, dead code eliminated
 - **Production Multi-Tenancy** - CPU limits, memory eviction, per-tenant metrics, WASM support
 
-## What's New in v1.4.2
+## What's New in v2.0a
+
+### WebSocket Server (Phase 23) — In Progress
+
+- ✅ Plan 01: `WsChannels`, `HandlerTask.ws`, `AppLimits` WS config
+- ✅ Plan 02: `TenantPool` WS pool fields, `dispatch_ws` method
+- ✅ Plan 03: HTTP router upgrade detection, relay task, 32 MiB limit
+- ✅ Plan 04: `'ws_messages` loop, thread-locals, per-message CPU/OOM guards
+- 📋 Plan 05: `WebSocketPair` V8 binding, integration tests
+
+See [WebSocket Guide](docs/WEBSOCKET.md) for architecture details.
+
+---
+
+## What Was in v1.7.x
 
 ### Production Multi-Tenancy Features
 
@@ -93,6 +107,7 @@ All protected against with active mitigations.
 5. **Sliver System** - Portable isolate snapshots for ~267µs cold starts
 6. **Metrics System** - Per-tenant metrics with Prometheus export
 7. **WASM Runtime** - V8 built-in WASM engine for portable binary modules
+8. **WebSocket Server** - Upgrade detection, relay task, dedicated worker thread per connection (Phase 23)
 
 ### Security Model
 
@@ -194,6 +209,7 @@ All 625 library tests pass. 69 adversarial security tests pass.
 Complete documentation available:
 
 - [API Reference](docs/API.md) - JavaScript APIs with examples
+- [WebSocket Guide](docs/WEBSOCKET.md) - WebSocket upgrade, WebSocketPair API, limits
 - [CLI Documentation](docs/CLI.md) - Command line interface
 - [Configuration](docs/CONFIG.md) - App configuration and limits
 - [Admin API](docs/ADMIN_API.md) - Monitoring and management endpoints
