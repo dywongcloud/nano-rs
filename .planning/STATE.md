@@ -512,24 +512,29 @@ Implement WebSocket support:
 
 ---
 
-### Phase 23: WebSocket Server — Plan 02 ✅ COMPLETE (2026-05-17)
+### Phase 23: WebSocket Server — Plan 04 ✅ COMPLETE (2026-05-17)
 
 **Plan 01:** WsChannels + HandlerTask.ws field + AppLimits WS methods ✅
 **Plan 02:** TenantPool WS pool fields + dispatch_ws method ✅
+**Plan 03:** HTTP router WS upgrade detection, relay task, and dispatch ✅
+**Plan 04:** Worker thread ws_messages loop with JS dispatch and lifecycle ✅
 
-**Delivered in Plan 02:**
-- `WsWorkerHandle` struct (task_tx + join handle) for WS thread lifecycle
-- `TenantPool` extended with `ws_workers` (Mutex<Vec>), `ws_busy` (Arc<AtomicUsize>), `max_ws_connections`, `ws_idle_timeout_ms`
-- `TenantPool::new()` accepts `&AppLimits` to populate WS config
-- `dispatch_ws()` with connection-limit gate (D-07), dead-handle pruning, lazy worker spawn
-- `run_worker()` accepts `ws_busy: Arc<AtomicUsize>` (Plan 04 placeholder)
-- `Drop` impl joins WS worker threads (prevents V8 use-after-free)
-- Commit: `667bb3f1`
+**Delivered in Plan 04:**
+- `'ws_messages` labeled loop inside `run_worker` entered when `task.ws.is_some()`
+- `recv_timeout` with `ws_idle_timeout_ms` for idle-timeout detection (D-11b)
+- All frame arms: Text (string MessageEvent), Binary (ArrayBuffer MessageEvent), Close (CloseEvent), Ping/Pong (skip), Timeout (break), Disconnected (1006 error+close)
+- Per-message `CpuTimeoutGuard` (D-09b) and OOM check (D-13); OOM sends close 1011
+- `ws_busy.fetch_add` on WS entry, `fetch_sub` on exit; served counter NOT incremented (D-03)
+- `clear_ws_thread_locals()` called after loop; `break 'requests` forces isolate recycle (D-10b)
+- `set_ws_readystate(1)` on entry, `set_ws_readystate(3)` on Close/Disconnected arms (D-16b)
+- WS thread-locals: WS_OUTBOUND, WS_ACCEPTED, WS_MESSAGE_HANDLERS, WS_CLOSE_HANDLERS, WS_ERROR_HANDLERS, WS_SERVER_SOCKET (all pub(crate) for Plan 05)
+- Commits: Task 1 `ba5c3191`, Task 2 `ab2c9400`
 
 **Key Decisions:**
 - ws_busy incremented by WORKER thread (not dispatch_ws) to avoid TOCTOU per D-13b
 - Dead-handle pruning uses send-time detection (SendError → swap_remove + join)
-- ws_idle_timeout_ms stored as #[allow(dead_code)] — Plan 04 wires recv_timeout
+- break 'requests after ws_messages mandatory for D-10b — fresh isolate per WS connection
+- JS fetch handler called before ws_messages loop so handler can register addEventListener callbacks before first frame
 
 **Summary:**
 
@@ -569,9 +574,9 @@ Implement WebSocket support:
   - Root cause fixed: CpuTimeoutGuard::drop() now calls cancel_terminate_execution()
   - Security: set_allow_generation_from_strings(false) at all Context::new() sites
   - Files: src/data_plane.rs, src/worker/pool.rs, src/worker/tenant_pool.rs, src/runtime/apis.rs, tests/isolate_endurance_test.rs
-- 🚧 In progress: Phase 23 — WebSocket Server (v2.0.0-alpha), Plan 01 COMPLETE (2c6bc92f)
+- 🚧 In progress: Phase 23 — WebSocket Server (v2.0.0-alpha), Plan 04 COMPLETE (ab2c9400)
   - Plan 01: axum ws feature, WsChannels, HandlerTask extension, AppLimits WS config ✅
-  - Plan 02: TenantPool WS pool fields, dispatch_ws method, lazy worker spawn 📋
-  - Plan 03: axum WebSocket upgrade route, tokio relay task, 32 MiB limit 📋
-  - Plan 04: Worker ws_messages loop, thread-locals, per-message CpuTimeoutGuard/OOM 📋
+  - Plan 02: TenantPool WS pool fields, dispatch_ws method, lazy worker spawn ✅
+  - Plan 03: axum WebSocket upgrade route, tokio relay task, 32 MiB limit ✅
+  - Plan 04: Worker ws_messages loop, thread-locals, per-message CpuTimeoutGuard/OOM ✅
   - Plan 05: WebSocketPair V8 binding, integration tests 📋
