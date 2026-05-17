@@ -35,30 +35,27 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::control_plane::ControlPlane;
 use crate::vfs::{IsolateVfs, VfsBackendEnum, VfsNamespace};
-use crate::worker::context::ContextManager;
-use crate::worker::eviction::{EvictionManager, IsolateMetadata};
-
 use crate::worker::oom::OomMonitorBuilder;
 use crate::worker::HandlerTask;
-use crate::data_plane::{execute_with_context_manager, set_worker_runtime};
-use crate::v8::NanoIsolate;
+use crate::data_plane::set_worker_runtime;
+use base64::Engine as _;
 
 /// Maximum requests before recycling an isolate
-const MAX_REQUESTS_PER_ISOLATE: u32 = 100;
+const MAX_REQUESTS_PER_ISOLATE: u32 = 10_000;
 
-/// Maximum idle time before recycling an isolate
-const MAX_IDLE_SECONDS: u64 = 300;
 
 /// A pool of isolates dedicated to a single tenant (hostname)
 pub struct TenantPool {
     hostname: String,
     workers: Vec<TenantWorker>,
     next_worker: AtomicU64,
+    #[allow(dead_code)]
     vfs_backend: VfsBackendEnum,
+    #[allow(dead_code)]
     control_plane: Option<ControlPlane>,
 }
 
@@ -156,7 +153,8 @@ impl TenantPool {
         vfs_backend: VfsBackendEnum,
         task_rx: mpsc::Receiver<HandlerTask>,
     ) {
-        // Create OOM monitor
+        use crate::v8::NanoIsolate;
+
         let oom_monitor = if memory_limit_mb > 0 {
             Some(
                 OomMonitorBuilder::new(format!("tenant_{}_{}", hostname, id))
@@ -168,114 +166,251 @@ impl TenantPool {
             None
         };
 
-        // Create VFS for this worker
-        let vfs = IsolateVfs::new(
-            VfsNamespace::from_hostname(&hostname),
-            vfs_backend,
-        );
+        info!("Tenant worker {} for '{}' ready", id, hostname);
 
-        // Create initial isolate and context (clone vfs for later recycling)
-        let mut context_manager = Self::create_fresh_isolate(vfs.clone());
-        let mut isolate_id = context_manager.isolate_id().clone();
-        let mut request_count = 0u32;
+        'isolate: loop {
+            let vfs = IsolateVfs::new(VfsNamespace::from_hostname(&hostname), vfs_backend.clone());
+            let mut nano = match NanoIsolate::new_with_vfs(vfs) {
+                Ok(iso) => iso,
+                Err(e) => { error!("Tenant worker {}: isolate create failed: {}", id, e); return; }
+            };
+            if memory_limit_mb > 0 {
+                let bytes = memory_limit_mb as usize * 1024 * 1024;
+                nano.set_heap_limits(bytes / 2, bytes);
+            }
 
-        let mut eviction_manager = EvictionManager::new();
-        eviction_manager.register_isolate(
-            isolate_id.clone(),
-            IsolateMetadata::new(&hostname, id),
-        );
+            // SAFETY: nano lives for the entire scope block below.
+            let iso_ptr: *mut v8::Isolate = &mut **nano.isolate();
 
-        info!(
-            "Tenant worker {} for '{}' ready (isolate: {})",
-            id, hostname, isolate_id
-        );
+            {
+                let scope_pin = std::pin::pin!(v8::HandleScope::new(nano.isolate()));
+                let mut scope = scope_pin.init();
+                let context = v8::Context::new(&scope, Default::default());
+                crate::runtime::apis::RuntimeAPIs::bind_all(&mut scope, context);
+                let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
 
-        // Event loop
-        loop {
-            match task_rx.recv() {
-                Ok(task) => {
-                    // Check if isolate should be recycled
-                    if request_count >= MAX_REQUESTS_PER_ISOLATE {
-                        info!(
-                            "Tenant worker {} recycling isolate after {} requests",
-                            id, request_count
-                        );
-                        context_manager = Self::recycle_isolate(context_manager, vfs.clone(), id, &hostname);
-                        isolate_id = context_manager.isolate_id().clone();
-                        request_count = 0;
+                let mut handler_cache: std::collections::HashMap<
+                    String, v8::Global<v8::Function>
+                > = std::collections::HashMap::new();
+
+                let mut served: u32 = 0;
+                let isolate_id = format!("{}:{}", hostname, id);
+
+                'requests: loop {
+                    if served >= MAX_REQUESTS_PER_ISOLATE {
+                        info!("Tenant worker {}: recycling isolate after {} requests", id, served);
+                        break 'requests;
                     }
 
-                    // Check OOM before request
-                    if let Some(ref monitor) = oom_monitor {
-                        if let Err(oom_error) = monitor.check(context_manager.isolate_mut().isolate()) {
-                            warn!("OOM detected, recycling isolate");
-                            monitor.log_oom_event(&oom_error, &task.request_id);
-                            let _ = task.response_tx.send(Ok(monitor.create_oom_response(&oom_error)));
-                            
-                            context_manager = Self::recycle_isolate(context_manager, vfs.clone(), id, &hostname);
-                            isolate_id = context_manager.isolate_id().clone();
-                            request_count = 0;
-                            continue;
+                    let task = match task_rx.recv() {
+                        Ok(t) => t,
+                        Err(_) => { info!("Tenant worker {} channel closed, exiting", id); break 'isolate; }
+                    };
+
+                    if let Some(ref mon) = oom_monitor {
+                        let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                        if let Err(oom) = mon.check(iso_ref) {
+                            mon.log_oom_event(&oom, &task.request_id);
+                            let _ = task.response_tx.send(Ok(mon.create_oom_response(&oom)));
+                            break 'requests;
                         }
                     }
 
-                    // Execute request (NO context reset)
-                    request_count += 1;
-                    eviction_manager.mark_active(&isolate_id);
+                    let t0 = std::time::Instant::now();
+                    let request_id = task.request_id.clone();
+                    let entrypoint = task.entrypoint.clone();
 
-                    let handler_ctx = crate::runtime::HandlerContext {
-                        entrypoint: task.entrypoint,
-                        request: task.request,
-                        memory_limit_mb: task.memory_limit_mb,
-                        hostname: hostname.clone(),
-                    };
+                    if !handler_cache.contains_key(&entrypoint) {
+                        let code = match crate::data_plane::read_code_cached(&entrypoint) {
+                            Ok(c) => c,
+                            Err(e) => { let _ = task.response_tx.send(Err(e)); continue 'requests; }
+                        };
+                        let transformed = if crate::v8::module::is_esm_module(&code) {
+                            crate::v8::module::transform_module_code(&code)
+                        } else { code.to_string() };
 
-                    let result = execute_with_context_manager(
-                        &mut context_manager,
-                        &handler_ctx,
-                        task.cpu_time_limit_ms,
+                        let code_v8 = match v8::String::new(&mut ctx_scope, &transformed) {
+                            Some(s) => s,
+                            None => { let _ = task.response_tx.send(Err(anyhow!("V8 string alloc failed"))); continue 'requests; }
+                        };
+                        let script = match v8::Script::compile(&ctx_scope, code_v8, None) {
+                            Some(s) => s,
+                            None => { let _ = task.response_tx.send(Err(anyhow!("Compile failed: {}", entrypoint))); continue 'requests; }
+                        };
+                        if script.run(&ctx_scope).is_none() {
+                            let _ = task.response_tx.send(Err(anyhow!("Script execution failed: {}", entrypoint)));
+                            continue 'requests;
+                        }
+
+                        let global_obj = context.global(&mut ctx_scope);
+                        let nano_k = v8::String::new(&mut ctx_scope, "__nano_user_fetch").unwrap();
+                        let fetch_k = v8::String::new(&mut ctx_scope, "fetch").unwrap();
+                        let handler_val = global_obj.get(&mut ctx_scope, nano_k.into())
+                            .filter(|v| v.is_function())
+                            .or_else(|| global_obj.get(&mut ctx_scope, fetch_k.into()).filter(|v| v.is_function()));
+
+                        match handler_val {
+                            Some(f) => {
+                                let g = v8::Global::new(&**ctx_scope, f.cast::<v8::Function>());
+                                handler_cache.insert(entrypoint.clone(), g);
+                                info!("Tenant worker {}: handler cached for '{}'", id, entrypoint);
+                            }
+                            None => {
+                                let _ = task.response_tx.send(Err(anyhow!("No fetch handler in '{}'", entrypoint)));
+                                continue 'requests;
+                            }
+                        }
+                    }
+
+                    let _timeout = if task.cpu_time_limit_ms > 0 {
+                        let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                        Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
+                    } else { None };
+
+                    let handler_g = handler_cache.get(&entrypoint).unwrap();
+                    let global_obj = context.global(&mut ctx_scope);
+                    let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
+
+                    let result: anyhow::Result<crate::http::NanoResponse> = (|| {
+                        let url_str = v8::String::new(&mut ctx_scope, &task.request.url().href())
+                            .ok_or_else(|| anyhow!("URL alloc failed"))?;
+                        let opts = v8::Object::new(&mut ctx_scope);
+                        let mk = v8::String::new(&mut ctx_scope, "method").ok_or_else(|| anyhow!("method key"))?;
+                        let mv = v8::String::new(&mut ctx_scope, task.request.method()).ok_or_else(|| anyhow!("method val"))?;
+                        opts.set(&mut ctx_scope, mk.into(), mv.into());
+
+                        let hk = v8::String::new(&mut ctx_scope, "headers").ok_or_else(|| anyhow!("headers key"))?;
+                        let hck = v8::String::new(&mut ctx_scope, "Headers").ok_or_else(|| anyhow!("Headers ctor key"))?;
+                        let hctor = global_obj.get(&mut ctx_scope, hck.into())
+                            .filter(|v| v.is_function())
+                            .ok_or_else(|| anyhow!("Headers constructor not found"))?
+                            .cast::<v8::Function>();
+                        let hinit = v8::Object::new(&mut ctx_scope);
+                        for (name, vals) in task.request.headers().entries() {
+                            let val = vals.join(", ");
+                            if let (Some(k), Some(v)) = (
+                                v8::String::new(&mut ctx_scope, name),
+                                v8::String::new(&mut ctx_scope, &val),
+                            ) { hinit.set(&mut ctx_scope, k.into(), v.into()); }
+                        }
+                        let hobj = hctor.new_instance(&mut ctx_scope, &[hinit.into()])
+                            .ok_or_else(|| anyhow!("Headers instantiation failed"))?;
+                        opts.set(&mut ctx_scope, hk.into(), hobj.into());
+
+                        if let Some(body) = task.request.body() {
+                            let bk = v8::String::new(&mut ctx_scope, "body").ok_or_else(|| anyhow!("body key"))?;
+                            let encoded = base64::engine::general_purpose::STANDARD.encode(body);
+                            let bv = v8::String::new(&mut ctx_scope, &encoded).ok_or_else(|| anyhow!("body val"))?;
+                            opts.set(&mut ctx_scope, bk.into(), bv.into());
+                        }
+
+                        let rck = v8::String::new(&mut ctx_scope, "Request").ok_or_else(|| anyhow!("Request key"))?;
+                        let rctor = global_obj.get(&mut ctx_scope, rck.into())
+                            .filter(|v| v.is_function())
+                            .ok_or_else(|| anyhow!("Request constructor not found"))?
+                            .cast::<v8::Function>();
+                        let js_req = rctor.new_instance(&mut ctx_scope, &[url_str.into(), opts.into()])
+                            .ok_or_else(|| anyhow!("Request instantiation failed"))?;
+
+                        let call_result = handler_local.call(&mut ctx_scope, global_obj.into(), &[js_req.into()]);
+                        let resolved = match call_result {
+                            None => return Err(anyhow!("Handler threw a JS exception")),
+                            Some(v) if v.is_promise() => {
+                                let promise = v.cast::<v8::Promise>();
+                                let platform = v8::V8::get_current_platform();
+                                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                                loop {
+                                    for _ in 0..5 {
+                                        let iso: &v8::Isolate = unsafe { &*iso_ptr };
+                                        v8::Platform::pump_message_loop(&platform, iso, false);
+                                    }
+                                    ctx_scope.perform_microtask_checkpoint();
+                                    match promise.state() {
+                                        v8::PromiseState::Fulfilled => break promise.result(&mut ctx_scope),
+                                        v8::PromiseState::Rejected => {
+                                            let err = promise.result(&mut ctx_scope);
+                                            let msg = err.to_string(&mut ctx_scope)
+                                                .map(|s| s.to_rust_string_lossy(&mut ctx_scope))
+                                                .unwrap_or_else(|| "Promise rejected".to_string());
+                                            return Err(anyhow!("Promise rejected: {}", msg));
+                                        }
+                                        v8::PromiseState::Pending => {
+                                            if std::time::Instant::now() > deadline {
+                                                return Err(anyhow!("Async handler timed out"));
+                                            }
+                                            std::thread::yield_now();
+                                        }
+                                    }
+                                }
+                            }
+                            Some(v) => v,
+                        };
+
+                        let obj = resolved.to_object(&mut ctx_scope)
+                            .ok_or_else(|| anyhow!("Handler response is not an object"))?;
+                        let sk = v8::String::new(&mut ctx_scope, "status").ok_or_else(|| anyhow!("status key"))?;
+                        let status = obj.get(&mut ctx_scope, sk.into())
+                            .and_then(|v| v.to_integer(&mut ctx_scope))
+                            .map(|i| i.value() as u16)
+                            .unwrap_or(200);
+                        let mut response = crate::http::NanoResponse::with_status(status);
+
+                        let h2k = v8::String::new(&mut ctx_scope, "headers").ok_or_else(|| anyhow!("headers key"))?;
+                        if let Some(hval) = obj.get(&mut ctx_scope, h2k.into()) {
+                            if let Some(hobj) = hval.to_object(&mut ctx_scope) {
+                                let ik = v8::String::new(&mut ctx_scope, "__headers__").ok_or_else(|| anyhow!("__headers__ key"))?;
+                                let hsrc = hobj.get(&mut ctx_scope, ik.into())
+                                    .and_then(|v| v.to_object(&mut ctx_scope))
+                                    .unwrap_or(hobj);
+                                if let Some(names) = hsrc.get_own_property_names(&mut ctx_scope, Default::default()) {
+                                    for i in 0..names.length() {
+                                        if let Some(key) = names.get_index(&mut ctx_scope, i) {
+                                            if let Some(ks) = key.to_string(&mut ctx_scope) {
+                                                let k = ks.to_rust_string_lossy(&mut ctx_scope);
+                                                if k.starts_with("__") || matches!(k.as_str(), "set" | "get" | "forEach") { continue; }
+                                                if let Some(val) = hsrc.get(&mut ctx_scope, key.into()) {
+                                                    if !val.is_function() {
+                                                        if let Some(vs) = val.to_string(&mut ctx_scope) {
+                                                            response = response.with_header(&k, &vs.to_rust_string_lossy(&mut ctx_scope));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        let b2k = v8::String::new(&mut ctx_scope, "body").ok_or_else(|| anyhow!("body key"))?;
+                        if let Some(bval) = obj.get(&mut ctx_scope, b2k.into()) {
+                            if !bval.is_null() && !bval.is_undefined() {
+                                if let Some(bs) = bval.to_string(&mut ctx_scope) {
+                                    response = response.with_body(bs.to_rust_string_lossy(&mut ctx_scope));
+                                }
+                            }
+                        }
+                        Ok(response)
+                    })();
+
+                    let duration_ms = t0.elapsed().as_millis() as u64;
+                    let status_code = match &result { Ok(r) => r.status(), Err(_) => 500 };
+                    tracing::info!(
+                        request_id = %request_id,
+                        worker_id = id,
+                        isolate_id = %isolate_id,
+                        status = status_code,
+                        duration_ms = duration_ms,
+                        "Tenant worker {} request {} → {} in {}ms", id, request_id, status_code, duration_ms
                     );
-
-                    eviction_manager.mark_complete(&isolate_id);
+                    let result = result.map(|mut r| { r.set_worker_id(id); r.set_isolate_id(isolate_id.clone()); r });
                     let _ = task.response_tx.send(result);
-                }
-                Err(_) => {
-                    info!("Tenant worker {} channel closed, exiting", id);
-                    break;
+                    served += 1;
                 }
             }
+            info!("Tenant worker {}: isolate recycled, creating fresh", id);
         }
-    }
-
-    fn create_fresh_isolate(vfs: IsolateVfs) -> ContextManager {
-        match NanoIsolate::new_with_vfs(vfs) {
-            Ok(isolate) => {
-                let mut manager = ContextManager::new(isolate);
-                if let Err(e) = manager.create_initial_context() {
-                    error!("Failed to create initial context: {}", e);
-                    panic!("Cannot create isolate");
-                }
-                manager
-            }
-            Err(e) => {
-                error!("Failed to create isolate: {}", e);
-                panic!("Cannot create isolate");
-            }
-        }
-    }
-
-    fn recycle_isolate(
-        old_manager: ContextManager,
-        vfs: IsolateVfs,
-        worker_id: u32,
-        hostname: &str,
-    ) -> ContextManager {
-        // Drop old isolate (disposes entire isolate, not just context)
-        drop(old_manager);
-        info!("Tenant worker {} recycled isolate for '{}'", worker_id, hostname);
-        
-        // Create fresh isolate
-        Self::create_fresh_isolate(vfs)
+        info!("Tenant worker {} exiting", id);
     }
 
     /// Dispatch a task to this tenant's pool

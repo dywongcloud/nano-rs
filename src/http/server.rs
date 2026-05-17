@@ -785,11 +785,17 @@ pub async fn start_server_with_config(
     let registry_arc = Arc::new(registry);
 
     // Create app state with the router, optional disk VFS config, and app registry
+    // Use the first app's worker limit, or default to 4 if not specified
+    let workers_per_pool = nano_config.apps.first()
+        .map(|app| app.limits.workers)
+        .filter(|&w| w > 0)
+        .unwrap_or(4);
+    
     let app_state = if let Some(ref disk) = disk_config {
         tracing::info!("Using disk VFS backend with base_path: {}", disk.base_path);
-        AppState::with_vfs_config(router, 4, Some(disk.clone()), Some(registry_arc))
+        AppState::with_vfs_config(router, workers_per_pool, Some(disk.clone()), Some(registry_arc))
     } else {
-        AppState::with_vfs_config(router, 4, None, Some(registry_arc))
+        AppState::with_vfs_config(router, workers_per_pool, None, Some(registry_arc))
     };
     let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
 

@@ -25,6 +25,7 @@ fn test_cpu_timeout_terminates_infinite_loop() {
     let start = std::time::Instant::now();
 
     {
+        let iso_ptr: *mut v8::Isolate = &mut **isolate.isolate();
         let scope_storage = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
         let mut scope = scope_storage.init();
         let local_context = v8::Local::new(&mut scope, &context);
@@ -33,7 +34,7 @@ fn test_cpu_timeout_terminates_infinite_loop() {
         // Create a CpuTimeoutGuard with a 50ms timeout
         // This will spawn a timer thread that calls terminate_execution()
         let _guard = nano::data_plane::CpuTimeoutGuard::new(
-            isolate.isolate(),
+            unsafe { &mut *iso_ptr },
             50 // 50ms timeout
         );
 
@@ -81,6 +82,7 @@ fn test_cpu_timeout_allows_normal_execution() {
     let context = isolate.create_context();
 
     {
+        let iso_ptr: *mut v8::Isolate = &mut **isolate.isolate();
         let scope_storage = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
         let mut scope = scope_storage.init();
         let local_context = v8::Local::new(&mut scope, &context);
@@ -88,7 +90,7 @@ fn test_cpu_timeout_allows_normal_execution() {
 
         // Create a CpuTimeoutGuard with a long 1000ms timeout
         let _guard = nano::data_plane::CpuTimeoutGuard::new(
-            isolate.isolate(),
+            unsafe { &mut *iso_ptr },
             1000 // 1 second timeout - plenty for a simple script
         );
 
@@ -128,13 +130,14 @@ fn test_isolate_usable_after_cpu_timeout() {
     // First execution: timeout
     {
         let context = isolate.create_context();
+        let iso_ptr: *mut v8::Isolate = &mut **isolate.isolate();
         let scope_storage = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
         let mut scope = scope_storage.init();
         let local_context = v8::Local::new(&mut scope, &context);
         let mut ctx_scope = v8::ContextScope::new(&mut scope, local_context);
 
         let _guard = nano::data_plane::CpuTimeoutGuard::new(
-            isolate.isolate(),
+            unsafe { &mut *iso_ptr },
             50 // 50ms timeout
         );
 
@@ -150,13 +153,14 @@ fn test_isolate_usable_after_cpu_timeout() {
     // Second execution: should still work
     {
         let context = isolate.create_context();
+        let iso_ptr: *mut v8::Isolate = &mut **isolate.isolate();
         let scope_storage = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
         let mut scope = scope_storage.init();
         let local_context = v8::Local::new(&mut scope, &context);
         let mut ctx_scope = v8::ContextScope::new(&mut scope, local_context);
 
         let _guard = nano::data_plane::CpuTimeoutGuard::new(
-            isolate.isolate(),
+            unsafe { &mut *iso_ptr },
             1000 // 1 second timeout
         );
 

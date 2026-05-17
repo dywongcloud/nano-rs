@@ -61,6 +61,8 @@ async fn test_hono_middleware_chain_order() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)
@@ -99,6 +101,8 @@ async fn test_hono_post_request() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)
@@ -138,7 +142,9 @@ async fn test_hono_cors_headers_on_all_routes() {
             let context = HandlerContext {
                 entrypoint,
                 request,
-            };
+            memory_limit_mb: 0,
+            hostname: String::new(),
+        };
 
             execute_handler(&mut isolate, context)
         }).await.unwrap();

@@ -35,7 +35,9 @@ fn test_handler_context_creation() {
     let context = HandlerContext {
         entrypoint: "/app/index.js".to_string(),
         request,
-    };
+            memory_limit_mb: 0,
+            hostname: String::new(),
+        };
 
     assert_eq!(context.entrypoint, "/app/index.js");
     assert_eq!(context.request.method(), "GET");
@@ -68,6 +70,8 @@ async fn test_execute_handler_no_fetch() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)
@@ -114,6 +118,8 @@ async fn test_execute_handler_with_fetch() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)
@@ -160,6 +166,8 @@ async fn test_execute_handler_custom_status() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)
@@ -205,6 +213,8 @@ async fn test_execute_handler_request_access() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)

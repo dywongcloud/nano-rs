@@ -55,10 +55,7 @@ async fn test_astro_home_page_renders_islands() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         execute_handler(&mut isolate, context)
     }).await.unwrap();
@@ -91,10 +88,7 @@ async fn test_astro_gallery_page_carousel() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         execute_handler(&mut isolate, context)
     }).await.unwrap();
@@ -123,10 +117,7 @@ async fn test_astro_404() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         execute_handler(&mut isolate, context)
     }).await.unwrap();
@@ -162,7 +153,9 @@ async fn test_astro_image_assets() {
             let context = HandlerContext {
                 entrypoint,
                 request,
-            };
+            memory_limit_mb: 0,
+            hostname: String::new(),
+        };
 
             execute_handler(&mut isolate, context)
         }).await.unwrap();
@@ -204,10 +197,7 @@ async fn test_astro_island_hydration_strategy_markers() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         execute_handler(&mut isolate, context)
     }).await.unwrap();
@@ -236,10 +226,7 @@ async fn test_astro_server_rendered_content() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         execute_handler(&mut isolate, context)
     }).await.unwrap();

@@ -58,6 +58,8 @@ async fn test_nextjs_home_page() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)
@@ -98,6 +100,8 @@ async fn test_nextjs_about_page() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)
@@ -130,6 +134,8 @@ async fn test_nextjs_blog_post() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)
@@ -162,6 +168,8 @@ async fn test_nextjs_404() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)
@@ -198,6 +206,8 @@ async fn test_nextjs_static_css_asset() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)
@@ -234,6 +244,8 @@ async fn test_nextjs_static_js_asset() {
         let context = HandlerContext {
             entrypoint: js_path_str,
             request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
         };
 
         execute_handler(&mut isolate, context)

@@ -24,4 +24,4 @@ pub use isolate::NanoIsolate;
 pub use module::{execute_esm_or_script, is_esm_module, transform_module_code, ModuleLoader, ModuleType};
 pub use platform::{initialize_platform, is_initialized, shutdown_platform};
 pub use script::execute_script;
-pub use snapshot::{create_snapshot, create_snapshot_from_nano, restore_from_snapshot, SnapshotBuilder, SnapshotError};
+pub use snapshot::{create_isolate_from_snapshot, create_snapshot_from_nano, ensure_v8_initialized, global_snapshot, init_global_snapshot, init_global_snapshot_from_file, is_snapshot_initialized, is_snapshot_valid, SnapshotCache};

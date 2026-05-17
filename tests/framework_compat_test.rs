@@ -63,10 +63,7 @@ async fn test_generic_wintertc_app_root_route() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         // Execute the handler
         execute_handler(&mut isolate, context)
@@ -105,10 +102,7 @@ async fn test_generic_wintertc_app_health_route() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         execute_handler(&mut isolate, context)
     }).await.unwrap();
@@ -137,10 +131,7 @@ async fn test_generic_wintertc_app_api_data_route() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         execute_handler(&mut isolate, context)
     }).await.unwrap();
@@ -169,10 +160,7 @@ async fn test_generic_wintertc_app_404() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         execute_handler(&mut isolate, context)
     }).await.unwrap();
@@ -204,10 +192,7 @@ async fn test_hono_style_app_root_route() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         execute_handler(&mut isolate, context)
     }).await.unwrap();
@@ -249,10 +234,7 @@ async fn test_hono_style_app_about_route() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         execute_handler(&mut isolate, context)
     }).await.unwrap();
@@ -281,10 +263,7 @@ async fn test_hono_style_app_404() {
             None,
         );
 
-        let context = HandlerContext {
-            entrypoint: js_path_str,
-            request,
-        };
+        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
 
         execute_handler(&mut isolate, context)
     }).await.unwrap();

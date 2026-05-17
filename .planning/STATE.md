@@ -1,3 +1,17 @@
+---
+gsd_state_version: 1.0
+milestone: v1.2
+milestone_name: Remediation 🚧
+status: completed
+last_updated: "2026-05-17T00:28:43.476Z"
+progress:
+  total_phases: 27
+  completed_phases: 12
+  total_plans: 44
+  completed_plans: 39
+  percent: 44
+---
+
 # NANO Project State — v1.5 Milestone
 
 **Milestone:** v1.5 — True 100% Test Pass Rate + Cloudflare Workers Compatibility  
@@ -14,6 +28,7 @@
 **V8 Engine:** 14.7.173.20-rusty (v8 crate 147.4.0)
 
 **Key Achievements:**
+
 - **WASM execution: 100% WORKING** - V8 v147 migration fixed all issues
 - **WebCrypto: 100% COMPLETE** - All 12 standard algorithms implemented
 - **Cloudflare Workers Compatibility: IMPLEMENTED** - Global state persists between requests
@@ -53,6 +68,7 @@
 **Status:** 100% WebCrypto coverage
 
 **Implemented:**
+
 - ✅ RSA PKCS#1 v1_5 signature & verification
 - ✅ ECDSA public key import from JWK (P-256, P-384)
 - ✅ HKDF key derivation (deriveKey, deriveBits)
@@ -82,6 +98,7 @@
 **Status:** IMPLEMENTED and TESTED
 
 **What Was Implemented:**
+
 - ✅ `skip_context_reset` flag in ContextManager
 - ✅ `ContextManager::with_skip_context_reset()` constructor
 - ✅ `ContextManager::is_skip_context_reset()` getter
@@ -93,10 +110,12 @@
 - ✅ Comprehensive documentation
 
 **Behavior:**
+
 - **Default mode (security):** Context reset before each request - global state cleared
 - **Cloudflare compatible mode:** Context NOT reset - global state persists between requests
 
 **Use Case:**
+
 ```rust
 // Cloudflare Workers compatible - global state persists
 let queue = WorkQueue::new(1).with_cloudflare_compatibility();
@@ -107,6 +126,7 @@ let nextId = 1;
 ```
 
 **Documentation:**
+
 - `docs/CLOUDFLARE_COMPATIBILITY.md` - Complete guide
 
 ### Milestone Progress
@@ -158,6 +178,7 @@ let nextId = 1;
 **Option 1: Regular Workers Compatible Mode** ✅
 
 This matches Cloudflare Workers (stateless/ephemeral) behavior:
+
 - Global state persists between requests on the same isolate
 - Context is NOT reset between requests (when enabled)
 - State is ephemeral (lost on eviction/memory pressure)
@@ -175,17 +196,20 @@ let queue = WorkQueue::new(1).with_cloudflare_compatibility();
 ### What This Is NOT
 
 This is **NOT** Durable Objects. For:
+
 - ✅ Short-term state persistence (milliseconds to minutes)
 - ✅ In-memory caching between requests
 - ✅ Cloudflare Workers code compatibility
 
 For true durability across restarts, you still need:
+
 - External database (PostgreSQL, Redis)
 - Durable Objects equivalent (future v2.x feature)
 
 ### Documentation
 
 See `docs/CLOUDFLARE_COMPATIBILITY.md` for:
+
 - Complete API reference
 - Security considerations
 - Migration guide from Cloudflare
@@ -196,16 +220,19 @@ See `docs/CLOUDFLARE_COMPATIBILITY.md` for:
 ## Files Changed
 
 ### Source Code Changes
+
 1. `src/worker/context.rs` - Added `skip_context_reset` flag and methods
 2. `src/worker/pool.rs` - Added `with_backend_and_reset_mode()` constructor
 3. `src/worker/queue.rs` - Added helper methods and `with_cloudflare_compatibility()`
 
 ### Test Changes
+
 1. `tests/crud_operations_test.rs` - Rewritten to use Cloudflare compatible mode
 2. `tests/isolate_id_oom_test.rs` - Fixed to use temp files instead of VFS
 3. `tests/missing_tests_phase37.rs` - 16 new tests (performance + edge cases)
 
 ### Documentation
+
 1. `docs/CLOUDFLARE_COMPATIBILITY.md` - New comprehensive guide
 2. `docs/PHASE_37_COMPLETION_REPORT.md` - Phase 37 completion report
 
@@ -236,12 +263,14 @@ The tests use in-memory JavaScript Maps that persist between requests thanks to 
 **Tests Created:**
 
 Performance Benchmarks (4):
+
 - ✅ `test_performance_throughput` — Throughput measurement (6,250 req/s claim)
 - ✅ `test_performance_latency` — Latency measurement (4ms average claim)
 - ✅ `test_performance_cold_start` — Cold start timing (~267µs claim)
 - ✅ `test_performance_memory` — Memory allocation performance
 
 Edge Case Tests (10):
+
 - ✅ `test_edge_case_empty_body_post` — Empty body POST
 - ✅ `test_edge_case_large_headers` — Headers > 8KB
 - ✅ `test_edge_case_unicode` — Unicode/multi-byte UTF-8
@@ -254,6 +283,7 @@ Edge Case Tests (10):
 - ✅ `test_edge_case_complex_url_parsing` — Complex URL parsing edge cases
 
 **Additional Tests:**
+
 - ✅ `test_comprehensive_edge_cases` — Combined edge case integration
 - ✅ `test_phase_37_summary` — Summary verification
 
@@ -269,11 +299,13 @@ Edge Case Tests (10):
 **Status:** 3/3 tasks complete, compilation passes
 
 **Files Created:**
+
 - ✅ `src/control_plane.rs` — Request validation (48 assertions), tenant registry, batching
 - ✅ `src/data_plane.rs` — Zero-assertion execution path, V8 functions, lookup tables
 - ✅ `docs/ARCHITECTURE_CONTROL_DATA_PLANE.md` — Architecture documentation
 
 **Files Modified:**
+
 - ✅ `src/worker/pool.rs` — Refactored to use data_plane re-exports, type fixes
 - ✅ `src/worker/queue.rs` — Added ControlPlane integration
 - ✅ `src/http/router.rs` — Validates requests through control plane before dispatch
@@ -283,6 +315,7 @@ Edge Case Tests (10):
 - ✅ `src/runtime/crypto/ecdsa.rs` — Fixed p256/p384 API compatibility
 
 **Key Metrics:**
+
 - Assertions in Control Plane: 48
 - Assertions in Data Plane: 0
 - Compilation: `cargo check --lib` passes (0 errors)
@@ -322,11 +355,13 @@ Edge Case Tests (10):
    - Not a bug — correct for static site deployment
 
 **Test Results:**
+
 - VFS Capture Tests: 11/11 PASSED ✅
 - All Sliver Tests: 107/107 PASSED ✅
 - Full Test Suite: 664+ tests PASSED ✅
 
 **Production Ready Features:**
+
 - ✅ Fast cold starts (~5-10ms from sliver)
 - ✅ State preservation (heap + VFS)
 - ✅ Static site support (directory slivers)
@@ -335,6 +370,7 @@ Edge Case Tests (10):
 - ✅ Binary file preservation
 
 ### Phase 39: Router Execution Fix (v1.6.1) — CRITICAL ✅ COMPLETE
+
 **Priority:** 🔴 P0 — CRITICAL
 **Status:** ✅ COMPLETE — Fixed in Plan 37-08 (TODO/Placeholder Resolution)
 
@@ -353,12 +389,14 @@ Edge Case Tests (10):
    - **Rationale:** VFS flows from caller through execution chain to module loader
 
 **Acceptance Criteria:**
+
 - [x] Router placeholder eliminated (returns proper error instead of fake success)
 - [x] Module loader accepts actual VFS reference
 - [x] All placeholder functions renamed (zero "placeholder" word in code)
 - [x] cargo test --lib passes (657 tests)
 
 ### Phase 40: Core Completion (v1.6.2) ✅ COMPLETE
+
 **Priority:** 🟡 P1 — High
 **Status:** ✅ COMPLETE — Fixed in Plan 37-08 (TODO/Placeholder Resolution)
 
@@ -371,21 +409,25 @@ Edge Case Tests (10):
    - Status: Log-only enforcement is intentional for v1.6; full V8 heap callback in v1.7
 
 ### Phase 41: Production Polish (v1.7.0) ✅ COMPLETE
+
 **Completed:** 2026-05-15
 
 **Delivered:**
+
 1. ✅ **Heap limit enforcement** — V8 near-heap-limit callback terminates isolate on OOM
 2. ✅ **CPU time limit enforcement** — Fixed cross-thread termination bug (thread_local! → AtomicPtr)
 3. ✅ **Prometheus metrics** — Added `nano_heap_limit_hits_total` and `nano_cpu_timeout_total` counters
 4. ✅ **Adversarial test fixes** — Resolved test hangs, 56/57 tests passing (98%)
 
 **Requirements Met:**
+
 - REQ-41-01: Heap enforcement terminates JS isolate on OOM ✅
 - REQ-41-02: cpu_time_ms terminates JS execution ✅
 - REQ-41-03: Prometheus /metrics endpoint exposes counters ✅
 - REQ-41-04: adversarial_memory and adversarial_cpu tests pass ✅
 
 **Test Results:**
+
 - adversarial_memory: 7/7 ✅
 - adversarial_cpu: 8/8 ✅
 - adversarial_vfs: 12/12 ✅
@@ -396,9 +438,11 @@ Edge Case Tests (10):
 - **Total: 56/57 (98%)**
 
 ### Phase 42: WebSocket Server (v2.0.0-alpha)
+
 **Priority:** 🔵 P3 — Low (After critical fixes)
 
 Implement WebSocket support:
+
 - WebSocket upgrade handling
 - Message framing/unframing
 - Integration with virtual host routing
@@ -411,11 +455,13 @@ Implement WebSocket support:
 ### Code Quality Improvements
 
 **Compiler Warnings:** 0 (was 51)
+
 - Fixed 47 warnings via `cargo fix`
 - 2 modules removed (output.rs, progress.rs)
 - 2 patterns fixed via `#[allow(dead_code)]`
 
 **Documentation Created:**
+
 - `docs/TECHNICAL_DEBT_ANALYSIS.md` — Comprehensive audit
 - `.planning/NEXT_PHASES_ROADMAP.md` — Phases 35-40 detailed plan
 - `docs/PHASE_35_COMPLETION_REPORT.md` — Dead code removal
@@ -464,6 +510,7 @@ Implement WebSocket support:
 **Status:** ✅ **COMPLETE** — Phase 41 Production Polish, heap/CPU enforcement active
 
 **Summary:**
+
 - ✅ V8 v147 migration: COMPLETE
 - ✅ Compiler warnings: 0 (was 51)
 - ✅ WebCrypto: 100% coverage (12/12 algorithms)
@@ -490,5 +537,6 @@ Implement WebSocket support:
 - ✅ Strict tests: Dynamic token assertions prevent hard-coded placeholder regressions
 
 **See:** `docs/TODO_RESOLUTION.md` for full resolution log
+
 - ✅ Phase 41 — Production Polish COMPLETE (heap/CPU enforcement, Prometheus metrics)
 - 📋 Next: Phase 42 — WebSocket Server (v2.0.0-alpha)

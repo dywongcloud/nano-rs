@@ -245,6 +245,54 @@ impl NanoIsolate {
         })
     }
 
+    /// Create a NanoIsolate from an existing v8::OwnedIsolate.
+    ///
+    /// This is used when creating isolates from snapshots, where the V8 isolate
+    /// is created with special params (snapshot_blob) before wrapping.
+    ///
+    /// # Arguments
+    /// * `isolate` - The pre-created v8::OwnedIsolate
+    ///
+    /// # Safety
+    /// The isolate must have been created with V8 platform initialized.
+    pub fn from_v8_isolate(mut isolate: v8::OwnedIsolate) -> Result<Self> {
+        // PRECONDITION: Platform must be initialized
+        assert_precondition!(
+            crate::v8::is_initialized(),
+            "V8 platform must be initialized before wrapping isolates"
+        );
+
+        // Create the EPT fix sentinel
+        let sentinel = {
+            let scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+            let scope = scope.init();
+            let undefined = v8::undefined(&scope);
+            let value: v8::Local<v8::Value> = undefined.into();
+            v8::Global::new(&*scope, value)
+        };
+
+        tracing::debug!("Created NanoIsolate from existing V8 isolate (EPT fix applied)");
+
+        let creation_thread_id = std::thread::current().id();
+
+        // Create default VFS
+        let vfs = IsolateVfs::new(
+            VfsNamespace::from_hostname("default"),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
+        );
+
+        Ok(Self {
+            sentinel,
+            isolate,
+            _not_send_sync: PhantomData,
+            vfs,
+            state: IsolateState::Creating,
+            creation_thread_id,
+            heap_limit_bytes: HEAP_SIZE_BYTES_PER_ISOLATE,
+            heap_callback_registered: false,
+        })
+    }
+
     /// Create a new V8 isolate from a snapshot blob
     ///
     /// This is the primary constructor for restoring isolates from
