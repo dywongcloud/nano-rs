@@ -1717,6 +1717,7 @@ dependencies = [
  "elliptic-curve",
  "flate2",
  "futures",
+ "futures-util",
  "getrandom 0.2.17",
  "home",
  "http-body-util",
