@@ -2057,6 +2057,14 @@ fn subtle_export_key(
         }
     };
     
+    // Enforce non-extractable key guard (WebCrypto spec)
+    if !crypto_key.extractable {
+        let msg = v8::String::new(scope, "The CryptoKey is not extractable").unwrap();
+        let error = v8::Exception::error(scope, msg);
+        scope.throw_exception(error);
+        return;
+    }
+
     // Export based on format
     match format.as_str() {
         "jwk" => {
@@ -2748,47 +2756,86 @@ fn buffer_from_callback(
     }
 
     let arg = args.get(0);
-    
-    // Handle string input
-    if let Some(str) = arg.to_string(scope) {
-        let text = str.to_rust_string_lossy(scope);
-        let bytes = text.as_bytes();
-        let buffer = v8::ArrayBuffer::new(scope, bytes.len());
-        let store = buffer.get_backing_store();
-        for (i, byte) in bytes.iter().enumerate() {
-            if let Some(cell) = store.get(i) {
-                cell.set(*byte);
+
+    // Handle ArrayBuffer input
+    if let Ok(ab) = v8::Local::<v8::ArrayBuffer>::try_from(arg) {
+        let store = ab.get_backing_store();
+        let len = store.len();
+        let out = v8::ArrayBuffer::new(scope, len);
+        let out_store = out.get_backing_store();
+        for i in 0..len {
+            if let (Some(src), Some(dst)) = (store.get(i), out_store.get(i)) {
+                dst.set(src.get());
             }
         }
-        let arr = v8::Uint8Array::new(scope, buffer, 0, bytes.len()).unwrap();
+        let arr = v8::Uint8Array::new(scope, out, 0, len).unwrap();
         add_buffer_tostring_to_instance(scope, arr.into());
         retval.set(arr.into());
         return;
     }
 
-    // Handle array-like input
-    if let Some(obj) = arg.to_object(scope) {
-        let len_key = v8::String::new(scope, "length").unwrap();
-        if let Some(len_val) = obj.get(scope, len_key.into()) {
-            if let Some(len_num) = len_val.to_number(scope) {
-                let len = len_num.value() as usize;
-                let buffer = v8::ArrayBuffer::new(scope, len);
-                let store = buffer.get_backing_store();
-                for i in 0..len {
-                    let idx = v8::Number::new(scope, i as f64);
-                    if let Some(val) = obj.get(scope, idx.into()) {
-                        if let Some(num) = val.to_number(scope) {
-                            if let Some(cell) = store.get(i) {
-                                cell.set(num.value() as u8);
+    // Handle ArrayBufferView (Uint8Array, etc.) input
+    if let Ok(view) = v8::Local::<v8::ArrayBufferView>::try_from(arg) {
+        let len = view.byte_length();
+        let buffer = v8::ArrayBuffer::new(scope, len);
+        let store = buffer.get_backing_store();
+        let mut tmp = vec![0u8; len];
+        view.copy_contents(&mut tmp);
+        for (i, byte) in tmp.iter().enumerate() {
+            if let Some(cell) = store.get(i) {
+                cell.set(*byte);
+            }
+        }
+        let arr = v8::Uint8Array::new(scope, buffer, 0, len).unwrap();
+        add_buffer_tostring_to_instance(scope, arr.into());
+        retval.set(arr.into());
+        return;
+    }
+
+    // Handle array-like input (check BEFORE string coercion — to_string() coerces arrays)
+    if arg.is_array() {
+        if let Some(obj) = arg.to_object(scope) {
+            let len_key = v8::String::new(scope, "length").unwrap();
+            if let Some(len_val) = obj.get(scope, len_key.into()) {
+                if let Some(len_num) = len_val.to_number(scope) {
+                    let len = len_num.value() as usize;
+                    let buffer = v8::ArrayBuffer::new(scope, len);
+                    let store = buffer.get_backing_store();
+                    for i in 0..len {
+                        let idx = v8::Number::new(scope, i as f64);
+                        if let Some(val) = obj.get(scope, idx.into()) {
+                            if let Some(num) = val.to_number(scope) {
+                                if let Some(cell) = store.get(i) {
+                                    cell.set(num.value() as u8);
+                                }
                             }
                         }
                     }
+                    let arr = v8::Uint8Array::new(scope, buffer, 0, len).unwrap();
+                    add_buffer_tostring_to_instance(scope, arr.into());
+                    retval.set(arr.into());
+                    return;
                 }
-                let arr = v8::Uint8Array::new(scope, buffer, 0, len).unwrap();
-                add_buffer_tostring_to_instance(scope, arr.into());
-                retval.set(arr.into());
-                return;
             }
+        }
+    }
+
+    // Handle string input (after array check — to_string() would coerce arrays)
+    if arg.is_string() {
+        if let Some(str) = arg.to_string(scope) {
+            let text = str.to_rust_string_lossy(scope);
+            let bytes = text.as_bytes();
+            let buffer = v8::ArrayBuffer::new(scope, bytes.len());
+            let store = buffer.get_backing_store();
+            for (i, byte) in bytes.iter().enumerate() {
+                if let Some(cell) = store.get(i) {
+                    cell.set(*byte);
+                }
+            }
+            let arr = v8::Uint8Array::new(scope, buffer, 0, bytes.len()).unwrap();
+            add_buffer_tostring_to_instance(scope, arr.into());
+            retval.set(arr.into());
+            return;
         }
     }
 

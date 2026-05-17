@@ -252,6 +252,9 @@ impl WorkerPool {
                         let mut scope = scope_pin.init();
                         let context = v8::Context::new(&scope, Default::default());
 
+                        // Security: block eval() and new Function() — matches Cloudflare Workers.
+                        context.set_allow_generation_from_strings(false);
+
                         // Bind all WinterCG runtime APIs once (before entering context)
                         crate::runtime::apis::RuntimeAPIs::bind_all(&mut scope, context);
 
@@ -266,6 +269,15 @@ impl WorkerPool {
                         let mut served: u32 = 0;
                         let isolate_id = format!("{}:{}", worker_hostname, id);
 
+                        // State-leaking note (Task C):
+                        // No per-request context reset fires here — this is intentional.
+                        // Module-level globals (vars declared outside the handler function)
+                        // persist across requests within one isolate lifetime, matching
+                        // Cloudflare Workers / Deno Deploy behaviour. Handler-local state
+                        // is fresh per call. Isolate is fully recycled after
+                        // MAX_REQUESTS_PER_ISOLATE, which bounds any accumulated global state.
+                        // Handlers MUST be written statelessly (state in KV/Durable Objects)
+                        // rather than relying on module globals being reset per request.
                         'requests: loop {
                             if served >= MAX_REQUESTS_PER_ISOLATE {
                                 info!("Worker {}: recycling isolate after {} requests", id, served);
@@ -410,12 +422,25 @@ impl WorkerPool {
                                 let js_req = rctor.new_instance(&mut ctx_scope, &[url_str.into(), opts.into()])
                                     .ok_or_else(|| anyhow!("Request instantiation failed"))?;
 
-                                // Call handler
-                                let call_result = handler_local.call(&mut ctx_scope, global_obj.into(), &[js_req.into()]);
+                                // TryCatch intercepts any JS exception thrown by the handler.
+                                // Dropping tc at closure exit clears the pending exception from
+                                // the isolate, preventing isolate poisoning across requests.
+                                // Must pin-and-init like HandleScope — TryCatch::new returns ScopeStorage.
+                                let tc_storage = v8::TryCatch::new(&mut *ctx_scope);
+                                let tc_pin = std::pin::pin!(tc_storage);
+                                let mut tc = tc_pin.init();
+
+                                let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
 
                                 // Resolve Promise if async handler
                                 let resolved = match call_result {
-                                    None => return Err(anyhow!("Handler threw a JS exception")),
+                                    None => {
+                                        let msg = tc.exception()
+                                            .and_then(|e| e.to_string(&tc))
+                                            .map(|s| s.to_rust_string_lossy(&tc))
+                                            .unwrap_or_else(|| "unknown JS exception".to_string());
+                                        return Err(anyhow!("JS exception: {}", msg));
+                                    }
                                     Some(v) if v.is_promise() => {
                                         let promise = v.cast::<v8::Promise>();
                                         let platform = v8::V8::get_current_platform();
@@ -426,13 +451,13 @@ impl WorkerPool {
                                                 let iso: &v8::Isolate = unsafe { &*iso_ptr };
                                                 v8::Platform::pump_message_loop(&platform, iso, false);
                                             }
-                                            ctx_scope.perform_microtask_checkpoint();
+                                            tc.perform_microtask_checkpoint();
                                             match promise.state() {
-                                                v8::PromiseState::Fulfilled => break promise.result(&mut ctx_scope),
+                                                v8::PromiseState::Fulfilled => break promise.result(&tc),
                                                 v8::PromiseState::Rejected => {
-                                                    let err = promise.result(&mut ctx_scope);
-                                                    let msg = err.to_string(&mut ctx_scope)
-                                                        .map(|s| s.to_rust_string_lossy(&mut ctx_scope))
+                                                    let err = promise.result(&tc);
+                                                    let msg = err.to_string(&tc)
+                                                        .map(|s| s.to_rust_string_lossy(&tc))
                                                         .unwrap_or_else(|| "Promise rejected".to_string());
                                                     return Err(anyhow!("Promise rejected: {}", msg));
                                                 }
@@ -449,37 +474,37 @@ impl WorkerPool {
                                 };
 
                                 // Extract NanoResponse from JS response object
-                                let obj = resolved.to_object(&mut ctx_scope)
+                                let obj = resolved.to_object(&tc)
                                     .ok_or_else(|| anyhow!("Handler response is not an object"))?;
 
-                                let sk = v8::String::new(&mut ctx_scope, "status").ok_or_else(|| anyhow!("status key"))?;
-                                let status = obj.get(&mut ctx_scope, sk.into())
-                                    .and_then(|v| v.to_integer(&mut ctx_scope))
+                                let sk = v8::String::new(&tc, "status").ok_or_else(|| anyhow!("status key"))?;
+                                let status = obj.get(&tc, sk.into())
+                                    .and_then(|v| v.to_integer(&tc))
                                     .map(|i| i.value() as u16)
                                     .unwrap_or(200);
 
                                 let mut response = crate::http::NanoResponse::with_status(status);
 
                                 // Extract response headers
-                                let h2k = v8::String::new(&mut ctx_scope, "headers").ok_or_else(|| anyhow!("headers key"))?;
-                                if let Some(hval) = obj.get(&mut ctx_scope, h2k.into()) {
-                                    if let Some(hobj) = hval.to_object(&mut ctx_scope) {
-                                        let ik = v8::String::new(&mut ctx_scope, "__headers__").ok_or_else(|| anyhow!("__headers__ key"))?;
-                                        let hsrc = hobj.get(&mut ctx_scope, ik.into())
-                                            .and_then(|v| v.to_object(&mut ctx_scope))
+                                let h2k = v8::String::new(&tc, "headers").ok_or_else(|| anyhow!("headers key"))?;
+                                if let Some(hval) = obj.get(&tc, h2k.into()) {
+                                    if let Some(hobj) = hval.to_object(&tc) {
+                                        let ik = v8::String::new(&tc, "__headers__").ok_or_else(|| anyhow!("__headers__ key"))?;
+                                        let hsrc = hobj.get(&tc, ik.into())
+                                            .and_then(|v| v.to_object(&tc))
                                             .unwrap_or(hobj);
-                                        if let Some(names) = hsrc.get_own_property_names(&mut ctx_scope, Default::default()) {
+                                        if let Some(names) = hsrc.get_own_property_names(&tc, Default::default()) {
                                             for i in 0..names.length() {
-                                                if let Some(key) = names.get_index(&mut ctx_scope, i) {
-                                                    if let Some(ks) = key.to_string(&mut ctx_scope) {
-                                                        let k = ks.to_rust_string_lossy(&mut ctx_scope);
+                                                if let Some(key) = names.get_index(&tc, i) {
+                                                    if let Some(ks) = key.to_string(&tc) {
+                                                        let k = ks.to_rust_string_lossy(&tc);
                                                         if k.starts_with("__") || matches!(k.as_str(), "set" | "get" | "forEach") {
                                                             continue;
                                                         }
-                                                        if let Some(val) = hsrc.get(&mut ctx_scope, key.into()) {
+                                                        if let Some(val) = hsrc.get(&tc, key.into()) {
                                                             if !val.is_function() {
-                                                                if let Some(vs) = val.to_string(&mut ctx_scope) {
-                                                                    response = response.with_header(&k, &vs.to_rust_string_lossy(&mut ctx_scope));
+                                                                if let Some(vs) = val.to_string(&tc) {
+                                                                    response = response.with_header(&k, &vs.to_rust_string_lossy(&tc));
                                                                 }
                                                             }
                                                         }
@@ -491,11 +516,11 @@ impl WorkerPool {
                                 }
 
                                 // Extract response body
-                                let b2k = v8::String::new(&mut ctx_scope, "body").ok_or_else(|| anyhow!("body key"))?;
-                                if let Some(bval) = obj.get(&mut ctx_scope, b2k.into()) {
+                                let b2k = v8::String::new(&tc, "body").ok_or_else(|| anyhow!("body key"))?;
+                                if let Some(bval) = obj.get(&tc, b2k.into()) {
                                     if !bval.is_null() && !bval.is_undefined() {
-                                        if let Some(bs) = bval.to_string(&mut ctx_scope) {
-                                            response = response.with_body(bs.to_rust_string_lossy(&mut ctx_scope));
+                                        if let Some(bs) = bval.to_string(&tc) {
+                                            response = response.with_body(bs.to_rust_string_lossy(&tc));
                                         }
                                     }
                                 }
@@ -884,6 +909,8 @@ impl WorkerPool {
                         let scope_pin = std::pin::pin!(v8::HandleScope::new(nano.isolate()));
                         let mut scope = scope_pin.init();
                         let context = v8::Context::new(&scope, Default::default());
+                        // Security: block eval() and new Function() — matches Cloudflare Workers.
+                        context.set_allow_generation_from_strings(false);
                         crate::runtime::apis::RuntimeAPIs::bind_all(&mut scope, context);
                         let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
 
@@ -1049,10 +1076,24 @@ impl WorkerPool {
                                 let js_req = rctor.new_instance(&mut ctx_scope, &[url_str.into(), opts.into()])
                                     .ok_or_else(|| anyhow!("Request instantiation failed"))?;
 
-                                let call_result = handler_local.call(&mut ctx_scope, global_obj.into(), &[js_req.into()]);
+                                // TryCatch intercepts any JS exception thrown by the handler.
+                                // Dropping tc at closure exit clears the pending exception from
+                                // the isolate, preventing isolate poisoning across requests.
+                                // Must pin-and-init like HandleScope — TryCatch::new returns ScopeStorage.
+                                let tc_storage = v8::TryCatch::new(&mut *ctx_scope);
+                                let tc_pin = std::pin::pin!(tc_storage);
+                                let mut tc = tc_pin.init();
+
+                                let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
 
                                 let resolved = match call_result {
-                                    None => return Err(anyhow!("Handler threw a JS exception")),
+                                    None => {
+                                        let msg = tc.exception()
+                                            .and_then(|e| e.to_string(&tc))
+                                            .map(|s| s.to_rust_string_lossy(&tc))
+                                            .unwrap_or_else(|| "unknown JS exception".to_string());
+                                        return Err(anyhow!("JS exception: {}", msg));
+                                    }
                                     Some(v) if v.is_promise() => {
                                         let promise = v.cast::<v8::Promise>();
                                         let platform = v8::V8::get_current_platform();
@@ -1064,13 +1105,13 @@ impl WorkerPool {
                                                 let iso: &v8::Isolate = unsafe { &*iso_ptr };
                                                 v8::Platform::pump_message_loop(&platform, iso, false);
                                             }
-                                            ctx_scope.perform_microtask_checkpoint();
+                                            tc.perform_microtask_checkpoint();
                                             match promise.state() {
-                                                v8::PromiseState::Fulfilled => break promise.result(&mut ctx_scope),
+                                                v8::PromiseState::Fulfilled => break promise.result(&tc),
                                                 v8::PromiseState::Rejected => {
-                                                    let err = promise.result(&mut ctx_scope);
-                                                    let msg = err.to_string(&mut ctx_scope)
-                                                        .map(|s| s.to_rust_string_lossy(&mut ctx_scope))
+                                                    let err = promise.result(&tc);
+                                                    let msg = err.to_string(&tc)
+                                                        .map(|s| s.to_rust_string_lossy(&tc))
                                                         .unwrap_or_else(|| "Promise rejected".to_string());
                                                     return Err(anyhow!("Promise rejected: {}", msg));
                                                 }
@@ -1086,36 +1127,36 @@ impl WorkerPool {
                                     Some(v) => v,
                                 };
 
-                                let obj = resolved.to_object(&mut ctx_scope)
+                                let obj = resolved.to_object(&tc)
                                     .ok_or_else(|| anyhow!("Handler response is not an object"))?;
 
-                                let sk = v8::String::new(&mut ctx_scope, "status").ok_or_else(|| anyhow!("status key"))?;
-                                let status = obj.get(&mut ctx_scope, sk.into())
-                                    .and_then(|v| v.to_integer(&mut ctx_scope))
+                                let sk = v8::String::new(&tc, "status").ok_or_else(|| anyhow!("status key"))?;
+                                let status = obj.get(&tc, sk.into())
+                                    .and_then(|v| v.to_integer(&tc))
                                     .map(|i| i.value() as u16)
                                     .unwrap_or(200);
 
                                 let mut response = crate::http::NanoResponse::with_status(status);
 
-                                let h2k = v8::String::new(&mut ctx_scope, "headers").ok_or_else(|| anyhow!("headers key"))?;
-                                if let Some(hval) = obj.get(&mut ctx_scope, h2k.into()) {
-                                    if let Some(hobj) = hval.to_object(&mut ctx_scope) {
-                                        let ik = v8::String::new(&mut ctx_scope, "__headers__").ok_or_else(|| anyhow!("__headers__ key"))?;
-                                        let hsrc = hobj.get(&mut ctx_scope, ik.into())
-                                            .and_then(|v| v.to_object(&mut ctx_scope))
+                                let h2k = v8::String::new(&tc, "headers").ok_or_else(|| anyhow!("headers key"))?;
+                                if let Some(hval) = obj.get(&tc, h2k.into()) {
+                                    if let Some(hobj) = hval.to_object(&tc) {
+                                        let ik = v8::String::new(&tc, "__headers__").ok_or_else(|| anyhow!("__headers__ key"))?;
+                                        let hsrc = hobj.get(&tc, ik.into())
+                                            .and_then(|v| v.to_object(&tc))
                                             .unwrap_or(hobj);
-                                        if let Some(names) = hsrc.get_own_property_names(&mut ctx_scope, Default::default()) {
+                                        if let Some(names) = hsrc.get_own_property_names(&tc, Default::default()) {
                                             for i in 0..names.length() {
-                                                if let Some(key) = names.get_index(&mut ctx_scope, i) {
-                                                    if let Some(ks) = key.to_string(&mut ctx_scope) {
-                                                        let k = ks.to_rust_string_lossy(&mut ctx_scope);
+                                                if let Some(key) = names.get_index(&tc, i) {
+                                                    if let Some(ks) = key.to_string(&tc) {
+                                                        let k = ks.to_rust_string_lossy(&tc);
                                                         if k.starts_with("__") || matches!(k.as_str(), "set" | "get" | "forEach") {
                                                             continue;
                                                         }
-                                                        if let Some(val) = hsrc.get(&mut ctx_scope, key.into()) {
+                                                        if let Some(val) = hsrc.get(&tc, key.into()) {
                                                             if !val.is_function() {
-                                                                if let Some(vs) = val.to_string(&mut ctx_scope) {
-                                                                    response = response.with_header(&k, &vs.to_rust_string_lossy(&mut ctx_scope));
+                                                                if let Some(vs) = val.to_string(&tc) {
+                                                                    response = response.with_header(&k, &vs.to_rust_string_lossy(&tc));
                                                                 }
                                                             }
                                                         }
@@ -1126,11 +1167,11 @@ impl WorkerPool {
                                     }
                                 }
 
-                                let b2k = v8::String::new(&mut ctx_scope, "body").ok_or_else(|| anyhow!("body key"))?;
-                                if let Some(bval) = obj.get(&mut ctx_scope, b2k.into()) {
+                                let b2k = v8::String::new(&tc, "body").ok_or_else(|| anyhow!("body key"))?;
+                                if let Some(bval) = obj.get(&tc, b2k.into()) {
                                     if !bval.is_null() && !bval.is_undefined() {
-                                        if let Some(bs) = bval.to_string(&mut ctx_scope) {
-                                            response = response.with_body(bs.to_rust_string_lossy(&mut ctx_scope));
+                                        if let Some(bs) = bval.to_string(&tc) {
+                                            response = response.with_body(bs.to_rust_string_lossy(&tc));
                                         }
                                     }
                                 }

@@ -297,6 +297,34 @@
 
 ---
 
+## v1.7 Pre-Release Stability 📋
+
+**Milestone Goal:** Fix isolate reuse correctness, validate state isolation guarantees, verify exception recovery on recycled isolates before advancing to v2.0 features.
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 40. Pre-Phase-23 Stability | v1.7 | 5 plans | In progress | - |
+
+### Phase 40: Pre-Phase-23 Stability
+**Goal:** Fix cumulative JS exceptions on isolate reuse, validate state isolation, harden exception recovery, verify with dynamic tests  
+**Depends on:** Phase 37 (TigerStyle Architecture)  
+**Requirements:** STAB-01, STAB-02, STAB-03, STAB-04  
+**Success Criteria** (what must be TRUE):
+  1. handler_local.call() never returns None on a reused isolate after TryCatch fix
+  2. Exception on request N does not cause request N+1 to fail on same isolate
+  3. State isolation: per-request state is fresh; module-level globals are documented as persistent (CF-Workers behaviour)
+  4. Dynamic endurance tests (10+ requests per worker) pass without degradation
+**Plans**: 5 plans
+- [ ] 40-00-PLAN.md -- Commit in-session fixes (TryCatch, string-gen block, Buffer.from)
+- [ ] 40-01-PLAN.md -- Fix CpuTimeoutGuard: add cancel_terminate_execution() on drop
+- [ ] 40-02-PLAN.md -- Write isolate_endurance_test.rs (ENDURE-01..03)
+- [ ] 40-03-PLAN.md -- Audit and fix external test suite state-assumption assertions
+- [ ] 40-04-PLAN.md -- Update V8 investigation doc + STATE.md, run full test gate
+**UI hint**: no  
+**Location:** `.planning/phases/40-pre-phase-23-stability/`
+
+---
+
 ## v2.0 Advanced Features 📋
 
 **Milestone Goal:** WebSockets, advanced crypto, compression, inter-isolate messaging
