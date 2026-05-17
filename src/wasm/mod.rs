@@ -16,7 +16,7 @@ pub mod loader;
 pub mod sliver;
 pub mod js_api;
 
-pub use engine::{compile_module, validate_wasm_bytes, WasmModuleCache, WasmCompileError, WasmValidationError};
+pub use engine::{compile_module, validate_wasm_bytes, WasmModuleCache, WasmCompileError, WasmValidationError, compute_hash, global_wasm_cache};
 pub use error::WasmError;
 pub use loader::WasmLoader;
 pub use sliver::SliverWasmCache;

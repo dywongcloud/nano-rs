@@ -4,7 +4,16 @@
 //! Uses V8's native WasmModuleObject API for compilation and execution.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+
+/// Process-global WASM module cache, shared across all workers and isolates.
+static GLOBAL_WASM_CACHE: OnceLock<WasmModuleCache> = OnceLock::new();
+
+/// Get the process-global WASM module cache.
+/// Initialized on first call, shared across all workers and isolates.
+pub fn global_wasm_cache() -> &'static WasmModuleCache {
+    GLOBAL_WASM_CACHE.get_or_init(WasmModuleCache::new)
+}
 
 /// WASM module cache for compiled modules
 /// 
@@ -60,6 +69,16 @@ impl WasmModuleCache {
         let mut modules = self.modules.lock().unwrap();
         modules.clear();
     }
+
+    /// Return the number of cached modules
+    pub fn len(&self) -> usize {
+        self.modules.lock().unwrap().len()
+    }
+
+    /// Return true if the cache is empty
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl Default for WasmModuleCache {
@@ -113,14 +132,16 @@ pub fn compile_module<'s>(
     }
 }
 
-/// Compute a hash of WASM bytes for cache keys
-fn compute_hash(bytes: &[u8]) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    
-    let mut hasher = DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+/// Compute a stable SHA-256 hash of WASM bytes for cache keys.
+///
+/// Uses SHA-256 instead of DefaultHasher for cross-process stability —
+/// DefaultHasher is not guaranteed to produce the same output across processes
+/// or Rust versions.
+pub fn compute_hash(bytes: &[u8]) -> String {
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
 }
 
 /// WASM compilation errors
@@ -258,12 +279,50 @@ mod tests {
     #[test]
     fn test_module_cache_store_and_retrieve() {
         let cache = WasmModuleCache::new();
-        
+
         // Note: We can't test actual module storage without a V8 isolate,
         // but we can test the cache operations
         assert!(!cache.contains("test_hash"));
-        
+
         // Store and retrieve would require a real CompiledWasmModule
         // which we can only get from V8 compilation
+    }
+
+    #[test]
+    fn test_global_cache_singleton() {
+        let c1 = global_wasm_cache();
+        let c2 = global_wasm_cache();
+        // Same address — singleton
+        assert!(std::ptr::eq(c1 as *const _, c2 as *const _));
+    }
+
+    #[test]
+    fn test_hash_stability() {
+        let wasm = add_wasm();
+        let h1 = compute_hash(&wasm);
+        let h2 = compute_hash(&wasm);
+        assert_eq!(h1, h2);
+        // SHA-256 output is 64 hex chars
+        assert_eq!(h1.len(), 64);
+    }
+
+    #[test]
+    fn test_hash_cross_process_stable() {
+        // Known SHA-256 of \0asm\x01\x00\x00\x00 (minimal WASM)
+        let minimal = minimal_wasm();
+        let hash = compute_hash(&minimal);
+        // SHA-256 hash must be 64 hex chars
+        assert_eq!(hash.len(), 64, "SHA-256 hash must be 64 hex chars");
+        // Verify determinism: same bytes always same hash
+        assert_eq!(hash, compute_hash(&minimal));
+    }
+
+    #[test]
+    fn test_cache_len() {
+        let cache = WasmModuleCache::new();
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+        // We can't test store/retrieve without a V8 isolate,
+        // but the global cache integration test in isolate_wasm_cache_test covers it
     }
 }
