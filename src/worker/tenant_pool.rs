@@ -24,15 +24,9 @@
 //! - V8-compatible (no context reset issues)
 //! - Matches Cloudflare Workers/Deno Deploy architecture
 
-#[allow(unused_imports)]
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-#[allow(unused_imports)]
-use std::sync::Arc;
 use std::thread;
-#[allow(unused_imports)]
-use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use tracing::{error, info};
@@ -208,6 +202,9 @@ impl TenantPool {
                     };
 
                     if let Some(ref mon) = oom_monitor {
+                        // SAFETY: iso_ptr was captured from nano.isolate() before the HandleScope
+                        // was created. The isolate is pinned to this thread and nano outlives scope.
+                        // OomMonitor::check() only reads heap statistics via v8::HeapStatistics.
                         let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
                         if let Err(oom) = mon.check(iso_ref) {
                             mon.log_oom_event(&oom, &task.request_id);
@@ -243,8 +240,14 @@ impl TenantPool {
                         }
 
                         let global_obj = context.global(&mut ctx_scope);
-                        let nano_k = v8::String::new(&mut ctx_scope, "__nano_user_fetch").unwrap();
-                        let fetch_k = v8::String::new(&mut ctx_scope, "fetch").unwrap();
+                        let nano_k = match v8::String::new(&mut ctx_scope, "__nano_user_fetch") {
+                            Some(s) => s,
+                            None => { let _ = task.response_tx.send(Err(anyhow!("V8 OOM allocating key"))); continue 'requests; }
+                        };
+                        let fetch_k = match v8::String::new(&mut ctx_scope, "fetch") {
+                            Some(s) => s,
+                            None => { let _ = task.response_tx.send(Err(anyhow!("V8 OOM allocating key"))); continue 'requests; }
+                        };
                         let handler_val = global_obj.get(&mut ctx_scope, nano_k.into())
                             .filter(|v| v.is_function())
                             .or_else(|| global_obj.get(&mut ctx_scope, fetch_k.into()).filter(|v| v.is_function()));
@@ -263,11 +266,16 @@ impl TenantPool {
                     }
 
                     let _timeout = if task.cpu_time_limit_ms > 0 {
+                        // SAFETY: iso_ptr is valid for this isolate's lifetime. CpuTimeoutGuard
+                        // stores the pointer and calls terminate_execution() from a timer thread,
+                        // which V8 documents as safe to call from any thread.
                         let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
                         Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
                     } else { None };
 
-                    let handler_g = handler_cache.get(&entrypoint).unwrap();
+                    // handler_cache.get is infallible here: we just inserted above if missing.
+                    let handler_g = handler_cache.get(&entrypoint)
+                        .expect("handler must be cached: just inserted in block above");
                     let global_obj = context.global(&mut ctx_scope);
                     let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
 
@@ -321,6 +329,8 @@ impl TenantPool {
                                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
                                 loop {
                                     for _ in 0..5 {
+                                        // SAFETY: pump_message_loop requires &Isolate. iso_ptr is
+                                        // valid for this thread for the isolate's lifetime.
                                         let iso: &v8::Isolate = unsafe { &*iso_ptr };
                                         v8::Platform::pump_message_loop(&platform, iso, false);
                                     }

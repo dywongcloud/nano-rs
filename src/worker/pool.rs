@@ -959,8 +959,14 @@ impl WorkerPool {
                                 }
 
                                 let global_obj = context.global(&mut ctx_scope);
-                                let nano_k = v8::String::new(&mut ctx_scope, "__nano_user_fetch").unwrap();
-                                let fetch_k = v8::String::new(&mut ctx_scope, "fetch").unwrap();
+                                let nano_k = match v8::String::new(&mut ctx_scope, "__nano_user_fetch") {
+                                    Some(s) => s,
+                                    None => { let _ = task.response_tx.send(Err(anyhow!("V8 OOM allocating key"))); continue 'requests; }
+                                };
+                                let fetch_k = match v8::String::new(&mut ctx_scope, "fetch") {
+                                    Some(s) => s,
+                                    None => { let _ = task.response_tx.send(Err(anyhow!("V8 OOM allocating key"))); continue 'requests; }
+                                };
                                 let handler_val = global_obj.get(&mut ctx_scope, nano_k.into())
                                     .filter(|v| v.is_function())
                                     .or_else(|| global_obj.get(&mut ctx_scope, fetch_k.into()).filter(|v| v.is_function()));
@@ -983,6 +989,9 @@ impl WorkerPool {
 
                             // CPU timeout guard
                             let _timeout = if task.cpu_time_limit_ms > 0 {
+                                // SAFETY: iso_ptr is valid for this isolate's lifetime.
+                                // CpuTimeoutGuard calls terminate_execution() from a timer thread,
+                                // which V8 documents as safe to call from any thread.
                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
                                 Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
                             } else {
@@ -990,7 +999,9 @@ impl WorkerPool {
                             };
 
                             // Execute handler using persistent context
-                            let handler_g = handler_cache.get(&entrypoint).unwrap();
+                            // handler_cache.get is infallible: just inserted above if missing.
+                            let handler_g = handler_cache.get(&entrypoint)
+                                .expect("handler must be cached: just inserted in block above");
                             let global_obj = context.global(&mut ctx_scope);
                             let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
 
@@ -1048,6 +1059,8 @@ impl WorkerPool {
                                         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
                                         loop {
                                             for _ in 0..5 {
+                                                // SAFETY: pump_message_loop requires &Isolate.
+                                                // iso_ptr is valid and pinned to this thread.
                                                 let iso: &v8::Isolate = unsafe { &*iso_ptr };
                                                 v8::Platform::pump_message_loop(&platform, iso, false);
                                             }
