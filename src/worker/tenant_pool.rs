@@ -52,38 +52,38 @@ const MAX_REQUESTS_PER_ISOLATE: u32 = 10_000;
 // safe and lock-free.
 // ---------------------------------------------------------------------------
 
-/// Outbound frame sender — cloned from WsChannels.outbound_tx on WS entry.
-/// The send() FunctionCallback reads this to push frames to the relay task.
+// Outbound frame sender — cloned from WsChannels.outbound_tx on WS entry.
+// The send() FunctionCallback reads this to push frames to the relay task.
 thread_local! {
     pub(crate) static WS_OUTBOUND: RefCell<Option<std::sync::mpsc::SyncSender<tungstenite::Message>>> =
         RefCell::new(None);
 }
 
-/// Whether the JS handler called ws.accept() — send() checks this (D-14b).
+// Whether the JS handler called ws.accept() — send() checks this (D-14b).
 thread_local! {
     pub(crate) static WS_ACCEPTED: Cell<bool> = Cell::new(false);
 }
 
-/// JS 'message' event handlers registered via addEventListener('message', fn).
+// JS 'message' event handlers registered via addEventListener('message', fn).
 thread_local! {
     pub(crate) static WS_MESSAGE_HANDLERS: RefCell<Vec<v8::Global<v8::Function>>> =
         RefCell::new(Vec::new());
 }
 
-/// JS 'close' event handlers registered via addEventListener('close', fn).
+// JS 'close' event handlers registered via addEventListener('close', fn).
 thread_local! {
     pub(crate) static WS_CLOSE_HANDLERS: RefCell<Vec<v8::Global<v8::Function>>> =
         RefCell::new(Vec::new());
 }
 
-/// JS 'error' event handlers registered via addEventListener('error', fn).
+// JS 'error' event handlers registered via addEventListener('error', fn).
 thread_local! {
     pub(crate) static WS_ERROR_HANDLERS: RefCell<Vec<v8::Global<v8::Function>>> =
         RefCell::new(Vec::new());
 }
 
-/// The server-side WebSocket object (v8::Object) created by WebSocketPair ctor.
-/// Used to update the readyState property on state transitions (D-16b).
+// The server-side WebSocket object (v8::Object) created by WebSocketPair ctor.
+// Used to update the readyState property on state transitions (D-16b).
 thread_local! {
     pub(crate) static WS_SERVER_SOCKET: RefCell<Option<v8::Global<v8::Object>>> =
         RefCell::new(None);
@@ -145,8 +145,6 @@ pub struct TenantPool {
     /// Maximum concurrent WebSocket connections for this tenant, from AppLimits (D-07).
     max_ws_connections: u32,
     /// Idle timeout in ms before a WS worker thread exits (D-03b, D-11b).
-    /// Plan 04 will wire this into the WS worker's recv_timeout call.
-    #[allow(dead_code)]
     ws_idle_timeout_ms: u64,
 }
 
@@ -191,6 +189,7 @@ impl TenantPool {
                 memory_limit_mb,
                 vfs_backend.clone(),
                 Arc::clone(&ws_busy),
+                ws_idle_timeout_ms,
             )?;
             workers.push(worker);
         }
@@ -223,12 +222,13 @@ impl TenantPool {
         memory_limit_mb: u32,
         vfs_backend: VfsBackendEnum,
         ws_busy: Arc<AtomicUsize>,
+        ws_idle_timeout_ms: u64,
     ) -> Result<TenantWorker> {
         let (task_tx, task_rx): (mpsc::Sender<HandlerTask>, mpsc::Receiver<HandlerTask>) =
             mpsc::channel();
 
         let thread = thread::spawn(move || {
-            Self::worker_loop(id, hostname, memory_limit_mb, vfs_backend, task_rx, ws_busy);
+            Self::worker_loop(id, hostname, memory_limit_mb, vfs_backend, task_rx, ws_busy, ws_idle_timeout_ms);
         });
 
         Ok(TenantWorker {
@@ -247,12 +247,13 @@ impl TenantPool {
         memory_limit_mb: u32,
         vfs_backend: VfsBackendEnum,
         ws_busy: Arc<AtomicUsize>,
+        ws_idle_timeout_ms: u64,
     ) -> Result<WsWorkerHandle> {
         let (task_tx, task_rx): (mpsc::Sender<HandlerTask>, mpsc::Receiver<HandlerTask>) =
             mpsc::channel();
 
         let thread = thread::spawn(move || {
-            Self::worker_loop(id, hostname, memory_limit_mb, vfs_backend, task_rx, ws_busy);
+            Self::worker_loop(id, hostname, memory_limit_mb, vfs_backend, task_rx, ws_busy, ws_idle_timeout_ms);
         });
 
         Ok(WsWorkerHandle {
@@ -269,6 +270,7 @@ impl TenantPool {
         vfs_backend: VfsBackendEnum,
         task_rx: mpsc::Receiver<HandlerTask>,
         ws_busy: Arc<AtomicUsize>,
+        ws_idle_timeout_ms: u64,
     ) {
         info!("Tenant worker {} for '{}' starting", id, hostname);
 
@@ -286,14 +288,14 @@ impl TenantPool {
         set_worker_runtime(rt_handle);
 
         // Run the worker event loop
-        Self::run_worker(id, hostname, memory_limit_mb, vfs_backend, task_rx, ws_busy);
+        Self::run_worker(id, hostname, memory_limit_mb, vfs_backend, task_rx, ws_busy, ws_idle_timeout_ms);
     }
 
     /// Core worker loop — runs inside a spawned thread.
     ///
-    /// `ws_busy` is wired through here so Plan 04 can atomically
-    /// increment/decrement the counter when a WS task arrives/finishes.
-    /// For now the parameter is unused (placeholder for Plan 04).
+    /// `ws_busy` is incremented when a WS task arrives and decremented when
+    /// the connection closes (D-13b: worker-side to avoid TOCTOU).
+    /// `ws_idle_timeout_ms` controls the recv_timeout for the ws_messages loop.
     fn run_worker(
         id: u32,
         hostname: String,
@@ -301,9 +303,8 @@ impl TenantPool {
         vfs_backend: VfsBackendEnum,
         task_rx: mpsc::Receiver<HandlerTask>,
         ws_busy: Arc<AtomicUsize>,
+        ws_idle_timeout_ms: u64,
     ) {
-        // Placeholder: Plan 04 will use ws_busy to track active WS connections.
-        let _ = &ws_busy;
         use crate::v8::NanoIsolate;
 
         let oom_monitor = if memory_limit_mb > 0 {
@@ -371,6 +372,326 @@ impl TenantPool {
                             break 'requests;
                         }
                     }
+
+                    // --- WebSocket mode: task.ws.is_some() → enter ws_messages loop ---
+                    // D-01 (pin-a-worker), D-03 (drain-then-recycle), D-09b (per-message CpuTimeoutGuard),
+                    // D-10 (sequential per-connection), D-13 (graceful OOM).
+                    if let Some(ws_channels) = task.ws {
+                        // D-13b: increment ws_busy inside worker thread (not in dispatch_ws)
+                        // to avoid TOCTOU between the connection-limit check and the actual send.
+                        ws_busy.fetch_add(1, Ordering::SeqCst);
+
+                        // Seed thread-locals for this connection.
+                        WS_OUTBOUND.with(|tx| *tx.borrow_mut() = Some(ws_channels.outbound_tx.clone()));
+                        WS_ACCEPTED.with(|a| a.set(false));
+                        WS_MESSAGE_HANDLERS.with(|h| h.borrow_mut().clear());
+                        WS_CLOSE_HANDLERS.with(|h| h.borrow_mut().clear());
+                        WS_ERROR_HANDLERS.with(|h| h.borrow_mut().clear());
+                        // WS_SERVER_SOCKET left as None — set by WebSocketPair ctor in Plan 05.
+
+                        // Signal 101 Switching Protocols back to the HTTP layer.
+                        // The axum relay task (Plan 03) reads this to confirm the upgrade.
+                        let upgrade_response = crate::http::NanoResponse::with_status(101);
+                        let _ = task.response_tx.send(Ok(upgrade_response));
+
+                        // Call the JS fetch handler so the JS handler can register event listeners
+                        // via ws.addEventListener / ws.onmessage etc. (Plan 05 wires these APIs).
+                        // We reuse the entrypoint handler already cached for this isolate (or load it).
+                        let entrypoint = task.entrypoint.clone();
+                        // Ensure handler is cached (same path as HTTP).
+                        if !handler_cache.contains_key(&entrypoint) {
+                            let code = match crate::data_plane::read_code_cached(&entrypoint) {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    error!("WS handler code read failed: {}", e);
+                                    clear_ws_thread_locals();
+                                    ws_busy.fetch_sub(1, Ordering::SeqCst);
+                                    break 'requests;
+                                }
+                            };
+                            let transformed = if crate::v8::module::is_esm_module(&code) {
+                                crate::v8::module::transform_module_code(&code)
+                            } else { code.to_string() };
+                            let code_v8 = match v8::String::new(&mut ctx_scope, &transformed) {
+                                Some(s) => s,
+                                None => {
+                                    clear_ws_thread_locals();
+                                    ws_busy.fetch_sub(1, Ordering::SeqCst);
+                                    break 'requests;
+                                }
+                            };
+                            let script = match v8::Script::compile(&ctx_scope, code_v8, None) {
+                                Some(s) => s,
+                                None => {
+                                    clear_ws_thread_locals();
+                                    ws_busy.fetch_sub(1, Ordering::SeqCst);
+                                    break 'requests;
+                                }
+                            };
+                            if script.run(&ctx_scope).is_none() {
+                                clear_ws_thread_locals();
+                                ws_busy.fetch_sub(1, Ordering::SeqCst);
+                                break 'requests;
+                            }
+                            let global_obj = context.global(&mut ctx_scope);
+                            let nano_k = v8::String::new(&mut ctx_scope, "__nano_user_fetch");
+                            let fetch_k = v8::String::new(&mut ctx_scope, "fetch");
+                            if let (Some(nk), Some(fk)) = (nano_k, fetch_k) {
+                                let handler_val = global_obj.get(&mut ctx_scope, nk.into())
+                                    .filter(|v| v.is_function())
+                                    .or_else(|| global_obj.get(&mut ctx_scope, fk.into()).filter(|v| v.is_function()));
+                                match handler_val {
+                                    Some(f) => {
+                                        let g = v8::Global::new(&**ctx_scope, f.cast::<v8::Function>());
+                                        handler_cache.insert(entrypoint.clone(), g);
+                                    }
+                                    None => {
+                                        clear_ws_thread_locals();
+                                        ws_busy.fetch_sub(1, Ordering::SeqCst);
+                                        break 'requests;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Call the JS fetch handler — JS registers event listeners here.
+                        // We create a minimal Request with the upgrade URL so the handler
+                        // can distinguish WS from HTTP if desired.
+                        if let Some(handler_g) = handler_cache.get(&entrypoint) {
+                            let global_obj = context.global(&mut ctx_scope);
+                            let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
+                            if let Some(url_str) = v8::String::new(&mut ctx_scope, &task.request.url().href()) {
+                                let tc_storage = v8::TryCatch::new(&mut *ctx_scope);
+                                let tc_pin = std::pin::pin!(tc_storage);
+                                let tc = tc_pin.init();
+                                let _ = handler_local.call(&tc, global_obj.into(), &[url_str.into()]);
+                                drop(tc);
+                            }
+                        }
+
+                        // Set readyState to OPEN (1) on the JS WebSocket object (D-16b).
+                        // If WS_SERVER_SOCKET is None (Plan 05 not yet wired), this is a no-op.
+                        set_ws_readystate(&mut ctx_scope, 1);
+
+                        info!(
+                            "Tenant worker {}: entering ws_messages loop for '{}'",
+                            id, entrypoint
+                        );
+
+                        // --- ws_messages inner loop (D-01, D-03, D-09b) ---
+                        let idle_dur = std::time::Duration::from_millis(
+                            if ws_idle_timeout_ms > 0 { ws_idle_timeout_ms } else { 30_000 }
+                        );
+
+                        'ws_messages: loop {
+                            match ws_channels.inbound_rx.recv_timeout(idle_dur) {
+                                // --- Text frame ---
+                                Ok(tungstenite::Message::Text(s)) => {
+                                    // OOM check before dispatching to JS (D-13).
+                                    if let Some(ref mon) = oom_monitor {
+                                        let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                        if let Err(_oom) = mon.check(iso_ref) {
+                                            // Send close 1011 (Internal Error) and recycle.
+                                            let close_frame = tungstenite::Message::Close(Some(
+                                                tungstenite::protocol::CloseFrame {
+                                                    code: tungstenite::protocol::frame::coding::CloseCode::Error,
+                                                    reason: std::borrow::Cow::Borrowed("OOM"),
+                                                }
+                                            ));
+                                            let _ = ws_channels.outbound_tx.send(close_frame);
+                                            break 'ws_messages;
+                                        }
+                                    }
+                                    // Per-message CPU timeout guard (D-09b).
+                                    let _timeout = if task.cpu_time_limit_ms > 0 {
+                                        let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                        Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
+                                    } else { None };
+                                    // Build JS MessageEvent: { type: "message", data: <string> }
+                                    let event = v8::Object::new(&mut ctx_scope);
+                                    if let (Some(tk), Some(tv), Some(dk), Some(dv)) = (
+                                        v8::String::new(&mut ctx_scope, "type"),
+                                        v8::String::new(&mut ctx_scope, "message"),
+                                        v8::String::new(&mut ctx_scope, "data"),
+                                        v8::String::new(&mut ctx_scope, s.as_str()),
+                                    ) {
+                                        event.set(&mut ctx_scope, tk.into(), tv.into());
+                                        event.set(&mut ctx_scope, dk.into(), dv.into());
+                                        let global_obj = context.global(&mut ctx_scope);
+                                        WS_MESSAGE_HANDLERS.with(|cell| {
+                                            for handler_g in cell.borrow().iter() {
+                                                let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
+                                                let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                let tc_pin = std::pin::pin!(tc_s);
+                                                let tc = tc_pin.init();
+                                                let _ = hlocal.call(&tc, global_obj.into(), &[event.into()]);
+                                            }
+                                        });
+                                    }
+                                }
+
+                                // --- Binary frame ---
+                                Ok(tungstenite::Message::Binary(b)) => {
+                                    // OOM check (D-13).
+                                    if let Some(ref mon) = oom_monitor {
+                                        let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                        if let Err(_oom) = mon.check(iso_ref) {
+                                            let close_frame = tungstenite::Message::Close(Some(
+                                                tungstenite::protocol::CloseFrame {
+                                                    code: tungstenite::protocol::frame::coding::CloseCode::Error,
+                                                    reason: std::borrow::Cow::Borrowed("OOM"),
+                                                }
+                                            ));
+                                            let _ = ws_channels.outbound_tx.send(close_frame);
+                                            break 'ws_messages;
+                                        }
+                                    }
+                                    // Per-message CPU timeout guard (D-09b).
+                                    let _timeout = if task.cpu_time_limit_ms > 0 {
+                                        let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                        Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
+                                    } else { None };
+                                    // Build JS MessageEvent with ArrayBuffer data.
+                                    let byte_len = b.len();
+                                    let ab_store = v8::ArrayBuffer::new_backing_store_from_vec(b);
+                                    let shared = ab_store.make_shared();
+                                    let ab = v8::ArrayBuffer::with_backing_store(&mut ctx_scope, &shared);
+                                    let event = v8::Object::new(&mut ctx_scope);
+                                    if let (Some(tk), Some(tv), Some(dk)) = (
+                                        v8::String::new(&mut ctx_scope, "type"),
+                                        v8::String::new(&mut ctx_scope, "message"),
+                                        v8::String::new(&mut ctx_scope, "data"),
+                                    ) {
+                                        let _ = byte_len; // consumed via ab
+                                        event.set(&mut ctx_scope, tk.into(), tv.into());
+                                        event.set(&mut ctx_scope, dk.into(), ab.into());
+                                        let global_obj = context.global(&mut ctx_scope);
+                                        WS_MESSAGE_HANDLERS.with(|cell| {
+                                            for handler_g in cell.borrow().iter() {
+                                                let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
+                                                let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                let tc_pin = std::pin::pin!(tc_s);
+                                                let tc = tc_pin.init();
+                                                let _ = hlocal.call(&tc, global_obj.into(), &[event.into()]);
+                                            }
+                                        });
+                                    }
+                                }
+
+                                // --- Close frame (D-12) ---
+                                Ok(tungstenite::Message::Close(frame)) => {
+                                    // Transition readyState to CLOSED (3) on the JS object.
+                                    set_ws_readystate(&mut ctx_scope, 3);
+                                    // Build JS CloseEvent: { type:"close", code, reason, wasClean:true }
+                                    let (code_val, reason_str) = frame
+                                        .map(|f| (u16::from(f.code), f.reason.into_owned()))
+                                        .unwrap_or((1000, String::new()));
+                                    let close_event = v8::Object::new(&mut ctx_scope);
+                                    if let (Some(tyk), Some(tyv), Some(ck), Some(rk), Some(rv), Some(wck)) = (
+                                        v8::String::new(&mut ctx_scope, "type"),
+                                        v8::String::new(&mut ctx_scope, "close"),
+                                        v8::String::new(&mut ctx_scope, "code"),
+                                        v8::String::new(&mut ctx_scope, "reason"),
+                                        v8::String::new(&mut ctx_scope, &reason_str),
+                                        v8::String::new(&mut ctx_scope, "wasClean"),
+                                    ) {
+                                        let code_int = v8::Integer::new(&mut ctx_scope, code_val as i32);
+                                        let was_clean = v8::Boolean::new(&mut ctx_scope, true);
+                                        close_event.set(&mut ctx_scope, tyk.into(), tyv.into());
+                                        close_event.set(&mut ctx_scope, ck.into(), code_int.into());
+                                        close_event.set(&mut ctx_scope, rk.into(), rv.into());
+                                        close_event.set(&mut ctx_scope, wck.into(), was_clean.into());
+                                        let global_obj = context.global(&mut ctx_scope);
+                                        WS_CLOSE_HANDLERS.with(|cell| {
+                                            for handler_g in cell.borrow().iter() {
+                                                let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
+                                                let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                let tc_pin = std::pin::pin!(tc_s);
+                                                let tc = tc_pin.init();
+                                                let _ = hlocal.call(&tc, global_obj.into(), &[close_event.into()]);
+                                            }
+                                        });
+                                    }
+                                    break 'ws_messages;
+                                }
+
+                                // --- Ping / Pong — skip per D-15b ---
+                                Ok(tungstenite::Message::Ping(_)) | Ok(tungstenite::Message::Pong(_)) => {
+                                    continue 'ws_messages;
+                                }
+
+                                // --- Idle timeout (D-11b) — recycle worker ---
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                    info!("Tenant worker {}: WS idle timeout, recycling", id);
+                                    break 'ws_messages;
+                                }
+
+                                // --- Channel disconnect: relay task dropped (D-17b) ---
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                    // Abnormal close: relay dropped inbound_tx without Close frame.
+                                    set_ws_readystate(&mut ctx_scope, 3);
+                                    // Fire error event first, then close event with code 1006.
+                                    let error_event = v8::Object::new(&mut ctx_scope);
+                                    if let (Some(tyk), Some(tyv)) = (
+                                        v8::String::new(&mut ctx_scope, "type"),
+                                        v8::String::new(&mut ctx_scope, "error"),
+                                    ) {
+                                        error_event.set(&mut ctx_scope, tyk.into(), tyv.into());
+                                        let global_obj = context.global(&mut ctx_scope);
+                                        WS_ERROR_HANDLERS.with(|cell| {
+                                            for handler_g in cell.borrow().iter() {
+                                                let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
+                                                let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                let tc_pin = std::pin::pin!(tc_s);
+                                                let tc = tc_pin.init();
+                                                let _ = hlocal.call(&tc, global_obj.into(), &[error_event.into()]);
+                                            }
+                                        });
+                                    }
+                                    // Close event with code 1006 (Abnormal Closure).
+                                    let close_event = v8::Object::new(&mut ctx_scope);
+                                    if let (Some(tyk), Some(tyv), Some(ck), Some(rk), Some(rv), Some(wck)) = (
+                                        v8::String::new(&mut ctx_scope, "type"),
+                                        v8::String::new(&mut ctx_scope, "close"),
+                                        v8::String::new(&mut ctx_scope, "code"),
+                                        v8::String::new(&mut ctx_scope, "reason"),
+                                        v8::String::new(&mut ctx_scope, ""),
+                                        v8::String::new(&mut ctx_scope, "wasClean"),
+                                    ) {
+                                        let code_int = v8::Integer::new(&mut ctx_scope, 1006);
+                                        let was_clean = v8::Boolean::new(&mut ctx_scope, false);
+                                        close_event.set(&mut ctx_scope, tyk.into(), tyv.into());
+                                        close_event.set(&mut ctx_scope, ck.into(), code_int.into());
+                                        close_event.set(&mut ctx_scope, rk.into(), rv.into());
+                                        close_event.set(&mut ctx_scope, wck.into(), was_clean.into());
+                                        let global_obj = context.global(&mut ctx_scope);
+                                        WS_CLOSE_HANDLERS.with(|cell| {
+                                            for handler_g in cell.borrow().iter() {
+                                                let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
+                                                let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                let tc_pin = std::pin::pin!(tc_s);
+                                                let tc = tc_pin.init();
+                                                let _ = hlocal.call(&tc, global_obj.into(), &[close_event.into()]);
+                                            }
+                                        });
+                                    }
+                                    break 'ws_messages;
+                                }
+
+                                // --- Future-proof: unknown frame variants ---
+                                Ok(_) => continue 'ws_messages,
+                            }
+                        } // end 'ws_messages
+
+                        // --- Post-ws_messages cleanup (D-10b) ---
+                        clear_ws_thread_locals();
+                        ws_busy.fetch_sub(1, Ordering::SeqCst);
+                        // D-03: WS messages do NOT increment served counter.
+                        // D-10b: Break 'requests to force isolate recycle — ensures a fresh
+                        // isolate for the next connection (no stale JS state from prior connection).
+                        break 'requests;
+                    }
+                    // --- End WS mode branch — fall through to HTTP handling below ---
 
                     let t0 = std::time::Instant::now();
                     let request_id = task.request_id.clone();
@@ -485,7 +806,7 @@ impl TenantPool {
                         // Must pin-and-init like HandleScope — TryCatch::new returns ScopeStorage.
                         let tc_storage = v8::TryCatch::new(&mut *ctx_scope);
                         let tc_pin = std::pin::pin!(tc_storage);
-                        let mut tc = tc_pin.init();
+                        let mut tc = tc_pin.init(); // mut needed for perform_microtask_checkpoint
 
                         let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
                         let resolved = match call_result {
@@ -689,9 +1010,10 @@ impl TenantPool {
             let new_handle = Self::spawn_ws_worker(
                 ws_worker_id,
                 self.hostname.clone(),
-                0, // memory_limit_mb — Plan 04 will wire proper limits
+                0, // memory_limit_mb — WS workers share OOM monitoring via ws_busy
                 self.vfs_backend.clone(),
                 Arc::clone(&self.ws_busy),
+                self.ws_idle_timeout_ms,
             )?;
             new_handle.task_tx
                 .send(task)
