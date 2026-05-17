@@ -178,6 +178,19 @@ impl Drop for CpuTimeoutGuard {
         if let Some(thread) = self.timer_thread.take() {
             let _ = thread.join();
         }
+        if TERMINATION_REQUESTED.load(Ordering::SeqCst) {
+            let ptr = TERMINATION_ISOLATE_PTR.load(Ordering::SeqCst);
+            if !ptr.is_null() {
+                // SAFETY: ptr is valid -- CpuTimeoutGuard::new set it and this drop runs
+                // on the worker thread that owns the isolate. cancel_terminate_execution()
+                // is safe to call even if terminate_execution was not fired.
+                unsafe {
+                    if let Some(isolate) = ptr.as_mut() {
+                        isolate.cancel_terminate_execution();
+                    }
+                }
+            }
+        }
         TERMINATION_ISOLATE_PTR.store(std::ptr::null_mut(), Ordering::SeqCst);
         TERMINATION_REQUESTED.store(false, Ordering::SeqCst);
     }
