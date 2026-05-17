@@ -341,7 +341,7 @@
 
 Plans:
 - [x] 23-01-PLAN.md -- Wave 0: axum ws feature, WsChannels type, HandlerTask extension, AppLimits WS config (COMPLETE 2026-05-17)
-- [ ] 23-02-PLAN.md -- Wave 1: TenantPool WS pool fields, dispatch_ws method, lazy worker spawn
+- [x] 23-02-PLAN.md -- Wave 1: TenantPool WS pool fields, dispatch_ws method, lazy worker spawn (COMPLETE 2026-05-17)
 - [ ] 23-03-PLAN.md -- Wave 1: axum WebSocket upgrade route, tokio relay task, 32 MiB limit
 - [ ] 23-04-PLAN.md -- Wave 2: Worker ws_messages loop, thread-locals, per-message CpuTimeoutGuard/OOM
 - [ ] 23-05-PLAN.md -- Wave 3: WebSocketPair V8 binding, integration tests

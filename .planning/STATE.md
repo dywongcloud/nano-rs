@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Remediation 🚧
 status: completed
-last_updated: "2026-05-17T21:19:36Z"
+last_updated: "2026-05-17T21:25:14.218Z"
 progress:
   total_phases: 8
   completed_phases: 6
-  total_plans: 26
-  completed_plans: 21
-  percent: 81
+  total_plans: 21
+  completed_plans: 20
+  percent: 75
 ---
 
 # NANO Project State — v1.5 Milestone
@@ -506,9 +506,30 @@ Implement WebSocket support:
 
 ---
 
-**Last Updated:** 2026-05-15
-**Version:** v1.7.1
-**Status:** ✅ **COMPLETE** — Phase 41 Production Polish, heap/CPU enforcement active
+**Last Updated:** 2026-05-17
+**Version:** v1.7.2 → v2.0.0-alpha
+**Status:** 🚧 IN PROGRESS — Phase 23 WebSocket Server implementation
+
+---
+
+### Phase 23: WebSocket Server — Plan 02 ✅ COMPLETE (2026-05-17)
+
+**Plan 01:** WsChannels + HandlerTask.ws field + AppLimits WS methods ✅
+**Plan 02:** TenantPool WS pool fields + dispatch_ws method ✅
+
+**Delivered in Plan 02:**
+- `WsWorkerHandle` struct (task_tx + join handle) for WS thread lifecycle
+- `TenantPool` extended with `ws_workers` (Mutex<Vec>), `ws_busy` (Arc<AtomicUsize>), `max_ws_connections`, `ws_idle_timeout_ms`
+- `TenantPool::new()` accepts `&AppLimits` to populate WS config
+- `dispatch_ws()` with connection-limit gate (D-07), dead-handle pruning, lazy worker spawn
+- `run_worker()` accepts `ws_busy: Arc<AtomicUsize>` (Plan 04 placeholder)
+- `Drop` impl joins WS worker threads (prevents V8 use-after-free)
+- Commit: `667bb3f1`
+
+**Key Decisions:**
+- ws_busy incremented by WORKER thread (not dispatch_ws) to avoid TOCTOU per D-13b
+- Dead-handle pruning uses send-time detection (SendError → swap_remove + join)
+- ws_idle_timeout_ms stored as #[allow(dead_code)] — Plan 04 wires recv_timeout
 
 **Summary:**
 
