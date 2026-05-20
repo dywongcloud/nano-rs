@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Remediation 🚧
 status: completed
-last_updated: "2026-05-17T23:59:00.000Z"
+last_updated: "2026-05-20T00:37:22.220Z"
 progress:
   total_phases: 8
   completed_phases: 6
@@ -506,18 +506,29 @@ Implement WebSocket support:
 
 ---
 
-**Last Updated:** 2026-05-17
-**Version:** v1.7.2 → v2.0.0-alpha
-**Status:** 🚧 IN PROGRESS — Phase 23 WebSocket Server implementation
+**Last Updated:** 2026-05-18
+**Version:** v2.0a
+**Status:** 🚧 IN PROGRESS — Phase 23 WebSocket Server, Plan 05
+
+## Branch Convention
+
+Feature work uses `feat/<phase>-<plan>` branches, merged to `main` via PR.
+
+| Branch | Plan | Status |
+|--------|------|--------|
+| `feat/ws-23-05` | 23-05 WebSocketPair V8 binding + integration tests | 🚧 Active |
 
 ---
 
-### Phase 23: WebSocket Server — Plan 04 ✅ COMPLETE (2026-05-17)
+### Phase 23: WebSocket Server — Plan 05 🚧 IN PROGRESS (2026-05-18)
+
+**Branch:** `feat/ws-23-05`
 
 **Plan 01:** WsChannels + HandlerTask.ws field + AppLimits WS methods ✅
 **Plan 02:** TenantPool WS pool fields + dispatch_ws method ✅
 **Plan 03:** HTTP router WS upgrade detection, relay task, and dispatch ✅
 **Plan 04:** Worker thread ws_messages loop with JS dispatch and lifecycle ✅
+**Plan 05:** WebSocketPair V8 binding + integration tests 🚧
 
 **Delivered in Plan 04:**
 

@@ -363,6 +363,244 @@ impl WorkerPool {
                                 }
                             }
 
+                            // --- WebSocket mode (D-01 pin-a-worker, D-10b isolate recycle) ---
+                            // If the task carries WS channels, enter the ws_messages loop instead
+                            // of the normal HTTP handler path. The 'ws_messages loop runs until
+                            // the connection closes, then breaks 'requests to force isolate recycle.
+                            if let Some(ws_channels) = task.ws {
+                                use crate::worker::tenant_pool::{
+                                    WS_OUTBOUND, WS_ACCEPTED, WS_MESSAGE_HANDLERS,
+                                    WS_CLOSE_HANDLERS, WS_ERROR_HANDLERS,
+                                    set_ws_readystate, clear_ws_thread_locals,
+                                };
+
+                                // Seed WS thread-locals for V8 FunctionCallbacks.
+                                WS_OUTBOUND.with(|tx| *tx.borrow_mut() = Some(ws_channels.outbound_tx.clone()));
+                                WS_ACCEPTED.with(|a| a.set(false));
+                                WS_MESSAGE_HANDLERS.with(|h| h.borrow_mut().clear());
+                                WS_CLOSE_HANDLERS.with(|h| h.borrow_mut().clear());
+                                WS_ERROR_HANDLERS.with(|h| h.borrow_mut().clear());
+
+                                // Call JS handler so it can register addEventListener callbacks
+                                // before the first frame arrives. Return value is ignored — the
+                                // 101 response was already sent by handle_ws_upgrade in router.rs.
+                                let handler_g = handler_cache.get(&task.entrypoint).unwrap();
+                                let global_obj = context.global(&mut ctx_scope);
+                                let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
+                                if let Some(url_str) = v8::String::new(&mut ctx_scope, &task.request.url().href()) {
+                                    let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                    let tc_pin = std::pin::pin!(tc_s);
+                                    let tc = tc_pin.init();
+                                    let _ = handler_local.call(&tc, global_obj.into(), &[url_str.into()]);
+                                }
+
+                                // Signal OPEN state on the server socket JS object (D-16b).
+                                set_ws_readystate(&mut ctx_scope, 1);
+
+                                // Note: 101 response was sent by handle_ws_upgrade in router.rs
+                                // before the task was dispatched. response_tx is intentionally dropped.
+                                let _ = task.response_tx;
+
+                                info!("Worker {}: entering ws_messages loop for '{}'", id, task.entrypoint);
+
+                                // 30s idle timeout matches tenant_pool default (D-11b).
+                                let idle_dur = std::time::Duration::from_millis(30_000);
+
+                                'ws_messages: loop {
+                                    match ws_channels.inbound_rx.recv_timeout(idle_dur) {
+                                        // --- Text frame ---
+                                        Ok(tungstenite::Message::Text(s)) => {
+                                            // OOM check (D-13).
+                                            if let Some(ref mon) = oom_monitor {
+                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                                if let Err(_oom) = mon.check(iso_ref) {
+                                                    let _ = ws_channels.outbound_tx.send(tungstenite::Message::Close(Some(
+                                                        tungstenite::protocol::CloseFrame {
+                                                            code: tungstenite::protocol::frame::coding::CloseCode::Error,
+                                                            reason: std::borrow::Cow::Borrowed("OOM"),
+                                                        }
+                                                    )));
+                                                    break 'ws_messages;
+                                                }
+                                            }
+                                            // Per-message CPU guard (D-09b).
+                                            let _timeout = if task.cpu_time_limit_ms > 0 {
+                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                                Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
+                                            } else { None };
+                                            // Build MessageEvent and dispatch to JS handlers.
+                                            let event = v8::Object::new(&mut ctx_scope);
+                                            if let (Some(tk), Some(tv), Some(dk), Some(dv)) = (
+                                                v8::String::new(&mut ctx_scope, "type"),
+                                                v8::String::new(&mut ctx_scope, "message"),
+                                                v8::String::new(&mut ctx_scope, "data"),
+                                                v8::String::new(&mut ctx_scope, s.as_str()),
+                                            ) {
+                                                event.set(&mut ctx_scope, tk.into(), tv.into());
+                                                event.set(&mut ctx_scope, dk.into(), dv.into());
+                                                let gobj = context.global(&mut ctx_scope);
+                                                WS_MESSAGE_HANDLERS.with(|cell| {
+                                                    for handler_g in cell.borrow().iter() {
+                                                        let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
+                                                        let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                        let tc_pin = std::pin::pin!(tc_s);
+                                                        let tc = tc_pin.init();
+                                                        let _ = hlocal.call(&tc, gobj.into(), &[event.into()]);
+                                                    }
+                                                });
+                                            }
+                                        }
+
+                                        // --- Binary frame ---
+                                        Ok(tungstenite::Message::Binary(b)) => {
+                                            if let Some(ref mon) = oom_monitor {
+                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                                if let Err(_oom) = mon.check(iso_ref) {
+                                                    let _ = ws_channels.outbound_tx.send(tungstenite::Message::Close(Some(
+                                                        tungstenite::protocol::CloseFrame {
+                                                            code: tungstenite::protocol::frame::coding::CloseCode::Error,
+                                                            reason: std::borrow::Cow::Borrowed("OOM"),
+                                                        }
+                                                    )));
+                                                    break 'ws_messages;
+                                                }
+                                            }
+                                            let _timeout = if task.cpu_time_limit_ms > 0 {
+                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                                Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
+                                            } else { None };
+                                            let ab_store = v8::ArrayBuffer::new_backing_store_from_vec(b);
+                                            let shared = ab_store.make_shared();
+                                            let ab = v8::ArrayBuffer::with_backing_store(&mut ctx_scope, &shared);
+                                            let event = v8::Object::new(&mut ctx_scope);
+                                            if let (Some(tk), Some(tv), Some(dk)) = (
+                                                v8::String::new(&mut ctx_scope, "type"),
+                                                v8::String::new(&mut ctx_scope, "message"),
+                                                v8::String::new(&mut ctx_scope, "data"),
+                                            ) {
+                                                event.set(&mut ctx_scope, tk.into(), tv.into());
+                                                event.set(&mut ctx_scope, dk.into(), ab.into());
+                                                let gobj = context.global(&mut ctx_scope);
+                                                WS_MESSAGE_HANDLERS.with(|cell| {
+                                                    for handler_g in cell.borrow().iter() {
+                                                        let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
+                                                        let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                        let tc_pin = std::pin::pin!(tc_s);
+                                                        let tc = tc_pin.init();
+                                                        let _ = hlocal.call(&tc, gobj.into(), &[event.into()]);
+                                                    }
+                                                });
+                                            }
+                                        }
+
+                                        // --- Close frame (D-12) ---
+                                        Ok(tungstenite::Message::Close(frame)) => {
+                                            set_ws_readystate(&mut ctx_scope, 3);
+                                            let (code_val, reason_str) = frame
+                                                .map(|f| (u16::from(f.code), f.reason.into_owned()))
+                                                .unwrap_or((1000, String::new()));
+                                            let close_event = v8::Object::new(&mut ctx_scope);
+                                            if let (Some(tyk), Some(tyv), Some(ck), Some(rk), Some(rv), Some(wck)) = (
+                                                v8::String::new(&mut ctx_scope, "type"),
+                                                v8::String::new(&mut ctx_scope, "close"),
+                                                v8::String::new(&mut ctx_scope, "code"),
+                                                v8::String::new(&mut ctx_scope, "reason"),
+                                                v8::String::new(&mut ctx_scope, &reason_str),
+                                                v8::String::new(&mut ctx_scope, "wasClean"),
+                                            ) {
+                                                let code_int = v8::Integer::new(&mut ctx_scope, code_val as i32);
+                                                let was_clean = v8::Boolean::new(&mut ctx_scope, true);
+                                                close_event.set(&mut ctx_scope, tyk.into(), tyv.into());
+                                                close_event.set(&mut ctx_scope, ck.into(), code_int.into());
+                                                close_event.set(&mut ctx_scope, rk.into(), rv.into());
+                                                close_event.set(&mut ctx_scope, wck.into(), was_clean.into());
+                                                let gobj = context.global(&mut ctx_scope);
+                                                WS_CLOSE_HANDLERS.with(|cell| {
+                                                    for handler_g in cell.borrow().iter() {
+                                                        let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
+                                                        let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                        let tc_pin = std::pin::pin!(tc_s);
+                                                        let tc = tc_pin.init();
+                                                        let _ = hlocal.call(&tc, gobj.into(), &[close_event.into()]);
+                                                    }
+                                                });
+                                            }
+                                            break 'ws_messages;
+                                        }
+
+                                        // --- Ping / Pong — skip (D-15b) ---
+                                        Ok(tungstenite::Message::Ping(_)) | Ok(tungstenite::Message::Pong(_)) => {
+                                            continue 'ws_messages;
+                                        }
+
+                                        // --- Idle timeout (D-11b) ---
+                                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                            info!("Worker {}: WS idle timeout, recycling isolate", id);
+                                            break 'ws_messages;
+                                        }
+
+                                        // --- Relay dropped inbound_tx (D-17b) ---
+                                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                            set_ws_readystate(&mut ctx_scope, 3);
+                                            let gobj = context.global(&mut ctx_scope);
+                                            // Fire error event.
+                                            let error_event = v8::Object::new(&mut ctx_scope);
+                                            if let (Some(tyk), Some(tyv)) = (
+                                                v8::String::new(&mut ctx_scope, "type"),
+                                                v8::String::new(&mut ctx_scope, "error"),
+                                            ) {
+                                                error_event.set(&mut ctx_scope, tyk.into(), tyv.into());
+                                                WS_ERROR_HANDLERS.with(|cell| {
+                                                    for handler_g in cell.borrow().iter() {
+                                                        let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
+                                                        let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                        let tc_pin = std::pin::pin!(tc_s);
+                                                        let tc = tc_pin.init();
+                                                        let _ = hlocal.call(&tc, gobj.into(), &[error_event.into()]);
+                                                    }
+                                                });
+                                            }
+                                            // Fire close event with 1006 (Abnormal Closure).
+                                            let close_event = v8::Object::new(&mut ctx_scope);
+                                            if let (Some(tyk), Some(tyv), Some(ck), Some(rk), Some(rv), Some(wck)) = (
+                                                v8::String::new(&mut ctx_scope, "type"),
+                                                v8::String::new(&mut ctx_scope, "close"),
+                                                v8::String::new(&mut ctx_scope, "code"),
+                                                v8::String::new(&mut ctx_scope, "reason"),
+                                                v8::String::new(&mut ctx_scope, ""),
+                                                v8::String::new(&mut ctx_scope, "wasClean"),
+                                            ) {
+                                                let code_int = v8::Integer::new(&mut ctx_scope, 1006);
+                                                let was_clean = v8::Boolean::new(&mut ctx_scope, false);
+                                                close_event.set(&mut ctx_scope, tyk.into(), tyv.into());
+                                                close_event.set(&mut ctx_scope, ck.into(), code_int.into());
+                                                close_event.set(&mut ctx_scope, rk.into(), rv.into());
+                                                close_event.set(&mut ctx_scope, wck.into(), was_clean.into());
+                                                WS_CLOSE_HANDLERS.with(|cell| {
+                                                    for handler_g in cell.borrow().iter() {
+                                                        let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
+                                                        let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                        let tc_pin = std::pin::pin!(tc_s);
+                                                        let tc = tc_pin.init();
+                                                        let _ = hlocal.call(&tc, gobj.into(), &[close_event.into()]);
+                                                    }
+                                                });
+                                            }
+                                            break 'ws_messages;
+                                        }
+
+                                        // Future-proof: unknown frame variants.
+                                        Ok(_) => continue 'ws_messages,
+                                    }
+                                } // end 'ws_messages
+
+                                // Cleanup: clear WS thread-locals, force isolate recycle (D-10b).
+                                clear_ws_thread_locals();
+                                // D-10b: break 'requests forces a fresh isolate for next connection.
+                                break 'requests;
+                            }
+                            // --- End WS mode — fall through to HTTP handler ---
+
                             // CPU timeout guard
                             let _timeout = if task.cpu_time_limit_ms > 0 {
                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
@@ -1013,6 +1251,113 @@ impl WorkerPool {
                                     }
                                 }
                             }
+
+                            // --- WebSocket mode (D-01 pin-a-worker, D-10b isolate recycle) ---
+                            if let Some(ws_channels) = task.ws {
+                                use crate::worker::tenant_pool::{
+                                    WS_OUTBOUND, WS_ACCEPTED, WS_MESSAGE_HANDLERS,
+                                    WS_CLOSE_HANDLERS, WS_ERROR_HANDLERS,
+                                    set_ws_readystate, clear_ws_thread_locals,
+                                };
+                                WS_OUTBOUND.with(|tx| *tx.borrow_mut() = Some(ws_channels.outbound_tx.clone()));
+                                WS_ACCEPTED.with(|a| a.set(false));
+                                WS_MESSAGE_HANDLERS.with(|h| h.borrow_mut().clear());
+                                WS_CLOSE_HANDLERS.with(|h| h.borrow_mut().clear());
+                                WS_ERROR_HANDLERS.with(|h| h.borrow_mut().clear());
+
+                                // Call JS handler to register addEventListener callbacks.
+                                if let Some(handler_g) = handler_cache.get(&entrypoint) {
+                                    let gobj = context.global(&mut ctx_scope);
+                                    let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
+                                    if let Some(url_str) = v8::String::new(&mut ctx_scope, &task.request.url().href()) {
+                                        let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                        let tc_pin = std::pin::pin!(tc_s);
+                                        let tc = tc_pin.init();
+                                        let _ = hlocal.call(&tc, gobj.into(), &[url_str.into()]);
+                                    }
+                                }
+
+                                set_ws_readystate(&mut ctx_scope, 1);
+                                let _ = task.response_tx; // 101 already sent by router
+
+                                info!("Worker {}: entering ws_messages loop for '{}'", id, entrypoint);
+                                let idle_dur = std::time::Duration::from_millis(30_000);
+
+                                'ws_messages: loop {
+                                    match ws_channels.inbound_rx.recv_timeout(idle_dur) {
+                                        Ok(tungstenite::Message::Text(s)) => {
+                                            if let Some(ref mon) = oom_monitor {
+                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                                if let Err(_oom) = mon.check(iso_ref) {
+                                                    let _ = ws_channels.outbound_tx.send(tungstenite::Message::Close(Some(tungstenite::protocol::CloseFrame { code: tungstenite::protocol::frame::coding::CloseCode::Error, reason: std::borrow::Cow::Borrowed("OOM") })));
+                                                    break 'ws_messages;
+                                                }
+                                            }
+                                            let _cg = if task.cpu_time_limit_ms > 0 { Some(crate::data_plane::CpuTimeoutGuard::new(unsafe { &mut *iso_ptr }, task.cpu_time_limit_ms)) } else { None };
+                                            let event = v8::Object::new(&mut ctx_scope);
+                                            if let (Some(tk), Some(tv), Some(dk), Some(dv)) = (v8::String::new(&mut ctx_scope, "type"), v8::String::new(&mut ctx_scope, "message"), v8::String::new(&mut ctx_scope, "data"), v8::String::new(&mut ctx_scope, s.as_str())) {
+                                                event.set(&mut ctx_scope, tk.into(), tv.into());
+                                                event.set(&mut ctx_scope, dk.into(), dv.into());
+                                                let gobj = context.global(&mut ctx_scope);
+                                                WS_MESSAGE_HANDLERS.with(|cell| { for hg in cell.borrow().iter() { let hl = v8::Local::new(&mut ctx_scope, hg); let tc_s = v8::TryCatch::new(&mut *ctx_scope); let tc_pin = std::pin::pin!(tc_s); let tc = tc_pin.init(); let _ = hl.call(&tc, gobj.into(), &[event.into()]); } });
+                                            }
+                                        }
+                                        Ok(tungstenite::Message::Binary(b)) => {
+                                            // OOM check before allocating ArrayBuffer (D-13).
+                                            if let Some(ref mon) = oom_monitor {
+                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                                if let Err(_oom) = mon.check(iso_ref) {
+                                                    let _ = ws_channels.outbound_tx.send(tungstenite::Message::Close(Some(tungstenite::protocol::CloseFrame { code: tungstenite::protocol::frame::coding::CloseCode::Error, reason: std::borrow::Cow::Borrowed("OOM") })));
+                                                    break 'ws_messages;
+                                                }
+                                            }
+                                            let _cg = if task.cpu_time_limit_ms > 0 { Some(crate::data_plane::CpuTimeoutGuard::new(unsafe { &mut *iso_ptr }, task.cpu_time_limit_ms)) } else { None };
+                                            let ab_store = v8::ArrayBuffer::new_backing_store_from_vec(b);
+                                            let shared = ab_store.make_shared();
+                                            let ab = v8::ArrayBuffer::with_backing_store(&mut ctx_scope, &shared);
+                                            let event = v8::Object::new(&mut ctx_scope);
+                                            if let (Some(tk), Some(tv), Some(dk)) = (v8::String::new(&mut ctx_scope, "type"), v8::String::new(&mut ctx_scope, "message"), v8::String::new(&mut ctx_scope, "data")) {
+                                                event.set(&mut ctx_scope, tk.into(), tv.into());
+                                                event.set(&mut ctx_scope, dk.into(), ab.into());
+                                                let gobj = context.global(&mut ctx_scope);
+                                                WS_MESSAGE_HANDLERS.with(|cell| { for hg in cell.borrow().iter() { let hl = v8::Local::new(&mut ctx_scope, hg); let tc_s = v8::TryCatch::new(&mut *ctx_scope); let tc_pin = std::pin::pin!(tc_s); let tc = tc_pin.init(); let _ = hl.call(&tc, gobj.into(), &[event.into()]); } });
+                                            }
+                                        }
+                                        Ok(tungstenite::Message::Close(frame)) => {
+                                            set_ws_readystate(&mut ctx_scope, 3);
+                                            let (code_val, reason_str) = frame.map(|f| (u16::from(f.code), f.reason.into_owned())).unwrap_or((1000, String::new()));
+                                            let close_event = v8::Object::new(&mut ctx_scope);
+                                            if let (Some(tyk), Some(tyv), Some(ck), Some(rk), Some(rv), Some(wck)) = (v8::String::new(&mut ctx_scope, "type"), v8::String::new(&mut ctx_scope, "close"), v8::String::new(&mut ctx_scope, "code"), v8::String::new(&mut ctx_scope, "reason"), v8::String::new(&mut ctx_scope, &reason_str), v8::String::new(&mut ctx_scope, "wasClean")) {
+                                                let code_int = v8::Integer::new(&mut ctx_scope, code_val as i32);
+                                                let was_clean = v8::Boolean::new(&mut ctx_scope, true);
+                                                close_event.set(&mut ctx_scope, tyk.into(), tyv.into());
+                                                close_event.set(&mut ctx_scope, ck.into(), code_int.into());
+                                                close_event.set(&mut ctx_scope, rk.into(), rv.into());
+                                                close_event.set(&mut ctx_scope, wck.into(), was_clean.into());
+                                                let gobj = context.global(&mut ctx_scope);
+                                                WS_CLOSE_HANDLERS.with(|cell| { for hg in cell.borrow().iter() { let hl = v8::Local::new(&mut ctx_scope, hg); let tc_s = v8::TryCatch::new(&mut *ctx_scope); let tc_pin = std::pin::pin!(tc_s); let tc = tc_pin.init(); let _ = hl.call(&tc, gobj.into(), &[close_event.into()]); } });
+                                            }
+                                            break 'ws_messages;
+                                        }
+                                        Ok(tungstenite::Message::Ping(_)) | Ok(tungstenite::Message::Pong(_)) => continue 'ws_messages,
+                                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => { info!("Worker {}: WS idle timeout", id); break 'ws_messages; }
+                                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                            set_ws_readystate(&mut ctx_scope, 3);
+                                            let gobj = context.global(&mut ctx_scope);
+                                            let error_event = v8::Object::new(&mut ctx_scope);
+                                            if let (Some(tyk), Some(tyv)) = (v8::String::new(&mut ctx_scope, "type"), v8::String::new(&mut ctx_scope, "error")) {
+                                                error_event.set(&mut ctx_scope, tyk.into(), tyv.into());
+                                                WS_ERROR_HANDLERS.with(|cell| { for hg in cell.borrow().iter() { let hl = v8::Local::new(&mut ctx_scope, hg); let tc_s = v8::TryCatch::new(&mut *ctx_scope); let tc_pin = std::pin::pin!(tc_s); let tc = tc_pin.init(); let _ = hl.call(&tc, gobj.into(), &[error_event.into()]); } });
+                                            }
+                                            break 'ws_messages;
+                                        }
+                                        Ok(_) => continue 'ws_messages,
+                                    }
+                                }
+                                clear_ws_thread_locals();
+                                break 'requests; // D-10b: fresh isolate per WS connection
+                            }
+                            // --- End WS mode — HTTP path below ---
 
                             // CPU timeout guard
                             let _timeout = if task.cpu_time_limit_ms > 0 {

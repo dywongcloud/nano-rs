@@ -57,6 +57,38 @@ impl RuntimeAPIs {
         Self::bind_streams(scope, context);
         Self::bind_wasm(scope, context);
         Self::bind_websocket_pair(scope, context);
+        // Security hardening must run last: removes eval and blocks dynamic code generation
+        Self::bind_security_hardening(scope, context);
+    }
+
+    /// Security hardening: remove eval and block dynamic code generation via Function constructor
+    ///
+    /// Must be called after all other binds. Removes `eval` from globalThis and
+    /// replaces `Function` with a locked-down stub that throws TypeError.
+    /// Function declarations and arrow functions are unaffected (parsed statically by V8).
+    fn bind_security_hardening(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+        let global = context.global(scope);
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
+        // Remove eval from global — makes typeof eval !== 'function'
+        if let Some(eval_key) = v8::String::new(&mut ctx_scope, "eval") {
+            global.delete(&mut ctx_scope, eval_key.into());
+        }
+
+        // Replace globalThis.Function with a stub that always throws TypeError.
+        // This blocks dynamic code generation attacks while leaving function
+        // declarations/expressions unaffected (they're parsed statically by V8).
+        if let Some(blocked_fn) = v8::Function::new(&mut ctx_scope, function_constructor_blocked) {
+            let fn_key = match v8::String::new(&mut ctx_scope, "Function") {
+                Some(k) => k,
+                None => return, // V8 OOM during hardening — skip, not fatal
+            };
+            // writable:false via constructor; configurable and enumerable set separately
+            let mut desc = v8::PropertyDescriptor::new_from_value_writable(blocked_fn.into(), false);
+            desc.set_configurable(false);
+            desc.set_enumerable(false);
+            global.define_property(&mut ctx_scope, fn_key.into(), &desc);
+        }
     }
 
     /// Bind Streams API (ReadableStream, WritableStream)
@@ -564,6 +596,19 @@ fn format_console_args(scope: &mut v8::PinnedRef<v8::HandleScope>, args: v8::Fun
         }
     }
     parts.join(" ")
+}
+
+/// V8 callback that blocks dynamic code generation via the Function constructor
+/// Throws TypeError unconditionally. Replaces globalThis.Function in hardened contexts.
+fn function_constructor_blocked(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    _args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let msg = v8::String::new(scope, "Function constructor is not allowed in this context").unwrap();
+    let err = v8::Exception::type_error(scope, msg);
+    scope.throw_exception(err);
+    retval.set_undefined();
 }
 
 /// V8 callback for console.log
