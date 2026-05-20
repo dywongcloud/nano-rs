@@ -2697,25 +2697,41 @@ fn subtle_digest(
 }
 
 /// Timer callback for setTimeout
+///
+/// Sleeps the worker thread for the requested delay before invoking the
+/// callback. Because the worker drives async JS via `pump_message_loop` +
+/// `perform_microtask_checkpoint` after the handler returns, sleeping here
+/// (inside the JS→Rust call) correctly defers Promise resolution by the
+/// requested duration. CF Workers model: one request per worker thread, so
+/// blocking is safe.
 fn set_timeout_callback(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    // Get the callback function (first argument)
+    // Extract delay (ms) from second argument; default 0.
+    let delay_ms: u64 = if args.length() > 1 {
+        if let Some(n) = args.get(1).to_number(scope) {
+            n.value().max(0.0) as u64
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
     if args.length() > 0 {
         let callback = args.get(0);
         if callback.is_function() {
             let func = callback.cast::<v8::Function>();
-            // Get the global object as 'this' for the callback
             let global = scope.get_current_context().global(scope);
-            // Call the callback immediately (synchronous execution for test compatibility)
-            // In production, this should be scheduled asynchronously
+            if delay_ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            }
             let _ = func.call(scope, global.into(), &[]);
         }
     }
-    
-    // Return a dummy timer ID
+
     let id = v8::Number::new(scope, 1.0);
     retval.set(id.into());
 }
@@ -2873,9 +2889,37 @@ fn buffer_from_callback(
 
     // Handle string input (after array check — to_string() would coerce arrays)
     if arg.is_string() {
-        if let Some(str) = arg.to_string(scope) {
-            let text = str.to_rust_string_lossy(scope);
-            let bytes = text.as_bytes();
+        if let Some(str_val) = arg.to_string(scope) {
+            let text = str_val.to_rust_string_lossy(scope);
+
+            // Check encoding argument (args[1]).
+            let encoding = if args.length() > 1 {
+                if let Some(enc) = args.get(1).to_string(scope) {
+                    enc.to_rust_string_lossy(scope).to_ascii_lowercase()
+                } else {
+                    "utf8".to_string()
+                }
+            } else {
+                "utf8".to_string()
+            };
+
+            let bytes: Vec<u8> = match encoding.as_str() {
+                "hex" => {
+                    // Decode hex pairs: "68656c6c6f" → [0x68, 0x65, …]
+                    // Odd-length or invalid chars produce truncated/best-effort output
+                    // (matches Node.js behaviour).
+                    (0..text.len())
+                        .step_by(2)
+                        .filter_map(|i| {
+                            text.get(i..i + 2)
+                                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+                        })
+                        .collect()
+                }
+                // "utf8" | "utf-8" | "ascii" | "latin1" | "binary" | anything else
+                _ => text.as_bytes().to_vec(),
+            };
+
             let buffer = v8::ArrayBuffer::new(scope, bytes.len());
             let store = buffer.get_backing_store();
             for (i, byte) in bytes.iter().enumerate() {
