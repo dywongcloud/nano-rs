@@ -62,59 +62,57 @@ fn timer_tests_enabled() -> bool {
 // [REGR-TIMER-01] setTimeout fires callback and respects delay
 // ---------------------------------------------------------------------------
 
-/// Verify setTimeout calls the callback at all.
+/// Verify setTimeout returns a valid ID (callback registered, not fired synchronously).
+///
+/// New architecture: setTimeout is pump-loop-driven — the callback does NOT
+/// fire synchronously inside the setTimeout() call. It registers in a thread-
+/// local and fires when the pump loop's Pending arm calls fire_pending_timeouts().
+/// In this unit-test context (no pump loop), only registration is verified.
 #[test]
-fn settimeout_fires_callback() {
+fn settimeout_returns_valid_id() {
     let result = run_js(
         r#"
-        let fired = false;
-        setTimeout(() => { fired = true; }, 0);
-        String(fired)
+        const id = setTimeout(() => {}, 10);
+        typeof id === 'number' && id > 0
         "#,
     );
-    assert_eq!(result, "true", "[REGR-TIMER-01] setTimeout callback must fire");
+    assert_eq!(result, "true", "[REGR-TIMER-01] setTimeout must return a positive numeric ID");
 }
 
-/// Verify setTimeout sleeps for the requested delay.
+/// Verify setTimeout does NOT block the calling thread (regression guard).
 ///
-/// Uses a 5ms delay — generous enough to survive CI scheduling jitter while
-/// staying cheap. The regression was 0ms (callback fired immediately).
+/// Previous broken impl: std::thread::sleep(delay_ms) inside the callback →
+/// CPU timeout guard fired for delays ≥ cpu_time_limit_ms → HTTP 500.
+/// Correct impl: returns immediately, pump loop drives the callback later.
 #[test]
-fn settimeout_respects_delay() {
+fn settimeout_does_not_block() {
     let result = run_js(
         r#"
         const start = Date.now();
-        setTimeout(() => {}, 5);
+        setTimeout(() => {}, 200);
         const elapsed = Date.now() - start;
-        // Allow 1 ms slack for Date.now() resolution
-        elapsed >= 4
+        // If blocking: elapsed ≥ 200ms → test would be slow AND likely crash
+        // Correct: elapsed < 5ms (just a thread-local push)
+        elapsed < 5
         "#,
     );
     assert_eq!(
         result, "true",
-        "[REGR-TIMER-01] setTimeout elapsed must be >= delay (was 0ms — callback fired immediately)"
+        "[REGR-TIMER-01] setTimeout must not block — old impl slept in callback causing CPU-guard crash"
     );
 }
 
-/// Verify setTimeout passes extra args to the callback (spec compliance).
+/// Verify two setTimeout calls return distinct IDs.
 #[test]
-fn settimeout_passes_args() {
-    // Note: the current implementation does not forward extra args.
-    // This test verifies the callback at least fires without crashing
-    // when extra args are provided (they are silently dropped for now).
+fn settimeout_ids_are_unique() {
     let result = run_js(
         r#"
-        let received = 'none';
-        setTimeout((a) => { received = String(a); }, 0, 'hello');
-        received
+        const id1 = setTimeout(() => {}, 10);
+        const id2 = setTimeout(() => {}, 10);
+        id1 !== id2
         "#,
     );
-    // Either 'hello' (if arg forwarding is added) or 'undefined' (current).
-    // Must not be 'none' — callback must have fired.
-    assert_ne!(
-        result, "none",
-        "[REGR-TIMER-01] setTimeout callback must fire even when extra args are given"
-    );
+    assert_eq!(result, "true", "[REGR-TIMER-01] setTimeout must return unique IDs");
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +338,52 @@ async function fetch(_request) {
     return new Response(String(count), { status: 200 });
 }
 "#;
+
+/// [REGR-TIMER-01] setTimeout fires via pump loop — response arrives after delay.
+///
+/// Requires NANO_TIMER_TESTS=1.
+#[tokio::test]
+#[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
+async fn settimeout_fires_via_pump_loop() {
+    if !timer_tests_enabled() { return; }
+    init_v8_once();
+
+    use std::sync::Arc;
+    use nano::http::router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};
+    use nano::http::server::{AppStateWithShutdown, create_app_with_shutdown};
+    use nano::signal::ShutdownState;
+
+    let js = r#"
+    async function fetch(_request) {
+        const start = Date.now();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const elapsed = Date.now() - start;
+        return new Response(elapsed >= 90 ? "ok" : "too_fast:" + elapsed, { status: 200 });
+    }
+    "#;
+
+    let entrypoint = write_js(&format!("settimeout_pump_{}.js", std::process::id()), js);
+    let mut vhr = VirtualHostRouter::new(RouteTarget {
+        hostname: "localhost".to_string(),
+        handler_type: HandlerType::WinterTCHandler(entrypoint.clone()),
+    });
+    vhr.register("localhost".to_string(), RouteTarget {
+        hostname: "localhost".to_string(),
+        handler_type: HandlerType::WinterTCHandler(entrypoint),
+    });
+    let state = Arc::new(AppStateWithShutdown::new(
+        AppState::new(vhr, 1),
+        ShutdownState::default(),
+    ));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, create_app_with_shutdown(state)).await.unwrap() });
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+    let body = reqwest::get(format!("http://127.0.0.1:{}/", addr.port()))
+        .await.expect("request").text().await.expect("body");
+    assert_eq!(body, "ok", "[REGR-TIMER-01] setTimeout pump-loop: expected delay ≥90ms, got '{}'", body);
+}
 
 /// [REGR-TIMER-02] setInterval fires via pump loop — count reaches 3.
 ///

@@ -670,6 +670,7 @@ impl WorkerPool {
 
                                 // Clear any stale interval state from a previous request.
                                 crate::runtime::apis::clear_pending_intervals();
+                                crate::runtime::apis::clear_pending_timeouts();
 
                                 let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
 
@@ -707,6 +708,7 @@ impl WorkerPool {
                                                         return Err(anyhow!("Async handler timed out after 30s"));
                                                     }
                                                     crate::runtime::apis::fire_pending_intervals(&mut *tc);
+                                                    crate::runtime::apis::fire_pending_timeouts(&mut *tc);
                                                     std::thread::yield_now();
                                                 }
                                             }
@@ -1435,6 +1437,7 @@ impl WorkerPool {
 
                                 // Clear any stale interval state from a previous request.
                                 crate::runtime::apis::clear_pending_intervals();
+                                crate::runtime::apis::clear_pending_timeouts();
 
                                 let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
 
@@ -1472,6 +1475,7 @@ impl WorkerPool {
                                                         return Err(anyhow!("Async handler timed out after 30s"));
                                                     }
                                                     crate::runtime::apis::fire_pending_intervals(&mut *tc);
+                                                    crate::runtime::apis::fire_pending_timeouts(&mut *tc);
                                                     std::thread::yield_now();
                                                 }
                                             }

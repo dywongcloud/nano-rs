@@ -19,7 +19,14 @@ use std::time::Instant;
 // Thread-local timer state
 // ---------------------------------------------------------------------------
 
-/// One pending setInterval entry.
+/// One pending setTimeout entry (one-shot).
+struct TimeoutEntry {
+    id: u32,
+    func: v8::Global<v8::Function>,
+    fire_at: Instant,
+}
+
+/// One pending setInterval entry (repeating).
 struct IntervalEntry {
     id: u32,
     func: v8::Global<v8::Function>,
@@ -30,6 +37,12 @@ struct IntervalEntry {
 thread_local! {
     static PERFORMANCE_BASELINE: Cell<Option<Instant>> = Cell::new(None);
 
+    /// Live setTimeout entries for the current request.
+    static PENDING_TIMEOUTS: RefCell<Vec<TimeoutEntry>> = const { RefCell::new(Vec::new()) };
+
+    /// Monotonically increasing ID source for setTimeout handles (1–99).
+    static TIMEOUT_ID_COUNTER: Cell<u32> = const { Cell::new(1) };
+
     /// Live setInterval entries for the current request.
     static PENDING_INTERVALS: RefCell<Vec<IntervalEntry>> = const { RefCell::new(Vec::new()) };
 
@@ -38,7 +51,7 @@ thread_local! {
     /// Entries in this set are not re-inserted after the callback returns.
     static INTERVALS_CLEARED_DURING_FIRE: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
 
-    /// Monotonically increasing ID source for interval handles.
+    /// Monotonically increasing ID source for interval handles (100+).
     static INTERVAL_ID_COUNTER: Cell<u32> = const { Cell::new(100) };
 }
 
@@ -103,6 +116,40 @@ pub(crate) fn clear_pending_intervals() {
     PENDING_INTERVALS.with(|iv| iv.borrow_mut().clear());
     INTERVALS_CLEARED_DURING_FIRE.with(|cs| cs.borrow_mut().clear());
     INTERVAL_ID_COUNTER.with(|c| c.set(100));
+}
+
+/// Fire all setTimeout callbacks whose fire_at deadline has passed.
+///
+/// Called from the `PromiseState::Pending` arm of the pump loop alongside
+/// `fire_pending_intervals`. Entries are removed after firing (one-shot).
+pub(crate) fn fire_pending_timeouts(scope: &mut v8::PinnedRef<v8::HandleScope>) {
+    let now = Instant::now();
+
+    let due: Vec<TimeoutEntry> = PENDING_TIMEOUTS.with(|tv| {
+        let mut entries = tv.borrow_mut();
+        let mut due = Vec::new();
+        let mut i = 0;
+        while i < entries.len() {
+            if now >= entries[i].fire_at {
+                due.push(entries.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        due
+    });
+
+    for entry in due {
+        let func = v8::Local::new(scope, &entry.func);
+        let gobj = scope.get_current_context().global(scope);
+        let _ = func.call(scope, gobj.into(), &[]);
+    }
+}
+
+/// Clear all pending timeouts. Call at the start of each request.
+pub(crate) fn clear_pending_timeouts() {
+    PENDING_TIMEOUTS.with(|tv| tv.borrow_mut().clear());
+    TIMEOUT_ID_COUNTER.with(|c| c.set(1));
 }
 
 /// RuntimeAPIs manages all JavaScript API bindings
@@ -2783,18 +2830,22 @@ fn subtle_digest(
 
 /// Timer callback for setTimeout
 ///
-/// Sleeps the worker thread for the requested delay before invoking the
-/// callback. Because the worker drives async JS via `pump_message_loop` +
-/// `perform_microtask_checkpoint` after the handler returns, sleeping here
-/// (inside the JS→Rust call) correctly defers Promise resolution by the
-/// requested duration. CF Workers model: one request per worker thread, so
-/// blocking is safe.
+/// Registers the callback in the PENDING_TIMEOUTS thread-local and returns
+/// immediately. The callback fires when the pump loop in pool.rs calls
+/// `fire_pending_timeouts()` and the deadline has passed.
+///
+/// Never blocks — avoids the CPU timeout guard firing during a blocking sleep,
+/// which caused HTTP 500 for any delay ≥ the CPU limit (typically 50–100ms).
 fn set_timeout_callback(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    // Extract delay (ms) from second argument; default 0.
+    if args.length() == 0 || !args.get(0).is_function() {
+        retval.set(v8::Number::new(scope, 0.0).into());
+        return;
+    }
+
     let delay_ms: u64 = if args.length() > 1 {
         if let Some(n) = args.get(1).to_number(scope) {
             n.value().max(0.0) as u64
@@ -2805,20 +2856,25 @@ fn set_timeout_callback(
         0
     };
 
-    if args.length() > 0 {
-        let callback = args.get(0);
-        if callback.is_function() {
-            let func = callback.cast::<v8::Function>();
-            let global = scope.get_current_context().global(scope);
-            if delay_ms > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-            }
-            let _ = func.call(scope, global.into(), &[]);
-        }
-    }
+    let func = args.get(0).cast::<v8::Function>();
+    let func_global = v8::Global::new(scope, func);
 
-    let id = v8::Number::new(scope, 1.0);
-    retval.set(id.into());
+    let id = TIMEOUT_ID_COUNTER.with(|c| {
+        let id = c.get();
+        // IDs 1–99 for timeouts; wrap at 99 back to 1.
+        c.set(if id >= 99 { 1 } else { id + 1 });
+        id
+    });
+
+    PENDING_TIMEOUTS.with(|tv| {
+        tv.borrow_mut().push(TimeoutEntry {
+            id,
+            func: func_global,
+            fire_at: Instant::now() + std::time::Duration::from_millis(delay_ms),
+        });
+    });
+
+    retval.set(v8::Number::new(scope, f64::from(id)).into());
 }
 
 /// Timer callback for setInterval
@@ -2863,12 +2919,19 @@ fn set_interval_callback(
     retval.set(v8::Number::new(scope, f64::from(id)).into());
 }
 
-/// Timer callback for clearTimeout — no-op (setTimeout IDs are one-shot).
+/// Timer callback for clearTimeout — removes the pending entry by ID.
 fn clear_timeout_callback(
-    _scope: &mut v8::PinnedRef<v8::HandleScope>,
-    _args: v8::FunctionCallbackArguments,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
+    if args.length() == 0 { return; }
+    if let Some(n) = args.get(0).to_number(scope) {
+        let target_id = n.value() as u32;
+        PENDING_TIMEOUTS.with(|tv| {
+            tv.borrow_mut().retain(|e| e.id != target_id);
+        });
+    }
 }
 
 /// Timer callback for clearInterval
