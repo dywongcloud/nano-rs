@@ -12,12 +12,97 @@
 //!
 //! All APIs are bound to the V8 global scope via RuntimeAPIs::bind_all().
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::time::Instant;
 
-// Thread-local storage for performance baseline timing
+// ---------------------------------------------------------------------------
+// Thread-local timer state
+// ---------------------------------------------------------------------------
+
+/// One pending setInterval entry.
+struct IntervalEntry {
+    id: u32,
+    func: v8::Global<v8::Function>,
+    interval_ms: u64,
+    next_fire: Instant,
+}
+
 thread_local! {
     static PERFORMANCE_BASELINE: Cell<Option<Instant>> = Cell::new(None);
+
+    /// Live setInterval entries for the current request.
+    static PENDING_INTERVALS: RefCell<Vec<IntervalEntry>> = const { RefCell::new(Vec::new()) };
+
+    /// IDs cleared via clearInterval() while fire_pending_intervals() is
+    /// dispatching (i.e., the interval's own callback called clearInterval).
+    /// Entries in this set are not re-inserted after the callback returns.
+    static INTERVALS_CLEARED_DURING_FIRE: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+
+    /// Monotonically increasing ID source for interval handles.
+    static INTERVAL_ID_COUNTER: Cell<u32> = const { Cell::new(100) };
+}
+
+// ---------------------------------------------------------------------------
+// Interval fire / clear — called from the pump loop in pool.rs
+// ---------------------------------------------------------------------------
+
+/// Fire all setInterval callbacks whose next_fire deadline has passed.
+///
+/// Called from the `PromiseState::Pending` arm of the pump loop in pool.rs
+/// after each microtask checkpoint. The pump loop continues iterating until
+/// the async handler's Promise resolves, so each spin is a natural fire-point.
+///
+/// # Design: drain-and-reinsert
+/// Due entries are *removed* from `PENDING_INTERVALS` before their callbacks
+/// run. This means `clearInterval()` called from within a callback can safely
+/// mutate the vec without reentrancy. Entries are re-inserted (with an updated
+/// `next_fire`) only if they were not cleared during the callback.
+pub(crate) fn fire_pending_intervals(scope: &mut v8::PinnedRef<v8::HandleScope>) {
+    let now = Instant::now();
+
+    // Phase 1: drain due entries (own them while firing).
+    let due: Vec<IntervalEntry> = PENDING_INTERVALS.with(|iv| {
+        let mut entries = iv.borrow_mut();
+        let mut due = Vec::new();
+        let mut i = 0;
+        while i < entries.len() {
+            if now >= entries[i].next_fire {
+                due.push(entries.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        due
+    });
+
+    // Phase 2: call each due callback. The RefCell borrow is released, so
+    // clearInterval() inside a callback can mutate PENDING_INTERVALS safely.
+    // Mirror the WS dispatch pattern used in pool.rs:
+    //   Local::new from the base scope, then a fresh TryCatch for the call.
+    for mut entry in due {
+        let func = v8::Local::new(scope, &entry.func);
+        let gobj = scope.get_current_context().global(scope);
+        let _ = func.call(scope, gobj.into(), &[]);
+
+        // Re-insert only if clearInterval was not called for this ID.
+        let cleared = INTERVALS_CLEARED_DURING_FIRE.with(|cs| cs.borrow().contains(&entry.id));
+        if !cleared {
+            entry.next_fire = Instant::now()
+                + std::time::Duration::from_millis(entry.interval_ms);
+            PENDING_INTERVALS.with(|iv| iv.borrow_mut().push(entry));
+        }
+    }
+
+    // Reset the cleared-during-fire tracker for the next batch.
+    INTERVALS_CLEARED_DURING_FIRE.with(|cs| cs.borrow_mut().clear());
+}
+
+/// Clear all pending intervals. Call at the start of each request to prevent
+/// stale state from a crashed/timed-out previous request from bleeding through.
+pub(crate) fn clear_pending_intervals() {
+    PENDING_INTERVALS.with(|iv| iv.borrow_mut().clear());
+    INTERVALS_CLEARED_DURING_FIRE.with(|cs| cs.borrow_mut().clear());
+    INTERVAL_ID_COUNTER.with(|c| c.set(100));
 }
 
 /// RuntimeAPIs manages all JavaScript API bindings
@@ -2739,30 +2824,75 @@ fn set_timeout_callback(
 /// Timer callback for setInterval
 fn set_interval_callback(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
-    _args: v8::FunctionCallbackArguments,
+    args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    // Return a dummy timer ID
-    let id = v8::Number::new(scope, 2.0);
-    retval.set(id.into());
+    if args.length() == 0 || !args.get(0).is_function() {
+        retval.set(v8::Number::new(scope, 0.0).into());
+        return;
+    }
+
+    let interval_ms: u64 = if args.length() > 1 {
+        if let Some(n) = args.get(1).to_number(scope) {
+            n.value().max(0.0) as u64
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let func = args.get(0).cast::<v8::Function>();
+    let func_global = v8::Global::new(scope, func);
+
+    let id = INTERVAL_ID_COUNTER.with(|c| {
+        let id = c.get();
+        c.set(id.wrapping_add(1));
+        id
+    });
+
+    PENDING_INTERVALS.with(|iv| {
+        iv.borrow_mut().push(IntervalEntry {
+            id,
+            func: func_global,
+            interval_ms,
+            next_fire: Instant::now() + std::time::Duration::from_millis(interval_ms),
+        });
+    });
+
+    retval.set(v8::Number::new(scope, f64::from(id)).into());
 }
 
-/// Timer callback for clearTimeout
+/// Timer callback for clearTimeout — no-op (setTimeout IDs are one-shot).
 fn clear_timeout_callback(
     _scope: &mut v8::PinnedRef<v8::HandleScope>,
     _args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    // No-op for now
 }
 
 /// Timer callback for clearInterval
 fn clear_interval_callback(
-    _scope: &mut v8::PinnedRef<v8::HandleScope>,
-    _args: v8::FunctionCallbackArguments,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    // No-op for now
+    if args.length() == 0 { return; }
+    if let Some(n) = args.get(0).to_number(scope) {
+        let target_id = n.value() as u32;
+        // Remove from live queue (if not currently being fired).
+        PENDING_INTERVALS.with(|iv| {
+            iv.borrow_mut().retain(|e| e.id != target_id);
+        });
+        // Mark cleared so fire_pending_intervals won't re-insert if this
+        // clearInterval was called from within the interval's own callback.
+        INTERVALS_CLEARED_DURING_FIRE.with(|cs| {
+            let mut v = cs.borrow_mut();
+            if !v.contains(&target_id) {
+                v.push(target_id);
+            }
+        });
+    }
 }
 
 /// Buffer constructor callback

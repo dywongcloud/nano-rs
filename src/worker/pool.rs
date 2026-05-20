@@ -668,6 +668,9 @@ impl WorkerPool {
                                 let tc_pin = std::pin::pin!(tc_storage);
                                 let mut tc = tc_pin.init();
 
+                                // Clear any stale interval state from a previous request.
+                                crate::runtime::apis::clear_pending_intervals();
+
                                 let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
 
                                 // Resolve Promise if async handler
@@ -703,6 +706,7 @@ impl WorkerPool {
                                                     if std::time::Instant::now() > deadline {
                                                         return Err(anyhow!("Async handler timed out after 30s"));
                                                     }
+                                                    crate::runtime::apis::fire_pending_intervals(&mut *tc);
                                                     std::thread::yield_now();
                                                 }
                                             }
@@ -1429,6 +1433,9 @@ impl WorkerPool {
                                 let tc_pin = std::pin::pin!(tc_storage);
                                 let mut tc = tc_pin.init();
 
+                                // Clear any stale interval state from a previous request.
+                                crate::runtime::apis::clear_pending_intervals();
+
                                 let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
 
                                 let resolved = match call_result {
@@ -1464,6 +1471,7 @@ impl WorkerPool {
                                                     if std::time::Instant::now() > deadline {
                                                         return Err(anyhow!("Async handler timed out after 30s"));
                                                     }
+                                                    crate::runtime::apis::fire_pending_intervals(&mut *tc);
                                                     std::thread::yield_now();
                                                 }
                                             }
