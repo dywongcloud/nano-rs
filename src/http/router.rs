@@ -928,6 +928,9 @@ pub async fn dispatch_to_worker_pool(
     // Dispatch to WorkQueue (async Mutex lock)
     let mut queue = state.work_queue.lock().await;
 
+    // Ensure tenant exists before validation (auto-provision first-seen hosts)
+    queue.ensure_tenant(&host);
+
     // Validate through control plane before dispatching
     if let Some(ref control_plane) = queue.control_plane {
         if let Err(e) = control_plane.validate_request_ref(&task) {

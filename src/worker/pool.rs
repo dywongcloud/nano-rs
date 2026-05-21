@@ -707,9 +707,20 @@ impl WorkerPool {
                                                     if std::time::Instant::now() > deadline {
                                                         return Err(anyhow!("Async handler timed out after 30s"));
                                                     }
+                                                    // Cancel any CPU-guard termination before executing JS.
+                                                    // The guard fires at wall-clock `cpu_time_limit_ms` but
+                                                    // async handlers spend most of that time sleeping, not
+                                                    // running JS. The 30s pump-loop deadline is the correct
+                                                    // limit for async wait. cancel_terminate_execution is a
+                                                    // no-op when no termination is pending.
+                                                    // SAFETY: iso_ptr is valid for this worker's lifetime.
+                                                    unsafe { (*iso_ptr).cancel_terminate_execution(); }
                                                     crate::runtime::apis::fire_pending_intervals(&mut *tc);
                                                     crate::runtime::apis::fire_pending_timeouts(&mut *tc);
-                                                    std::thread::yield_now();
+                                                    // 1ms sleep: caps spin rate at ~1000/sec, prevents
+                                                    // CPU starvation and OS scheduler interference that
+                                                    // causes 100ms+ timers to never fire under load.
+                                                    std::thread::sleep(std::time::Duration::from_millis(1));
                                                 }
                                             }
                                         }
@@ -1474,9 +1485,11 @@ impl WorkerPool {
                                                     if std::time::Instant::now() > deadline {
                                                         return Err(anyhow!("Async handler timed out after 30s"));
                                                     }
+                                                    // SAFETY: iso_ptr valid for this worker's lifetime.
+                                                    unsafe { (*iso_ptr).cancel_terminate_execution(); }
                                                     crate::runtime::apis::fire_pending_intervals(&mut *tc);
                                                     crate::runtime::apis::fire_pending_timeouts(&mut *tc);
-                                                    std::thread::yield_now();
+                                                    std::thread::sleep(std::time::Duration::from_millis(1));
                                                 }
                                             }
                                         }

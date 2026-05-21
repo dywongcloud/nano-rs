@@ -122,6 +122,10 @@ pub(crate) fn clear_pending_intervals() {
 ///
 /// Called from the `PromiseState::Pending` arm of the pump loop alongside
 /// `fire_pending_intervals`. Entries are removed after firing (one-shot).
+///
+/// If V8 execution is terminated (e.g. CPU guard fired during sleep), `func.call`
+/// returns `None`. The entry is re-queued so it fires on the next iteration once
+/// `cancel_terminate_execution` restores V8 to a runnable state.
 pub(crate) fn fire_pending_timeouts(scope: &mut v8::PinnedRef<v8::HandleScope>) {
     let now = Instant::now();
 
@@ -139,10 +143,19 @@ pub(crate) fn fire_pending_timeouts(scope: &mut v8::PinnedRef<v8::HandleScope>) 
         due
     });
 
+    let mut failed: Vec<TimeoutEntry> = Vec::new();
     for entry in due {
         let func = v8::Local::new(scope, &entry.func);
         let gobj = scope.get_current_context().global(scope);
-        let _ = func.call(scope, gobj.into(), &[]);
+        if func.call(scope, gobj.into(), &[]).is_none() {
+            // V8 was terminated mid-call (CPU guard race). Re-queue so the pump
+            // loop retries after cancel_terminate_execution restores V8.
+            failed.push(entry);
+        }
+    }
+
+    if !failed.is_empty() {
+        PENDING_TIMEOUTS.with(|tv| tv.borrow_mut().extend(failed));
     }
 }
 

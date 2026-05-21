@@ -441,3 +441,99 @@ async fn setinterval_fires_via_pump_loop() {
         body
     );
 }
+
+/// Helper: spin up a fresh in-process server with a JS handler, make one GET, return body.
+#[cfg(test)]
+async fn one_shot_request(js: &str) -> String {
+    use std::sync::Arc;
+    use nano::http::router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};
+    use nano::http::server::{AppStateWithShutdown, create_app_with_shutdown};
+    use nano::signal::ShutdownState;
+
+    let entrypoint = write_js(&format!("oneshot_{}.js", uuid_fragment()), js);
+    let mut vhr = VirtualHostRouter::new(RouteTarget {
+        hostname: "localhost".to_string(),
+        handler_type: HandlerType::WinterTCHandler(entrypoint.clone()),
+    });
+    vhr.register("localhost".to_string(), RouteTarget {
+        hostname: "localhost".to_string(),
+        handler_type: HandlerType::WinterTCHandler(entrypoint),
+    });
+    let state = Arc::new(AppStateWithShutdown::new(
+        AppState::new(vhr, 1),
+        ShutdownState::default(),
+    ));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, create_app_with_shutdown(state)).await.unwrap() });
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+    reqwest::get(format!("http://127.0.0.1:{}/", addr.port()))
+        .await.expect("request")
+        .text().await.expect("body")
+}
+
+fn uuid_fragment() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
+    format!("{}_{}", std::process::id(), nanos)
+}
+
+/// [REGR-TIMER-04] clearTimeout prevents the callback from executing.
+///
+/// Pattern: register a timer that sets a flag, immediately clear it,
+/// wait via a second timer, assert flag is still false.
+#[tokio::test]
+#[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
+async fn cleartimeout_cancels_callback() {
+    if !timer_tests_enabled() { return; }
+    init_v8_once();
+
+    let js = r#"
+    async function fetch(_request) {
+        let fired = false;
+        const id = setTimeout(() => { fired = true; }, 30);
+        clearTimeout(id);
+        // Use a second timer (different ID) to wait past the cancelled deadline.
+        await new Promise(resolve => setTimeout(resolve, 80));
+        return new Response(fired ? "timer_fired" : "ok", { status: 200 });
+    }
+    "#;
+
+    let body = one_shot_request(js).await;
+    assert_eq!(
+        body, "ok",
+        "[REGR-TIMER-04] clearTimeout must cancel callback — fired after cancel: '{}'",
+        body
+    );
+}
+
+/// [REGR-TIMER-05] Promise chain with sequential awaited timers completes.
+///
+/// Three chained awaits each backed by a separate setTimeout.
+/// Total expected delay: ~60ms. Verifies the pump loop propagates microtasks
+/// correctly across multiple await boundaries inside one async handler.
+#[tokio::test]
+#[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
+async fn promise_chain_sequential_timers() {
+    if !timer_tests_enabled() { return; }
+    init_v8_once();
+
+    let js = r#"
+    async function fetch(_request) {
+        const start = Date.now();
+        await new Promise(r => setTimeout(r, 10));
+        await new Promise(r => setTimeout(r, 20));
+        await new Promise(r => setTimeout(r, 30));
+        const elapsed = Date.now() - start;
+        return new Response(elapsed >= 55 ? "ok" : "too_fast:" + elapsed, { status: 200 });
+    }
+    "#;
+
+    let body = one_shot_request(js).await;
+    assert_eq!(
+        body, "ok",
+        "[REGR-TIMER-05] Promise chain: three sequential timers must all fire, got '{}'",
+        body
+    );
+}
