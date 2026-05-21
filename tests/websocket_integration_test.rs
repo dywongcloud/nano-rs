@@ -226,10 +226,24 @@ async fn ws_size_limit() {
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("connect");
 
     // Send a 33 MiB binary message (exceeds 32 MiB limit per D-09/D-12b).
+    // The server may close the TCP connection while we're still sending —
+    // EPIPE / BrokenPipe on the send is acceptable because it means the
+    // server already enforced the limit. We only care that the connection
+    // terminates (either via 1009 frame or connection reset).
     let oversized = vec![0u8; 33 * 1024 * 1024];
-    ws.send(Message::Binary(oversized)).await.expect("send oversized");
+    let send_result = ws.send(Message::Binary(oversized)).await;
 
-    // Server should respond with Close code 1009 (Message Too Big).
+    match send_result {
+        Err(e) if e.to_string().contains("Broken pipe") || e.to_string().contains("BrokenPipe")
+               || e.to_string().contains("Connection reset") => {
+            // Server closed mid-send enforcing the size limit — correct.
+            return;
+        }
+        Err(e) => panic!("unexpected send error: {}", e),
+        Ok(()) => {} // send buffered; now read the close frame
+    }
+
+    // If send succeeded (large TCP buffer), server should respond with Close 1009.
     let frame = ws.next().await.expect("should receive close").expect("frame");
     match frame {
         Message::Close(Some(cf)) => {

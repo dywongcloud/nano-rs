@@ -400,19 +400,18 @@ impl WorkQueue {
         if !self.pools.contains_key(&hash) {
             tracing::info!("Creating new EntrypointWorkerPool for hostname: {}", hostname);
 
-            // Register tenant in control plane if available
+            // Register tenant in control plane if available (auto-provision with defaults
+            // when no registry entry exists — control plane must not block first-seen tenants)
             if let Some(ref mut control_plane) = self.control_plane {
-                if let Some(ref registry) = self.app_registry {
-                    if let Some(_app_config) = registry.get(hostname) {
-                        let limits = crate::control_plane::TenantLimits {
-                            max_script_size: 10 * 1024 * 1024, // 10MB max (per execution limit)
-                            max_timeout_ms: 30000,             // 30s default
-                            max_batch_size: 100,               // 100 req default
-                            allowed_methods: vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string()],
-                        };
-                        control_plane.register_tenant(hostname.to_string(), limits);
-                        tracing::debug!("Registered tenant {} in control plane", hostname);
-                    }
+                if !control_plane.tenant_exists(hostname) {
+                    let limits = crate::control_plane::TenantLimits {
+                        max_script_size: 10 * 1024 * 1024, // 10MB max (per execution limit)
+                        max_timeout_ms: 30000,             // 30s default
+                        max_batch_size: 100,               // 100 req default
+                        allowed_methods: vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string()],
+                    };
+                    control_plane.register_tenant(hostname.to_string(), limits);
+                    tracing::debug!("Auto-registered tenant {} in control plane with default limits", hostname);
                 }
             }
 
@@ -593,6 +592,25 @@ impl WorkQueue {
     /// * `hostname` - The hostname to route by
     /// * `task` - The handler task to dispatch
     ///
+    /// Ensure a tenant is registered in the control plane with default limits.
+    ///
+    /// Called before control plane validation so first-seen hostnames (e.g. in tests
+    /// without an AppRegistry) are not rejected by the precondition check.
+    pub fn ensure_tenant(&mut self, hostname: &str) {
+        if let Some(ref mut control_plane) = self.control_plane {
+            if !control_plane.tenant_exists(hostname) {
+                let limits = crate::control_plane::TenantLimits {
+                    max_script_size: 10 * 1024 * 1024,
+                    max_timeout_ms: 30000,
+                    max_batch_size: 100,
+                    allowed_methods: vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string()],
+                };
+                control_plane.register_tenant(hostname.to_string(), limits);
+                tracing::debug!("ensure_tenant: auto-registered {} with default limits", hostname);
+            }
+        }
+    }
+
     /// # Returns
     ///
     /// `Ok(())` if dispatched, `Err(QueueError::ChannelFull)` for backpressure

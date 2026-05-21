@@ -455,7 +455,7 @@ impl ControlPlane {
     }
 
     /// Check if tenant exists in registry.
-    fn tenant_exists(&self, tenant_id: &str) -> bool {
+    pub fn tenant_exists(&self, tenant_id: &str) -> bool {
         if tenant_id.is_empty() {
             return true; // Default tenant always exists
         }

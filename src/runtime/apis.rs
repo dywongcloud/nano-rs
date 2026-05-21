@@ -12,12 +12,157 @@
 //!
 //! All APIs are bound to the V8 global scope via RuntimeAPIs::bind_all().
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::time::Instant;
 
-// Thread-local storage for performance baseline timing
+// ---------------------------------------------------------------------------
+// Thread-local timer state
+// ---------------------------------------------------------------------------
+
+/// One pending setTimeout entry (one-shot).
+struct TimeoutEntry {
+    id: u32,
+    func: v8::Global<v8::Function>,
+    fire_at: Instant,
+}
+
+/// One pending setInterval entry (repeating).
+struct IntervalEntry {
+    id: u32,
+    func: v8::Global<v8::Function>,
+    interval_ms: u64,
+    next_fire: Instant,
+}
+
 thread_local! {
     static PERFORMANCE_BASELINE: Cell<Option<Instant>> = Cell::new(None);
+
+    /// Live setTimeout entries for the current request.
+    static PENDING_TIMEOUTS: RefCell<Vec<TimeoutEntry>> = const { RefCell::new(Vec::new()) };
+
+    /// Monotonically increasing ID source for setTimeout handles (1–99).
+    static TIMEOUT_ID_COUNTER: Cell<u32> = const { Cell::new(1) };
+
+    /// Live setInterval entries for the current request.
+    static PENDING_INTERVALS: RefCell<Vec<IntervalEntry>> = const { RefCell::new(Vec::new()) };
+
+    /// IDs cleared via clearInterval() while fire_pending_intervals() is
+    /// dispatching (i.e., the interval's own callback called clearInterval).
+    /// Entries in this set are not re-inserted after the callback returns.
+    static INTERVALS_CLEARED_DURING_FIRE: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+
+    /// Monotonically increasing ID source for interval handles (100+).
+    static INTERVAL_ID_COUNTER: Cell<u32> = const { Cell::new(100) };
+}
+
+// ---------------------------------------------------------------------------
+// Interval fire / clear — called from the pump loop in pool.rs
+// ---------------------------------------------------------------------------
+
+/// Fire all setInterval callbacks whose next_fire deadline has passed.
+///
+/// Called from the `PromiseState::Pending` arm of the pump loop in pool.rs
+/// after each microtask checkpoint. The pump loop continues iterating until
+/// the async handler's Promise resolves, so each spin is a natural fire-point.
+///
+/// # Design: drain-and-reinsert
+/// Due entries are *removed* from `PENDING_INTERVALS` before their callbacks
+/// run. This means `clearInterval()` called from within a callback can safely
+/// mutate the vec without reentrancy. Entries are re-inserted (with an updated
+/// `next_fire`) only if they were not cleared during the callback.
+pub(crate) fn fire_pending_intervals(scope: &mut v8::PinnedRef<v8::HandleScope>) {
+    let now = Instant::now();
+
+    // Phase 1: drain due entries (own them while firing).
+    let due: Vec<IntervalEntry> = PENDING_INTERVALS.with(|iv| {
+        let mut entries = iv.borrow_mut();
+        let mut due = Vec::new();
+        let mut i = 0;
+        while i < entries.len() {
+            if now >= entries[i].next_fire {
+                due.push(entries.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        due
+    });
+
+    // Phase 2: call each due callback. The RefCell borrow is released, so
+    // clearInterval() inside a callback can mutate PENDING_INTERVALS safely.
+    // Mirror the WS dispatch pattern used in pool.rs:
+    //   Local::new from the base scope, then a fresh TryCatch for the call.
+    for mut entry in due {
+        let func = v8::Local::new(scope, &entry.func);
+        let gobj = scope.get_current_context().global(scope);
+        let _ = func.call(scope, gobj.into(), &[]);
+
+        // Re-insert only if clearInterval was not called for this ID.
+        let cleared = INTERVALS_CLEARED_DURING_FIRE.with(|cs| cs.borrow().contains(&entry.id));
+        if !cleared {
+            entry.next_fire = Instant::now()
+                + std::time::Duration::from_millis(entry.interval_ms);
+            PENDING_INTERVALS.with(|iv| iv.borrow_mut().push(entry));
+        }
+    }
+
+    // Reset the cleared-during-fire tracker for the next batch.
+    INTERVALS_CLEARED_DURING_FIRE.with(|cs| cs.borrow_mut().clear());
+}
+
+/// Clear all pending intervals. Call at the start of each request to prevent
+/// stale state from a crashed/timed-out previous request from bleeding through.
+pub(crate) fn clear_pending_intervals() {
+    PENDING_INTERVALS.with(|iv| iv.borrow_mut().clear());
+    INTERVALS_CLEARED_DURING_FIRE.with(|cs| cs.borrow_mut().clear());
+    INTERVAL_ID_COUNTER.with(|c| c.set(100));
+}
+
+/// Fire all setTimeout callbacks whose fire_at deadline has passed.
+///
+/// Called from the `PromiseState::Pending` arm of the pump loop alongside
+/// `fire_pending_intervals`. Entries are removed after firing (one-shot).
+///
+/// If V8 execution is terminated (e.g. CPU guard fired during sleep), `func.call`
+/// returns `None`. The entry is re-queued so it fires on the next iteration once
+/// `cancel_terminate_execution` restores V8 to a runnable state.
+pub(crate) fn fire_pending_timeouts(scope: &mut v8::PinnedRef<v8::HandleScope>) {
+    let now = Instant::now();
+
+    let due: Vec<TimeoutEntry> = PENDING_TIMEOUTS.with(|tv| {
+        let mut entries = tv.borrow_mut();
+        let mut due = Vec::new();
+        let mut i = 0;
+        while i < entries.len() {
+            if now >= entries[i].fire_at {
+                due.push(entries.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        due
+    });
+
+    let mut failed: Vec<TimeoutEntry> = Vec::new();
+    for entry in due {
+        let func = v8::Local::new(scope, &entry.func);
+        let gobj = scope.get_current_context().global(scope);
+        if func.call(scope, gobj.into(), &[]).is_none() {
+            // V8 was terminated mid-call (CPU guard race). Re-queue so the pump
+            // loop retries after cancel_terminate_execution restores V8.
+            failed.push(entry);
+        }
+    }
+
+    if !failed.is_empty() {
+        PENDING_TIMEOUTS.with(|tv| tv.borrow_mut().extend(failed));
+    }
+}
+
+/// Clear all pending timeouts. Call at the start of each request.
+pub(crate) fn clear_pending_timeouts() {
+    PENDING_TIMEOUTS.with(|tv| tv.borrow_mut().clear());
+    TIMEOUT_ID_COUNTER.with(|c| c.set(1));
 }
 
 /// RuntimeAPIs manages all JavaScript API bindings
@@ -57,6 +202,38 @@ impl RuntimeAPIs {
         Self::bind_streams(scope, context);
         Self::bind_wasm(scope, context);
         Self::bind_websocket_pair(scope, context);
+        // Security hardening must run last: removes eval and blocks dynamic code generation
+        Self::bind_security_hardening(scope, context);
+    }
+
+    /// Security hardening: remove eval and block dynamic code generation via Function constructor
+    ///
+    /// Must be called after all other binds. Removes `eval` from globalThis and
+    /// replaces `Function` with a locked-down stub that throws TypeError.
+    /// Function declarations and arrow functions are unaffected (parsed statically by V8).
+    fn bind_security_hardening(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+        let global = context.global(scope);
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+
+        // Remove eval from global — makes typeof eval !== 'function'
+        if let Some(eval_key) = v8::String::new(&mut ctx_scope, "eval") {
+            global.delete(&mut ctx_scope, eval_key.into());
+        }
+
+        // Replace globalThis.Function with a stub that always throws TypeError.
+        // This blocks dynamic code generation attacks while leaving function
+        // declarations/expressions unaffected (they're parsed statically by V8).
+        if let Some(blocked_fn) = v8::Function::new(&mut ctx_scope, function_constructor_blocked) {
+            let fn_key = match v8::String::new(&mut ctx_scope, "Function") {
+                Some(k) => k,
+                None => return, // V8 OOM during hardening — skip, not fatal
+            };
+            // writable:false via constructor; configurable and enumerable set separately
+            let mut desc = v8::PropertyDescriptor::new_from_value_writable(blocked_fn.into(), false);
+            desc.set_configurable(false);
+            desc.set_enumerable(false);
+            global.define_property(&mut ctx_scope, fn_key.into(), &desc);
+        }
     }
 
     /// Bind Streams API (ReadableStream, WritableStream)
@@ -564,6 +741,19 @@ fn format_console_args(scope: &mut v8::PinnedRef<v8::HandleScope>, args: v8::Fun
         }
     }
     parts.join(" ")
+}
+
+/// V8 callback that blocks dynamic code generation via the Function constructor
+/// Throws TypeError unconditionally. Replaces globalThis.Function in hardened contexts.
+fn function_constructor_blocked(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    _args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let msg = v8::String::new(scope, "Function constructor is not allowed in this context").unwrap();
+    let err = v8::Exception::type_error(scope, msg);
+    scope.throw_exception(err);
+    retval.set_undefined();
 }
 
 /// V8 callback for console.log
@@ -2652,56 +2842,133 @@ fn subtle_digest(
 }
 
 /// Timer callback for setTimeout
+///
+/// Registers the callback in the PENDING_TIMEOUTS thread-local and returns
+/// immediately. The callback fires when the pump loop in pool.rs calls
+/// `fire_pending_timeouts()` and the deadline has passed.
+///
+/// Never blocks — avoids the CPU timeout guard firing during a blocking sleep,
+/// which caused HTTP 500 for any delay ≥ the CPU limit (typically 50–100ms).
 fn set_timeout_callback(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    // Get the callback function (first argument)
-    if args.length() > 0 {
-        let callback = args.get(0);
-        if callback.is_function() {
-            let func = callback.cast::<v8::Function>();
-            // Get the global object as 'this' for the callback
-            let global = scope.get_current_context().global(scope);
-            // Call the callback immediately (synchronous execution for test compatibility)
-            // In production, this should be scheduled asynchronously
-            let _ = func.call(scope, global.into(), &[]);
-        }
+    if args.length() == 0 || !args.get(0).is_function() {
+        retval.set(v8::Number::new(scope, 0.0).into());
+        return;
     }
-    
-    // Return a dummy timer ID
-    let id = v8::Number::new(scope, 1.0);
-    retval.set(id.into());
+
+    let delay_ms: u64 = if args.length() > 1 {
+        if let Some(n) = args.get(1).to_number(scope) {
+            n.value().max(0.0) as u64
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let func = args.get(0).cast::<v8::Function>();
+    let func_global = v8::Global::new(scope, func);
+
+    let id = TIMEOUT_ID_COUNTER.with(|c| {
+        let id = c.get();
+        // IDs 1–99 for timeouts; wrap at 99 back to 1.
+        c.set(if id >= 99 { 1 } else { id + 1 });
+        id
+    });
+
+    PENDING_TIMEOUTS.with(|tv| {
+        tv.borrow_mut().push(TimeoutEntry {
+            id,
+            func: func_global,
+            fire_at: Instant::now() + std::time::Duration::from_millis(delay_ms),
+        });
+    });
+
+    retval.set(v8::Number::new(scope, f64::from(id)).into());
 }
 
 /// Timer callback for setInterval
 fn set_interval_callback(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
-    _args: v8::FunctionCallbackArguments,
+    args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    // Return a dummy timer ID
-    let id = v8::Number::new(scope, 2.0);
-    retval.set(id.into());
+    if args.length() == 0 || !args.get(0).is_function() {
+        retval.set(v8::Number::new(scope, 0.0).into());
+        return;
+    }
+
+    let interval_ms: u64 = if args.length() > 1 {
+        if let Some(n) = args.get(1).to_number(scope) {
+            n.value().max(0.0) as u64
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let func = args.get(0).cast::<v8::Function>();
+    let func_global = v8::Global::new(scope, func);
+
+    let id = INTERVAL_ID_COUNTER.with(|c| {
+        let id = c.get();
+        c.set(id.wrapping_add(1));
+        id
+    });
+
+    PENDING_INTERVALS.with(|iv| {
+        iv.borrow_mut().push(IntervalEntry {
+            id,
+            func: func_global,
+            interval_ms,
+            next_fire: Instant::now() + std::time::Duration::from_millis(interval_ms),
+        });
+    });
+
+    retval.set(v8::Number::new(scope, f64::from(id)).into());
 }
 
-/// Timer callback for clearTimeout
+/// Timer callback for clearTimeout — removes the pending entry by ID.
 fn clear_timeout_callback(
-    _scope: &mut v8::PinnedRef<v8::HandleScope>,
-    _args: v8::FunctionCallbackArguments,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    // No-op for now
+    if args.length() == 0 { return; }
+    if let Some(n) = args.get(0).to_number(scope) {
+        let target_id = n.value() as u32;
+        PENDING_TIMEOUTS.with(|tv| {
+            tv.borrow_mut().retain(|e| e.id != target_id);
+        });
+    }
 }
 
 /// Timer callback for clearInterval
 fn clear_interval_callback(
-    _scope: &mut v8::PinnedRef<v8::HandleScope>,
-    _args: v8::FunctionCallbackArguments,
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    // No-op for now
+    if args.length() == 0 { return; }
+    if let Some(n) = args.get(0).to_number(scope) {
+        let target_id = n.value() as u32;
+        // Remove from live queue (if not currently being fired).
+        PENDING_INTERVALS.with(|iv| {
+            iv.borrow_mut().retain(|e| e.id != target_id);
+        });
+        // Mark cleared so fire_pending_intervals won't re-insert if this
+        // clearInterval was called from within the interval's own callback.
+        INTERVALS_CLEARED_DURING_FIRE.with(|cs| {
+            let mut v = cs.borrow_mut();
+            if !v.contains(&target_id) {
+                v.push(target_id);
+            }
+        });
+    }
 }
 
 /// Buffer constructor callback
@@ -2828,9 +3095,37 @@ fn buffer_from_callback(
 
     // Handle string input (after array check — to_string() would coerce arrays)
     if arg.is_string() {
-        if let Some(str) = arg.to_string(scope) {
-            let text = str.to_rust_string_lossy(scope);
-            let bytes = text.as_bytes();
+        if let Some(str_val) = arg.to_string(scope) {
+            let text = str_val.to_rust_string_lossy(scope);
+
+            // Check encoding argument (args[1]).
+            let encoding = if args.length() > 1 {
+                if let Some(enc) = args.get(1).to_string(scope) {
+                    enc.to_rust_string_lossy(scope).to_ascii_lowercase()
+                } else {
+                    "utf8".to_string()
+                }
+            } else {
+                "utf8".to_string()
+            };
+
+            let bytes: Vec<u8> = match encoding.as_str() {
+                "hex" => {
+                    // Decode hex pairs: "68656c6c6f" → [0x68, 0x65, …]
+                    // Odd-length or invalid chars produce truncated/best-effort output
+                    // (matches Node.js behaviour).
+                    (0..text.len())
+                        .step_by(2)
+                        .filter_map(|i| {
+                            text.get(i..i + 2)
+                                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+                        })
+                        .collect()
+                }
+                // "utf8" | "utf-8" | "ascii" | "latin1" | "binary" | anything else
+                _ => text.as_bytes().to_vec(),
+            };
+
             let buffer = v8::ArrayBuffer::new(scope, bytes.len());
             let store = buffer.get_backing_store();
             for (i, byte) in bytes.iter().enumerate() {
