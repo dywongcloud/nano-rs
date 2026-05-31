@@ -508,6 +508,42 @@ async fn cleartimeout_cancels_callback() {
     );
 }
 
+/// [REGR-TIMER-06] clearInterval called from within its own callback fires exactly once.
+///
+/// The drain-and-reinsert logic in fire_pending_intervals uses
+/// INTERVALS_CLEARED_DURING_FIRE to skip re-insertion when clearInterval(id)
+/// is called from the interval's own callback. Without that guard the interval
+/// would re-insert and fire on every subsequent pump tick.
+#[tokio::test]
+#[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
+async fn clearinterval_from_within_callback_fires_once() {
+    if !timer_tests_enabled() { return; }
+    init_v8_once();
+
+    let js = r#"
+    async function fetch(_request) {
+        let count = 0;
+        await new Promise(resolve => {
+            const id = setInterval(() => {
+                count += 1;
+                clearInterval(id);  // cancel self — must not re-insert
+                resolve();
+            }, 10);
+        });
+        // Wait one more interval period to confirm no second fire.
+        await new Promise(r => setTimeout(r, 30));
+        return new Response(String(count), { status: 200 });
+    }
+    "#;
+
+    let body = one_shot_request(js).await;
+    assert_eq!(
+        body, "1",
+        "[REGR-TIMER-06] clearInterval inside callback must fire exactly once, got '{}'",
+        body
+    );
+}
+
 /// [REGR-TIMER-05] Promise chain with sequential awaited timers completes.
 ///
 /// Three chained awaits each backed by a separate setTimeout.

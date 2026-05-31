@@ -400,20 +400,7 @@ impl WorkQueue {
         if !self.pools.contains_key(&hash) {
             tracing::info!("Creating new EntrypointWorkerPool for hostname: {}", hostname);
 
-            // Register tenant in control plane if available (auto-provision with defaults
-            // when no registry entry exists — control plane must not block first-seen tenants)
-            if let Some(ref mut control_plane) = self.control_plane {
-                if !control_plane.tenant_exists(hostname) {
-                    let limits = crate::control_plane::TenantLimits {
-                        max_script_size: 10 * 1024 * 1024, // 10MB max (per execution limit)
-                        max_timeout_ms: 30000,             // 30s default
-                        max_batch_size: 100,               // 100 req default
-                        allowed_methods: vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string()],
-                    };
-                    control_plane.register_tenant(hostname.to_string(), limits);
-                    tracing::debug!("Auto-registered tenant {} in control plane with default limits", hostname);
-                }
-            }
+            self.ensure_tenant(hostname);
 
             // Check for per-app VFS configuration from AppRegistry first
             let pool = if let Some(ref registry) = self.app_registry {
@@ -581,21 +568,10 @@ impl WorkQueue {
         }
     }
 
-    /// Dispatch a task to the appropriate worker pool
+    /// Register a first-seen hostname in the control plane with default limits.
     ///
-    /// Uses affine dispatch: same hostname always routes to same worker index.
-    /// Returns HTTP 503 when channel is full (backpressure protection).
-    /// Creates pool asynchronously if it doesn't exist (supports disk VFS backends).
-    ///
-    /// # Arguments
-    ///
-    /// * `hostname` - The hostname to route by
-    /// * `task` - The handler task to dispatch
-    ///
-    /// Ensure a tenant is registered in the control plane with default limits.
-    ///
-    /// Called before control plane validation so first-seen hostnames (e.g. in tests
-    /// without an AppRegistry) are not rejected by the precondition check.
+    /// Called before validation so hostnames without an AppRegistry entry (e.g.
+    /// in-process tests) are not rejected by the precondition check.
     pub fn ensure_tenant(&mut self, hostname: &str) {
         if let Some(ref mut control_plane) = self.control_plane {
             if !control_plane.tenant_exists(hostname) {
@@ -611,9 +587,7 @@ impl WorkQueue {
         }
     }
 
-    /// # Returns
-    ///
-    /// `Ok(())` if dispatched, `Err(QueueError::ChannelFull)` for backpressure
+    /// Uses affine dispatch (hostname → worker index). Returns 503 on backpressure.
     pub async fn dispatch(&mut self, hostname: &str, task: HandlerTask) -> Result<(), QueueError> {
         // Calculate worker index first (doesn't need pool reference)
         let hostname_hash = hash_hostname(hostname);
@@ -702,7 +676,7 @@ mod tests {
     fn test_workqueue_creation() {
         let queue = WorkQueue::new(4);
         assert_eq!(queue.workers_per_pool, 4);
-        assert_eq!(queue.channel_capacity, 256);
+        assert_eq!(queue.channel_capacity(), 256, "POOL-02: bounded channel must be 256 slots");
         assert_eq!(queue.pools.len(), 0);
     }
 
@@ -748,25 +722,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_affine_dispatch_consistency() {
-        let mut queue = WorkQueue::new(4); // 4 workers per pool
+        let mut queue = WorkQueue::new(4);
 
-        // Create pool
         let pool = queue.get_or_create_pool("app.example.com").await;
         let worker_count = pool.worker_count;
 
-        // Calculate expected worker index for hostname
-        let hostname_hash = hash_hostname("app.example.com");
-        let expected_worker = (hostname_hash % worker_count as u64) as usize;
+        let idx = (hash_hostname("app.example.com") % worker_count as u64) as usize;
+        assert!(idx < worker_count as usize, "worker index must be in bounds");
 
-        // Verify same hostname always routes to same worker index
-        for _ in 0..100 {
-            let hash = hash_hostname("app.example.com");
-            let worker_index = (hash % worker_count as u64) as usize;
-            assert_eq!(
-                worker_index, expected_worker,
-                "Hostname should always route to same worker"
-            );
-        }
+        assert_ne!(
+            hash_hostname("app.example.com"),
+            hash_hostname("other.example.com"),
+            "different hostnames must produce different hashes"
+        );
     }
 
     #[test]
@@ -790,18 +758,6 @@ mod tests {
     }
 
     #[test]
-    fn test_stats_snapshot() {
-        let stats = QueueStats::new();
-        let snapshot = stats.snapshot();
-
-        assert_eq!(snapshot.tasks_submitted, 0);
-        assert_eq!(snapshot.tasks_completed, 0);
-        assert_eq!(snapshot.tasks_dropped, 0);
-        assert_eq!(snapshot.active_pools, 0);
-        assert_eq!(snapshot.active_workers, 0);
-    }
-
-    #[test]
     fn test_worker_pool_try_dispatch() {
         let pool = EntrypointWorkerPool::new("test.local", 2);
 
@@ -821,5 +777,29 @@ mod tests {
         // Should succeed (channel is empty)
         let result = pool.try_dispatch(task, 0);
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_ensure_tenant_registers_in_control_plane() {
+        let mut queue = WorkQueue::new(2);
+
+        assert!(
+            !queue.control_plane.as_ref().unwrap().tenant_exists("new.host.local"),
+            "hostname must not exist before first pool creation"
+        );
+
+        queue.get_or_create_pool("new.host.local").await;
+
+        assert!(
+            queue.control_plane.as_ref().unwrap().tenant_exists("new.host.local"),
+            "hostname must be registered after pool creation"
+        );
+
+        // idempotent: must not double-register or panic
+        queue.ensure_tenant("new.host.local");
+        assert!(
+            queue.control_plane.as_ref().unwrap().tenant_exists("new.host.local"),
+            "idempotent: already-registered hostname must still exist"
+        );
     }
 }

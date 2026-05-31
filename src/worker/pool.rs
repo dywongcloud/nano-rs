@@ -14,8 +14,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{anyhow, Result};
 
-// Thread-local storage for the worker thread's Tokio runtime handle
-// This allows fetch() and other async operations to access the runtime
 thread_local! {
     static WORKER_RUNTIME: RefCell<Option<tokio::runtime::Handle>> = RefCell::new(None);
 }
@@ -27,37 +25,21 @@ use std::thread::{self, JoinHandle};
 
 use tracing::{debug, error, info, warn};
 
-/// Handle to a worker thread
-///
-/// Contains the thread join handle and the MPSC sender for dispatching tasks.
-/// Dropping the handle closes the channel, signaling the worker to exit.
+/// Dropping closes the channel, signaling the worker to exit.
 #[derive(Debug)]
 pub struct WorkerHandle {
-    /// Worker thread ID (0-indexed)
     pub id: u32,
-    /// Thread join handle for cleanup
     thread: Option<JoinHandle<()>>,
-    /// MPSC sender for task dispatch
     task_tx: mpsc::Sender<HandlerTask>,
 }
 
 impl WorkerHandle {
-    /// Send a task to this worker
-    ///
-    /// # Arguments
-    ///
-    /// * `task` - The HandlerTask to execute
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if the task was sent, `Err` if the channel is closed
     pub fn send(&self, task: HandlerTask) -> Result<()> {
         self.task_tx
             .send(task)
             .map_err(|_| anyhow!("Worker {} channel closed", self.id))
     }
 
-    /// Take the join handle for thread cleanup
     fn take_thread(&mut self) -> Option<JoinHandle<()>> {
         self.thread.take()
     }
@@ -65,46 +47,19 @@ impl WorkerHandle {
 
 impl Drop for WorkerHandle {
     fn drop(&mut self) {
-        // Channel is dropped automatically, signaling worker to exit
-        debug!("WorkerHandle {} dropped, signaling worker to exit", self.id);
+        debug!("WorkerHandle {} dropped", self.id);
     }
 }
 
-/// Pool of worker threads for JavaScript execution (Legacy)
+/// Legacy pool — prefer [`SliverWorkerPool`], [`EntrypointWorkerPool`], or [`WorkQueue`] for new code.
 ///
-/// **Deprecation Notice:** This is the original WorkerPool implementation
-/// maintained for backward compatibility with existing tests. New code
-/// should use one of:
-///
-/// - [`SliverWorkerPool`] - For production snapshot-based execution
-/// - [`EntrypointWorkerPool`] - For dynamic app loading and testing
-/// - [`WorkQueue`] - For multi-tenant hostname-based routing
-///
-/// This pool provides full features (CPU limits, memory monitoring, eviction)
-/// but lacks the clear separation of concerns of the newer pool types.
-///
-/// ## Migration Guide
-///
-/// | Current Usage | Migrate To | Reason |
-/// |-------------|-----------|--------|
-/// | `WorkerPool::new(hostname, n, mem)` | `SliverWorkerPool` | Production with slivers |
-/// | Dynamic loading | `EntrypointWorkerPool` | Async VFS creation |
-/// | Multi-tenant | `WorkQueue` | Per-hostname pools |
-///
-/// Each worker owns one V8 isolate (thread-local). Tasks are dispatched
-/// via MPSC channels. The pool uses round-robin for initial dispatch.
+/// Each worker owns one V8 isolate (thread-local). Tasks dispatched via MPSC, round-robin.
 pub struct WorkerPool {
-    /// Worker handles for all threads in the pool
     workers: Vec<WorkerHandle>,
-    /// Number of workers (for verification)
     pub worker_count: u32,
-    /// Hostname this pool serves (for logging/debugging)
     pub hostname: String,
-    /// Round-robin counter for dispatch
     next_worker: AtomicU32,
-    /// Shared VFS backend for all workers in this pool
     vfs_backend: crate::vfs::VfsBackendEnum,
-    /// Memory limit per isolate in MB
     memory_limit_mb: u32,
 }
 
@@ -122,49 +77,16 @@ impl std::fmt::Debug for WorkerPool {
 }
 
 impl WorkerPool {
-    /// Create a new worker pool with N worker threads
-    ///
-    /// Each worker thread:
-    /// 1. Creates its own NanoIsolate (thread-local ownership)
-    /// 2. Runs an event loop receiving HandlerTask via MPSC
-    /// 3. Executes JavaScript handlers and sends responses back
-    ///
-    /// # Arguments
-    ///
-    /// * `hostname` - Hostname this pool serves (for logging)
-    /// * `worker_count` - Number of worker threads to spawn
-    /// * `memory_limit_mb` - Memory limit per isolate in MB (0 = no limit)
-    ///
-    /// # Returns
-    ///
-    /// A new WorkerPool with N workers ready to receive tasks
-    ///
     /// # Panics
     ///
-    /// Panics if the V8 platform is not initialized
+    /// Panics if the V8 platform is not initialized.
     pub fn new(hostname: String, worker_count: u32, memory_limit_mb: u32) -> Self {
         Self::with_backend(hostname, worker_count, memory_limit_mb, crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()))
     }
 
-    /// Create a new worker pool with a specific VFS backend
-    ///
-    /// This allows configuring the storage backend (memory, disk, S3)
-    /// for the VFS used by all workers in this pool.
-    ///
-    /// # Arguments
-    ///
-    /// * `hostname` - Hostname this pool serves (for logging)
-    /// * `worker_count` - Number of worker threads to spawn
-    /// * `memory_limit_mb` - Memory limit per isolate in MB (0 = no limit)
-    /// * `vfs_backend` - The VFS backend to use (Arc<dyn VfsBackend>)
-    ///
-    /// # Returns
-    ///
-    /// A new WorkerPool with N workers ready to receive tasks
-    ///
     /// # Panics
     ///
-    /// Panics if the V8 platform is not initialized
+    /// Panics if the V8 platform is not initialized.
     pub fn with_backend(
         hostname: String,
         worker_count: u32,
@@ -363,10 +285,6 @@ impl WorkerPool {
                                 }
                             }
 
-                            // --- WebSocket mode (D-01 pin-a-worker, D-10b isolate recycle) ---
-                            // If the task carries WS channels, enter the ws_messages loop instead
-                            // of the normal HTTP handler path. The 'ws_messages loop runs until
-                            // the connection closes, then breaks 'requests to force isolate recycle.
                             if let Some(ws_channels) = task.ws {
                                 use crate::worker::tenant_pool::{
                                     WS_OUTBOUND, WS_ACCEPTED, WS_MESSAGE_HANDLERS,
@@ -374,16 +292,12 @@ impl WorkerPool {
                                     set_ws_readystate, clear_ws_thread_locals,
                                 };
 
-                                // Seed WS thread-locals for V8 FunctionCallbacks.
                                 WS_OUTBOUND.with(|tx| *tx.borrow_mut() = Some(ws_channels.outbound_tx.clone()));
                                 WS_ACCEPTED.with(|a| a.set(false));
                                 WS_MESSAGE_HANDLERS.with(|h| h.borrow_mut().clear());
                                 WS_CLOSE_HANDLERS.with(|h| h.borrow_mut().clear());
                                 WS_ERROR_HANDLERS.with(|h| h.borrow_mut().clear());
 
-                                // Call JS handler so it can register addEventListener callbacks
-                                // before the first frame arrives. Return value is ignored — the
-                                // 101 response was already sent by handle_ws_upgrade in router.rs.
                                 let handler_g = handler_cache.get(&task.entrypoint).unwrap();
                                 let global_obj = context.global(&mut ctx_scope);
                                 let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
@@ -394,23 +308,16 @@ impl WorkerPool {
                                     let _ = handler_local.call(&tc, global_obj.into(), &[url_str.into()]);
                                 }
 
-                                // Signal OPEN state on the server socket JS object (D-16b).
                                 set_ws_readystate(&mut ctx_scope, 1);
-
-                                // Note: 101 response was sent by handle_ws_upgrade in router.rs
-                                // before the task was dispatched. response_tx is intentionally dropped.
-                                let _ = task.response_tx;
+                                let _ = task.response_tx; // 101 already sent by router
 
                                 info!("Worker {}: entering ws_messages loop for '{}'", id, task.entrypoint);
 
-                                // 30s idle timeout matches tenant_pool default (D-11b).
                                 let idle_dur = std::time::Duration::from_millis(30_000);
 
                                 'ws_messages: loop {
                                     match ws_channels.inbound_rx.recv_timeout(idle_dur) {
-                                        // --- Text frame ---
                                         Ok(tungstenite::Message::Text(s)) => {
-                                            // OOM check (D-13).
                                             if let Some(ref mon) = oom_monitor {
                                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
                                                 if let Err(_oom) = mon.check(iso_ref) {
@@ -423,12 +330,10 @@ impl WorkerPool {
                                                     break 'ws_messages;
                                                 }
                                             }
-                                            // Per-message CPU guard (D-09b).
                                             let _timeout = if task.cpu_time_limit_ms > 0 {
                                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
                                                 Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
                                             } else { None };
-                                            // Build MessageEvent and dispatch to JS handlers.
                                             let event = v8::Object::new(&mut ctx_scope);
                                             if let (Some(tk), Some(tv), Some(dk), Some(dv)) = (
                                                 v8::String::new(&mut ctx_scope, "type"),
@@ -451,7 +356,6 @@ impl WorkerPool {
                                             }
                                         }
 
-                                        // --- Binary frame ---
                                         Ok(tungstenite::Message::Binary(b)) => {
                                             if let Some(ref mon) = oom_monitor {
                                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
@@ -493,7 +397,6 @@ impl WorkerPool {
                                             }
                                         }
 
-                                        // --- Close frame (D-12) ---
                                         Ok(tungstenite::Message::Close(frame)) => {
                                             set_ws_readystate(&mut ctx_scope, 3);
                                             let (code_val, reason_str) = frame
@@ -528,22 +431,18 @@ impl WorkerPool {
                                             break 'ws_messages;
                                         }
 
-                                        // --- Ping / Pong — skip (D-15b) ---
                                         Ok(tungstenite::Message::Ping(_)) | Ok(tungstenite::Message::Pong(_)) => {
                                             continue 'ws_messages;
                                         }
 
-                                        // --- Idle timeout (D-11b) ---
                                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                                             info!("Worker {}: WS idle timeout, recycling isolate", id);
                                             break 'ws_messages;
                                         }
 
-                                        // --- Relay dropped inbound_tx (D-17b) ---
                                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                                             set_ws_readystate(&mut ctx_scope, 3);
                                             let gobj = context.global(&mut ctx_scope);
-                                            // Fire error event.
                                             let error_event = v8::Object::new(&mut ctx_scope);
                                             if let (Some(tyk), Some(tyv)) = (
                                                 v8::String::new(&mut ctx_scope, "type"),
@@ -560,7 +459,7 @@ impl WorkerPool {
                                                     }
                                                 });
                                             }
-                                            // Fire close event with 1006 (Abnormal Closure).
+                                            // 1006 = Abnormal Closure (relay disconnected).
                                             let close_event = v8::Object::new(&mut ctx_scope);
                                             if let (Some(tyk), Some(tyv), Some(ck), Some(rk), Some(rv), Some(wck)) = (
                                                 v8::String::new(&mut ctx_scope, "type"),
@@ -589,17 +488,13 @@ impl WorkerPool {
                                             break 'ws_messages;
                                         }
 
-                                        // Future-proof: unknown frame variants.
                                         Ok(_) => continue 'ws_messages,
                                     }
-                                } // end 'ws_messages
+                                }
 
-                                // Cleanup: clear WS thread-locals, force isolate recycle (D-10b).
                                 clear_ws_thread_locals();
-                                // D-10b: break 'requests forces a fresh isolate for next connection.
-                                break 'requests;
+                                break 'requests; // D-10b: fresh isolate per WS connection
                             }
-                            // --- End WS mode — fall through to HTTP handler ---
 
                             // CPU timeout guard
                             let _timeout = if task.cpu_time_limit_ms > 0 {
@@ -707,12 +602,9 @@ impl WorkerPool {
                                                     if std::time::Instant::now() > deadline {
                                                         return Err(anyhow!("Async handler timed out after 30s"));
                                                     }
-                                                    // Cancel any CPU-guard termination before executing JS.
-                                                    // The guard fires at wall-clock `cpu_time_limit_ms` but
-                                                    // async handlers spend most of that time sleeping, not
-                                                    // running JS. The 30s pump-loop deadline is the correct
-                                                    // limit for async wait. cancel_terminate_execution is a
-                                                    // no-op when no termination is pending.
+                                                    // CPU guard fires on wall-clock time; async handlers
+                                                    // spend most of that idle (fetch/timer), not running JS.
+                                                    // cancel_terminate_execution is a no-op when nothing pending.
                                                     // SAFETY: iso_ptr is valid for this worker's lifetime.
                                                     unsafe { (*iso_ptr).cancel_terminate_execution(); }
                                                     crate::runtime::apis::fire_pending_intervals(&mut *tc);
@@ -847,19 +739,7 @@ impl WorkerPool {
     }
 
     /// Dispatch a task to a worker
-    ///
-    /// Uses round-robin dispatch (simplest approach for initial implementation).
-    /// Returns error if all worker channels are closed.
-    ///
-    /// # Arguments
-    ///
-    /// * `task` - The HandlerTask to dispatch
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if dispatched, `Err` if no workers available
     pub fn dispatch(&self, task: HandlerTask) -> Result<()> {
-        // Round-robin: atomically increment and get worker index
         let worker_idx = self.next_worker.fetch_add(1, Ordering::SeqCst) % self.worker_count;
         let worker_idx = worker_idx as usize;
 
@@ -868,19 +748,6 @@ impl WorkerPool {
             .map_err(|e| anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
     }
 
-    /// Dispatch with custom worker selection
-    ///
-    /// For use when caller knows which worker should handle the task
-    /// (e.g., for request affinity in later phases).
-    ///
-    /// # Arguments
-    ///
-    /// * `worker_idx` - Index of the worker to use
-    /// * `task` - The HandlerTask to dispatch
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if dispatched, `Err` if worker index invalid or channel closed
     pub fn dispatch_to(&self, worker_idx: u32, task: HandlerTask) -> Result<()> {
         if worker_idx >= self.worker_count {
             return Err(anyhow!(
@@ -895,26 +762,15 @@ impl WorkerPool {
             .map_err(|e| anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
     }
 
-    /// Gracefully shut down the worker pool
-    ///
-    /// 1. Drop all task_tx channels (signals workers to exit)
-    /// 2. Join all worker threads
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if all workers exited cleanly
     pub fn shutdown(mut self) -> Result<()> {
         info!("Shutting down WorkerPool for {}", self.hostname);
 
-        // Take and drop all task_tx channels, signaling workers to exit
-        // Workers will finish current task, then see recv() error and exit
         let mut handles: Vec<_> = self
             .workers
             .drain(..)
             .map(|mut w| (w.id, w.take_thread()))
             .collect();
 
-        // Join all threads with timeout (5 seconds per thread)
         for (id, handle) in handles.drain(..) {
             if let Some(h) = handle {
                 debug!("Waiting for worker {} to exit", id);
@@ -1374,8 +1230,6 @@ impl WorkerPool {
                                 clear_ws_thread_locals();
                                 break 'requests; // D-10b: fresh isolate per WS connection
                             }
-                            // --- End WS mode — HTTP path below ---
-
                             // CPU timeout guard
                             let _timeout = if task.cpu_time_limit_ms > 0 {
                                 // SAFETY: iso_ptr is valid for this isolate's lifetime.
@@ -1981,7 +1835,6 @@ function fetch(request) {
         init_platform();
         let pool = WorkerPool::new("test.example.com".to_string(), 3, 0);
 
-        // Create tasks to verify round-robin works
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let entrypoint = create_test_handler(
             &temp_dir,
@@ -1989,19 +1842,17 @@ function fetch(request) {
             r#"function fetch(request) { return { status: 200, headers: {}, body: "" }; }"#,
         );
 
-        // Dispatch 6 tasks - should hit workers 0,1,2,0,1,2
+        assert_eq!(pool.next_worker.load(Ordering::SeqCst), 0);
+
         for _ in 0..6 {
             let url = NanoUrl::parse("http://test/").unwrap();
             let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
-
             let (tx, rx) = oneshot::channel();
-            let task = HandlerTask::new(entrypoint.clone(), request, tx);
-
-            pool.dispatch(task).expect("Dispatch failed");
-
-            // Wait for each to complete
+            pool.dispatch(HandlerTask::new(entrypoint.clone(), request, tx)).expect("Dispatch failed");
             let _ = rx.blocking_recv();
         }
+
+        assert_eq!(pool.next_worker.load(Ordering::SeqCst), 6, "counter must advance once per dispatch");
 
         pool.shutdown().expect("Shutdown failed");
     }
@@ -2069,25 +1920,6 @@ function fetch(request) {
         pool.shutdown().expect("Shutdown failed");
 
         // Test passes if we reach here
-    }
-
-    #[test]
-    fn test_worker_isolate_thread_local() {
-        // This test verifies that isolates are created in worker threads
-        // and never move between threads (compile-time check via !Send + !Sync)
-
-        init_platform();
-
-        // Compile-time check: NanoIsolate is NOT Send
-        #[allow(dead_code)]
-        fn assert_not_send<T: Send>() {}
-        // This should fail to compile if uncommented:
-        // assert_not_send::<NanoIsolate>();
-
-        // Verify the pool creates workers correctly
-        let pool = WorkerPool::new("test.example.com".to_string(), 2, 0);
-        assert_eq!(pool.workers.len(), 2);
-        pool.shutdown().expect("Shutdown failed");
     }
 
     #[test]

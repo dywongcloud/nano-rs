@@ -15,10 +15,6 @@
 use std::cell::{Cell, RefCell};
 use std::time::Instant;
 
-// ---------------------------------------------------------------------------
-// Thread-local timer state
-// ---------------------------------------------------------------------------
-
 /// One pending setTimeout entry (one-shot).
 struct TimeoutEntry {
     id: u32,
@@ -55,25 +51,14 @@ thread_local! {
     static INTERVAL_ID_COUNTER: Cell<u32> = const { Cell::new(100) };
 }
 
-// ---------------------------------------------------------------------------
-// Interval fire / clear — called from the pump loop in pool.rs
-// ---------------------------------------------------------------------------
-
 /// Fire all setInterval callbacks whose next_fire deadline has passed.
 ///
-/// Called from the `PromiseState::Pending` arm of the pump loop in pool.rs
-/// after each microtask checkpoint. The pump loop continues iterating until
-/// the async handler's Promise resolves, so each spin is a natural fire-point.
-///
-/// # Design: drain-and-reinsert
-/// Due entries are *removed* from `PENDING_INTERVALS` before their callbacks
-/// run. This means `clearInterval()` called from within a callback can safely
-/// mutate the vec without reentrancy. Entries are re-inserted (with an updated
-/// `next_fire`) only if they were not cleared during the callback.
+/// Drain-and-reinsert: due entries are removed before callbacks run so that
+/// `clearInterval()` from within a callback can safely mutate the vec.
+/// Entries not cleared during dispatch are re-inserted with updated `next_fire`.
 pub(crate) fn fire_pending_intervals(scope: &mut v8::PinnedRef<v8::HandleScope>) {
     let now = Instant::now();
 
-    // Phase 1: drain due entries (own them while firing).
     let due: Vec<IntervalEntry> = PENDING_INTERVALS.with(|iv| {
         let mut entries = iv.borrow_mut();
         let mut due = Vec::new();
@@ -88,16 +73,11 @@ pub(crate) fn fire_pending_intervals(scope: &mut v8::PinnedRef<v8::HandleScope>)
         due
     });
 
-    // Phase 2: call each due callback. The RefCell borrow is released, so
-    // clearInterval() inside a callback can mutate PENDING_INTERVALS safely.
-    // Mirror the WS dispatch pattern used in pool.rs:
-    //   Local::new from the base scope, then a fresh TryCatch for the call.
     for mut entry in due {
         let func = v8::Local::new(scope, &entry.func);
         let gobj = scope.get_current_context().global(scope);
         let _ = func.call(scope, gobj.into(), &[]);
 
-        // Re-insert only if clearInterval was not called for this ID.
         let cleared = INTERVALS_CLEARED_DURING_FIRE.with(|cs| cs.borrow().contains(&entry.id));
         if !cleared {
             entry.next_fire = Instant::now()
@@ -106,7 +86,6 @@ pub(crate) fn fire_pending_intervals(scope: &mut v8::PinnedRef<v8::HandleScope>)
         }
     }
 
-    // Reset the cleared-during-fire tracker for the next batch.
     INTERVALS_CLEARED_DURING_FIRE.with(|cs| cs.borrow_mut().clear());
 }
 
@@ -120,12 +99,8 @@ pub(crate) fn clear_pending_intervals() {
 
 /// Fire all setTimeout callbacks whose fire_at deadline has passed.
 ///
-/// Called from the `PromiseState::Pending` arm of the pump loop alongside
-/// `fire_pending_intervals`. Entries are removed after firing (one-shot).
-///
-/// If V8 execution is terminated (e.g. CPU guard fired during sleep), `func.call`
-/// returns `None`. The entry is re-queued so it fires on the next iteration once
-/// `cancel_terminate_execution` restores V8 to a runnable state.
+/// If `func.call` returns `None` (CPU guard terminated V8 mid-call), the entry
+/// is re-queued — it fires on the next pump iteration after `cancel_terminate_execution`.
 pub(crate) fn fire_pending_timeouts(scope: &mut v8::PinnedRef<v8::HandleScope>) {
     let now = Instant::now();
 
@@ -148,15 +123,11 @@ pub(crate) fn fire_pending_timeouts(scope: &mut v8::PinnedRef<v8::HandleScope>) 
         let func = v8::Local::new(scope, &entry.func);
         let gobj = scope.get_current_context().global(scope);
         if func.call(scope, gobj.into(), &[]).is_none() {
-            // V8 was terminated mid-call (CPU guard race). Re-queue so the pump
-            // loop retries after cancel_terminate_execution restores V8.
             failed.push(entry);
         }
     }
 
-    if !failed.is_empty() {
-        PENDING_TIMEOUTS.with(|tv| tv.borrow_mut().extend(failed));
-    }
+    PENDING_TIMEOUTS.with(|tv| tv.borrow_mut().extend(failed));
 }
 
 /// Clear all pending timeouts. Call at the start of each request.
@@ -3420,10 +3391,9 @@ mod tests {
         let result = script.run(ctx_scope).expect("Script execution failed");
         let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
-        // Should contain replacement character () for invalid sequences
         assert!(
-            result_str.contains("\u{FFFD}") || result_str.len() > 0,
-            "Invalid UTF-8 should produce replacement characters"
+            result_str.contains("\u{FFFD}"),
+            "Invalid UTF-8 should produce replacement character, got: {:?}", result_str
         );
     }
 
@@ -3586,6 +3556,49 @@ mod tests {
         let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
 
         assert_eq!(result_str, "true", "Blob should have correct size");
+    }
+
+    #[test]
+    fn test_fire_pending_timeouts_requeues_on_v8_termination() {
+        init_platform();
+
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+        // SAFETY: iso_ptr is valid for the duration of this test (isolate lives on the stack).
+        let iso_ptr: *mut v8::Isolate = &mut **isolate.isolate();
+
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+
+        RuntimeAPIs::bind_all(ctx_scope, context);
+
+        let src = v8::String::new(ctx_scope, "setTimeout(() => {}, 0)").unwrap();
+        let script = v8::Script::compile(ctx_scope, src, None).unwrap();
+        script.run(ctx_scope).unwrap();
+
+        assert_eq!(
+            PENDING_TIMEOUTS.with(|tv| tv.borrow().len()),
+            1,
+            "one timeout must be pending before fire"
+        );
+
+        unsafe { (*iso_ptr).terminate_execution(); }
+
+        let tc_storage = v8::TryCatch::new(&mut *ctx_scope);
+        let tc_pin = std::pin::pin!(tc_storage);
+        let mut tc = tc_pin.init();
+
+        fire_pending_timeouts(&mut *tc);
+
+        unsafe { (*iso_ptr).cancel_terminate_execution(); }
+
+        assert_eq!(
+            PENDING_TIMEOUTS.with(|tv| tv.borrow().len()),
+            1,
+            "terminated timeout entry must be re-queued for the next pump iteration"
+        );
+
+        clear_pending_timeouts();
     }
 
     #[test]

@@ -813,7 +813,7 @@ pub async fn dispatch_to_worker_pool(
 
     tracing::debug!("Dispatching request to worker pool for host: {}", host);
 
-    // WebSocket upgrade detection — MUST happen before request body is consumed (D-WS-01).
+    // D-WS-01: WebSocket Upgrade detection MUST happen before request body is consumed.
     // Checking only the Upgrade header is sufficient to route WS requests; full
     // validation of the handshake (Connection, Sec-WebSocket-Key, etc.) is delegated
     // to the WebSocketUpgrade extractor inside handle_ws_upgrade.
@@ -1068,16 +1068,11 @@ async fn handle_ws_upgrade(
 ) -> Response<Body> {
     use axum::extract::FromRequestParts;
 
-    // Split the request into parts so we can extract headers/uri before the
-    // WebSocketUpgrade extractor consumes the parts.
     let (mut parts, _body) = request.into_parts();
-
-    // Capture metadata before extraction consumes parts.
     let method = parts.method.clone();
     let uri = parts.uri.clone();
     let headers_clone = parts.headers.clone();
 
-    // Extract the WebSocketUpgrade — validates Upgrade/Connection/Sec-WebSocket-Key.
     let ws_upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
         Ok(ws) => ws,
         Err(rejection) => {
@@ -1090,7 +1085,6 @@ async fn handle_ws_upgrade(
         }
     };
 
-    // Resolve tenant / entrypoint for this host (same lookup as HTTP path).
     let target = state.router.resolve(&host);
     let entrypoint = match &target.handler_type {
         HandlerType::WinterTCHandler(path) => path.clone(),
@@ -1105,10 +1099,8 @@ async fn handle_ws_upgrade(
         }
     };
 
-    // Generate request ID (same pattern as HTTP path).
     let request_id = format!("req_{}", Uuid::new_v4().to_string()[..8].to_string());
 
-    // Build the NanoRequest from the captured parts.
     let full_url = {
         let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
         format!("http://{}{}", host, path_and_query)
@@ -1126,13 +1118,12 @@ async fn handle_ws_upgrade(
     let nano_headers = NanoHeaders::from_axum_headers(&headers_clone);
     let nano_request = NanoRequest::new(method.to_string(), nano_url, nano_headers, None);
 
-    // Create the bridging channels (capacity 128 per D-08).
+    // capacity 128 per D-08
     let (inbound_tx, inbound_rx) =
         std::sync::mpsc::sync_channel::<tungstenite::Message>(128);
     let (outbound_tx, outbound_rx) =
         std::sync::mpsc::sync_channel::<tungstenite::Message>(128);
 
-    // Build the HandlerTask with WsChannels.
     let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
     let cpu_time_limit_ms = state.get_cpu_time_limit_ms(&host);
     let ws_channels = WsChannels { inbound_rx, outbound_tx };
@@ -1148,7 +1139,6 @@ async fn handle_ws_upgrade(
         ws: Some(ws_channels),
     };
 
-    // Dispatch to the work queue — same mechanism as HTTP tasks.
     {
         let mut queue = state.work_queue.lock().await;
         match queue.dispatch(&host, task).await {
@@ -1173,7 +1163,6 @@ async fn handle_ws_upgrade(
         }
     }
 
-    // Complete the 101 handshake and spawn the relay task.
     ws_upgrade
         .on_upgrade(move |socket| ws_relay_task(socket, inbound_tx, outbound_rx))
         .into_response()
@@ -1208,11 +1197,9 @@ async fn ws_relay_task(
 
     loop {
         tokio::select! {
-            // Inbound path: client → worker
             maybe_msg = socket.recv() => {
                 match maybe_msg {
                     Some(Ok(axum_msg)) => {
-                        // Enforce 32 MiB message size limit (D-09 / D-12b).
                         let payload_len = match &axum_msg {
                             AxumWsMessage::Text(t) => t.len(),
                             AxumWsMessage::Binary(b) => b.len(),
@@ -1235,7 +1222,6 @@ async fn ws_relay_task(
                             break;
                         }
 
-                        // Convert to tungstenite::Message (v0.24) and forward.
                         let tung_msg = match axum_to_tungstenite(axum_msg) {
                             Some(m) => m,
                             None => continue, // Ping/Pong — axum handles replies automatically
@@ -1253,7 +1239,6 @@ async fn ws_relay_task(
                 }
             }
 
-            // Outbound path: worker → client
             maybe_out = outbound_notify_rx.recv() => {
                 match maybe_out {
                     Some(tung_msg) => {

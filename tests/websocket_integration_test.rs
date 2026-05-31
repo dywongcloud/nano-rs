@@ -83,7 +83,6 @@ async function fetch(request) {
 ///
 /// This is used by tests that require a running server. Only called when
 /// `ws_tests_enabled()` returns true.
-#[allow(dead_code)]
 async fn start_ws_test_server(js_code: &str) -> (std::net::SocketAddr, ()) {
     use std::sync::Arc;
 
