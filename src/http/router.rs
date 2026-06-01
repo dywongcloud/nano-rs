@@ -1090,7 +1090,6 @@ async fn handle_ws_upgrade(
         HandlerType::WinterTCHandler(path) => path.clone(),
         HandlerType::WinterTCSliverHandler { entrypoint: path, .. } => path.clone(),
         _ => {
-            // Non-worker targets do not support WebSocket connections.
             return Response::builder()
                 .status(StatusCode::FORBIDDEN)
                 .header("content-type", "text/plain")
@@ -1184,7 +1183,6 @@ async fn ws_relay_task(
     inbound_tx: std::sync::mpsc::SyncSender<tungstenite::Message>,
     outbound_rx: std::sync::mpsc::Receiver<tungstenite::Message>,
 ) {
-    // Bridge the blocking outbound_rx into an async channel for use in select!.
     let (outbound_notify_tx, mut outbound_notify_rx) =
         tokio::sync::mpsc::channel::<tungstenite::Message>(128);
     tokio::task::spawn_blocking(move || {
@@ -1276,9 +1274,7 @@ fn axum_to_tungstenite(msg: AxumWsMessage) -> Option<tungstenite::Message> {
 fn tungstenite_to_axum(msg: tungstenite::Message) -> AxumWsMessage {
     match msg {
         tungstenite::Message::Text(s) => AxumWsMessage::Text(s.into()),
-        tungstenite::Message::Binary(b) => {
-            AxumWsMessage::Binary(bytes::Bytes::from(b))
-        }
+        tungstenite::Message::Binary(b) => AxumWsMessage::Binary(bytes::Bytes::from(b)),
         tungstenite::Message::Close(Some(frame)) => AxumWsMessage::Close(Some(
             axum::extract::ws::CloseFrame {
                 code: u16::from(frame.code),

@@ -93,14 +93,12 @@ impl WorkerPool {
         memory_limit_mb: u32,
         vfs_backend: crate::vfs::VfsBackendEnum,
     ) -> Self {
-        // Ensure platform is initialized
         if !crate::v8::is_initialized() {
             initialize_platform().expect("Failed to initialize V8 platform");
         }
 
         assert!(worker_count > 0, "Worker count must be at least 1");
 
-        // Clone hostname for use in closures (original kept for final logging)
         let hostname_for_workers = hostname.clone();
         let vfs_backend_for_workers = vfs_backend.clone();
 
@@ -125,14 +123,12 @@ impl WorkerPool {
             let thread = thread::spawn(move || {
                 info!("Worker {} starting for '{}'", id, worker_hostname);
 
-                // Tokio runtime for async JS operations (fetch, etc.)
                 let rt = match tokio::runtime::Runtime::new() {
                     Ok(r) => r,
                     Err(e) => { error!("Worker {}: tokio runtime failed: {}", id, e); return; }
                 };
                 WORKER_RUNTIME.with(|r| *r.borrow_mut() = Some(rt.handle().clone()));
 
-                // OOM monitor (optional)
                 let oom_monitor = if memory_limit_mb > 0 {
                     Some(
                         OomMonitorBuilder::new(format!("worker_{}_{}", worker_hostname, id))
@@ -144,10 +140,8 @@ impl WorkerPool {
                     None
                 };
 
-                // Max requests per isolate before recycling
                 const MAX_REQUESTS_PER_ISOLATE: u32 = 10_000;
 
-                // Outer loop: one iteration per isolate lifetime
                 'isolate: loop {
                     let vfs = IsolateVfs::new(
                         VfsNamespace::from_hostname(&worker_hostname),
@@ -177,13 +171,11 @@ impl WorkerPool {
                         // Security: block eval() and new Function() — matches Cloudflare Workers.
                         context.set_allow_generation_from_strings(false);
 
-                        // Bind all WinterCG runtime APIs once (before entering context)
                         crate::runtime::apis::RuntimeAPIs::bind_all(&mut scope, context);
 
                         // Enter context — NEVER dropped between requests
                         let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
 
-                        // Per-entrypoint handler cache: path → Global<Function>
                         let mut handler_cache: std::collections::HashMap<
                             String, v8::Global<v8::Function>
                         > = std::collections::HashMap::new();
@@ -214,21 +206,19 @@ impl WorkerPool {
                                 }
                             };
 
-                            // OOM pre-check
                             if let Some(ref mon) = oom_monitor {
                                 // SAFETY: iso_ptr valid for scope block duration
                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
                                 if let Err(oom) = mon.check(iso_ref) {
                                     mon.log_oom_event(&oom, &task.request_id);
                                     let _ = task.response_tx.send(Ok(mon.create_oom_response(&oom)));
-                                    break 'requests; // force isolate recycle
+                                    break 'requests;
                                 }
                             }
 
                             let t0 = std::time::Instant::now();
                             let request_id = task.request_id.clone();
 
-                            // Compile + cache handler (once per entrypoint, per isolate lifetime)
                             if !handler_cache.contains_key(&task.entrypoint) {
                                 let code = match crate::data_plane::read_code_cached(&task.entrypoint) {
                                     Ok(c) => c,
@@ -315,22 +305,48 @@ impl WorkerPool {
 
                                 let idle_dur = std::time::Duration::from_millis(30_000);
 
+                                // Expands to: OOM check → log → send Close(Error/OOM) → break $label.
+                                macro_rules! ws_oom_break {
+                                    ($label:lifetime) => {
+                                        if let Some(ref mon) = oom_monitor {
+                                            // SAFETY: iso_ptr valid for scope block duration
+                                            let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                            if let Err(oom) = mon.check(iso_ref) {
+                                                mon.log_oom_event(&oom, &task.request_id);
+                                                let _ = ws_channels.outbound_tx.send(tungstenite::Message::Close(Some(
+                                                    tungstenite::protocol::CloseFrame {
+                                                        code: tungstenite::protocol::frame::coding::CloseCode::Error,
+                                                        reason: std::borrow::Cow::Borrowed("OOM"),
+                                                    }
+                                                )));
+                                                break $label;
+                                            }
+                                        }
+                                    };
+                                }
+
+                                // Expands to: call every handler in $handlers with $event as argument.
+                                macro_rules! ws_dispatch {
+                                    ($handlers:expr, $event:expr) => {{
+                                        let gobj = context.global(&mut ctx_scope);
+                                        $handlers.with(|cell| {
+                                            for hg in cell.borrow().iter() {
+                                                let hl = v8::Local::new(&mut ctx_scope, hg);
+                                                let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                let tc_pin = std::pin::pin!(tc_s);
+                                                let tc = tc_pin.init();
+                                                let _ = hl.call(&tc, gobj.into(), &[$event.into()]);
+                                            }
+                                        });
+                                    }};
+                                }
+
                                 'ws_messages: loop {
                                     match ws_channels.inbound_rx.recv_timeout(idle_dur) {
                                         Ok(tungstenite::Message::Text(s)) => {
-                                            if let Some(ref mon) = oom_monitor {
-                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                                if let Err(_oom) = mon.check(iso_ref) {
-                                                    let _ = ws_channels.outbound_tx.send(tungstenite::Message::Close(Some(
-                                                        tungstenite::protocol::CloseFrame {
-                                                            code: tungstenite::protocol::frame::coding::CloseCode::Error,
-                                                            reason: std::borrow::Cow::Borrowed("OOM"),
-                                                        }
-                                                    )));
-                                                    break 'ws_messages;
-                                                }
-                                            }
+                                            ws_oom_break!('ws_messages);
                                             let _timeout = if task.cpu_time_limit_ms > 0 {
+                                                // SAFETY: iso_ptr valid for isolate lifetime; V8 terminate_execution is thread-safe
                                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
                                                 Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
                                             } else { None };
@@ -343,33 +359,14 @@ impl WorkerPool {
                                             ) {
                                                 event.set(&mut ctx_scope, tk.into(), tv.into());
                                                 event.set(&mut ctx_scope, dk.into(), dv.into());
-                                                let gobj = context.global(&mut ctx_scope);
-                                                WS_MESSAGE_HANDLERS.with(|cell| {
-                                                    for handler_g in cell.borrow().iter() {
-                                                        let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
-                                                        let tc_s = v8::TryCatch::new(&mut *ctx_scope);
-                                                        let tc_pin = std::pin::pin!(tc_s);
-                                                        let tc = tc_pin.init();
-                                                        let _ = hlocal.call(&tc, gobj.into(), &[event.into()]);
-                                                    }
-                                                });
+                                                ws_dispatch!(WS_MESSAGE_HANDLERS, event);
                                             }
                                         }
 
                                         Ok(tungstenite::Message::Binary(b)) => {
-                                            if let Some(ref mon) = oom_monitor {
-                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                                if let Err(_oom) = mon.check(iso_ref) {
-                                                    let _ = ws_channels.outbound_tx.send(tungstenite::Message::Close(Some(
-                                                        tungstenite::protocol::CloseFrame {
-                                                            code: tungstenite::protocol::frame::coding::CloseCode::Error,
-                                                            reason: std::borrow::Cow::Borrowed("OOM"),
-                                                        }
-                                                    )));
-                                                    break 'ws_messages;
-                                                }
-                                            }
+                                            ws_oom_break!('ws_messages);
                                             let _timeout = if task.cpu_time_limit_ms > 0 {
+                                                // SAFETY: iso_ptr valid for isolate lifetime; V8 terminate_execution is thread-safe
                                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
                                                 Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
                                             } else { None };
@@ -384,16 +381,7 @@ impl WorkerPool {
                                             ) {
                                                 event.set(&mut ctx_scope, tk.into(), tv.into());
                                                 event.set(&mut ctx_scope, dk.into(), ab.into());
-                                                let gobj = context.global(&mut ctx_scope);
-                                                WS_MESSAGE_HANDLERS.with(|cell| {
-                                                    for handler_g in cell.borrow().iter() {
-                                                        let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
-                                                        let tc_s = v8::TryCatch::new(&mut *ctx_scope);
-                                                        let tc_pin = std::pin::pin!(tc_s);
-                                                        let tc = tc_pin.init();
-                                                        let _ = hlocal.call(&tc, gobj.into(), &[event.into()]);
-                                                    }
-                                                });
+                                                ws_dispatch!(WS_MESSAGE_HANDLERS, event);
                                             }
                                         }
 
@@ -417,16 +405,7 @@ impl WorkerPool {
                                                 close_event.set(&mut ctx_scope, ck.into(), code_int.into());
                                                 close_event.set(&mut ctx_scope, rk.into(), rv.into());
                                                 close_event.set(&mut ctx_scope, wck.into(), was_clean.into());
-                                                let gobj = context.global(&mut ctx_scope);
-                                                WS_CLOSE_HANDLERS.with(|cell| {
-                                                    for handler_g in cell.borrow().iter() {
-                                                        let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
-                                                        let tc_s = v8::TryCatch::new(&mut *ctx_scope);
-                                                        let tc_pin = std::pin::pin!(tc_s);
-                                                        let tc = tc_pin.init();
-                                                        let _ = hlocal.call(&tc, gobj.into(), &[close_event.into()]);
-                                                    }
-                                                });
+                                                ws_dispatch!(WS_CLOSE_HANDLERS, close_event);
                                             }
                                             break 'ws_messages;
                                         }
@@ -442,22 +421,13 @@ impl WorkerPool {
 
                                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                                             set_ws_readystate(&mut ctx_scope, 3);
-                                            let gobj = context.global(&mut ctx_scope);
                                             let error_event = v8::Object::new(&mut ctx_scope);
                                             if let (Some(tyk), Some(tyv)) = (
                                                 v8::String::new(&mut ctx_scope, "type"),
                                                 v8::String::new(&mut ctx_scope, "error"),
                                             ) {
                                                 error_event.set(&mut ctx_scope, tyk.into(), tyv.into());
-                                                WS_ERROR_HANDLERS.with(|cell| {
-                                                    for handler_g in cell.borrow().iter() {
-                                                        let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
-                                                        let tc_s = v8::TryCatch::new(&mut *ctx_scope);
-                                                        let tc_pin = std::pin::pin!(tc_s);
-                                                        let tc = tc_pin.init();
-                                                        let _ = hlocal.call(&tc, gobj.into(), &[error_event.into()]);
-                                                    }
-                                                });
+                                                ws_dispatch!(WS_ERROR_HANDLERS, error_event);
                                             }
                                             // 1006 = Abnormal Closure (relay disconnected).
                                             let close_event = v8::Object::new(&mut ctx_scope);
@@ -475,15 +445,7 @@ impl WorkerPool {
                                                 close_event.set(&mut ctx_scope, ck.into(), code_int.into());
                                                 close_event.set(&mut ctx_scope, rk.into(), rv.into());
                                                 close_event.set(&mut ctx_scope, wck.into(), was_clean.into());
-                                                WS_CLOSE_HANDLERS.with(|cell| {
-                                                    for handler_g in cell.borrow().iter() {
-                                                        let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
-                                                        let tc_s = v8::TryCatch::new(&mut *ctx_scope);
-                                                        let tc_pin = std::pin::pin!(tc_s);
-                                                        let tc = tc_pin.init();
-                                                        let _ = hlocal.call(&tc, gobj.into(), &[close_event.into()]);
-                                                    }
-                                                });
+                                                ws_dispatch!(WS_CLOSE_HANDLERS, close_event);
                                             }
                                             break 'ws_messages;
                                         }
@@ -496,22 +458,20 @@ impl WorkerPool {
                                 break 'requests; // D-10b: fresh isolate per WS connection
                             }
 
-                            // CPU timeout guard
                             let _timeout = if task.cpu_time_limit_ms > 0 {
+                                // SAFETY: iso_ptr valid for isolate lifetime; V8 terminate_execution is thread-safe
                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
                                 Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
                             } else {
                                 None
                             };
 
-                            // Execute handler using persistent context
                             let handler_g = handler_cache.get(&task.entrypoint).unwrap();
                             let global_obj = context.global(&mut ctx_scope);
                             // Global→Local works because the same context is still entered
                             let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
 
                             let result: anyhow::Result<crate::http::NanoResponse> = (|| {
-                                // Build JS Request object
                                 let url_str = v8::String::new(&mut ctx_scope, &task.request.url().href())
                                     .ok_or_else(|| anyhow!("URL string alloc failed"))?;
                                 let opts = v8::Object::new(&mut ctx_scope);
@@ -569,7 +529,6 @@ impl WorkerPool {
 
                                 let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
 
-                                // Resolve Promise if async handler
                                 let resolved = match call_result {
                                     None => {
                                         let msg = tc.exception()
@@ -620,7 +579,6 @@ impl WorkerPool {
                                     Some(v) => v,
                                 };
 
-                                // Extract NanoResponse from JS response object
                                 let obj = resolved.to_object(&tc)
                                     .ok_or_else(|| anyhow!("Handler response is not an object"))?;
 
@@ -632,7 +590,6 @@ impl WorkerPool {
 
                                 let mut response = crate::http::NanoResponse::with_status(status);
 
-                                // Extract response headers
                                 let h2k = v8::String::new(&tc, "headers").ok_or_else(|| anyhow!("headers key"))?;
                                 if let Some(hval) = obj.get(&tc, h2k.into()) {
                                     if let Some(hobj) = hval.to_object(&tc) {
@@ -662,7 +619,6 @@ impl WorkerPool {
                                     }
                                 }
 
-                                // Extract response body
                                 let b2k = v8::String::new(&tc, "body").ok_or_else(|| anyhow!("body key"))?;
                                 if let Some(bval) = obj.get(&tc, b2k.into()) {
                                     if !bval.is_null() && !bval.is_undefined() {
@@ -790,26 +746,9 @@ impl WorkerPool {
         self.worker_count
     }
 
-    /// Create worker pool from unified AppSource enum
-    ///
-    /// This is the unified constructor that handles both entrypoint and sliver modes
-    /// through a single code path. It replaces the separate WorkerPool/SliverWorkerPool
-    /// constructors.
-    ///
-    /// # Arguments
-    ///
-    /// * `hostname` - Hostname this pool serves (for logging)
-    /// * `worker_count` - Number of worker threads to spawn
-    /// * `memory_limit_mb` - Memory limit per isolate in MB (0 = no limit)
-    /// * `source` - AppSource enum (Entrypoint, Sliver, or Static)
-    ///
-    /// # Returns
-    ///
-    /// A new WorkerPool configured for the specified source type
-    ///
     /// # Panics
     ///
-    /// Panics if V8 platform is not initialized or worker_count is 0
+    /// Panics if V8 platform is not initialized or worker_count is 0.
     pub fn with_source(
         hostname: String,
         worker_count: u32,
@@ -819,22 +758,16 @@ impl WorkerPool {
         use crate::vfs::MemoryBackend;
         use crate::worker::AppSource;
 
-        // Select appropriate VFS backend based on AppSource type
         let vfs_backend = match &source {
             AppSource::Entrypoint { path } => {
-                // For entrypoint apps, use DiskBackend pointing to the parent directory
-                // This allows the app to access files relative to its entrypoint
                 let path_obj = std::path::Path::new(path);
                 let base_dir = path_obj
                     .parent()
                     .map(|p| p.to_path_buf())
                     .unwrap_or_else(|| std::path::PathBuf::from("."));
-                
-                // Clone for the thread and for error messages
                 let base_dir_for_thread = base_dir.clone();
                 let base_dir_for_error = base_dir.clone();
-                
-                // Create disk backend - DiskBackend::new is async so we block on it
+                // DiskBackend::new is async; block on it from a spawned thread.
                 let backend_result = std::thread::spawn(move || {
                     match tokio::runtime::Runtime::new() {
                         Ok(rt) => rt.block_on(async {
@@ -872,12 +805,10 @@ impl WorkerPool {
                 }
             }
             AppSource::Sliver { .. } => {
-                // For sliver apps, use MemoryBackend (sliver contains embedded VFS data)
                 tracing::debug!("Using MemoryBackend for sliver app at hostname: {}", hostname);
                 crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
             }
             AppSource::Static { .. } => {
-                // Static apps don't need a pool at all - this should panic before we get here
                 panic!("Static sources should not create WorkerPool - use StaticPool instead");
             }
         };
@@ -885,18 +816,6 @@ impl WorkerPool {
         Self::with_source_and_backend(hostname, worker_count, memory_limit_mb, vfs_backend, source)
     }
 
-    /// Create worker pool from AppSource with custom VFS backend
-    ///
-    /// This is the most flexible constructor allowing both source type selection
-    /// and custom storage backends.
-    ///
-    /// # Arguments
-    ///
-    /// * `hostname` - Hostname this pool serves
-    /// * `worker_count` - Number of worker threads to spawn
-    /// * `memory_limit_mb` - Memory limit per isolate in MB (0 = no limit)
-    /// * `vfs_backend` - Custom VFS backend (memory, disk, S3)
-    /// * `source` - AppSource enum determining initialization mode
     pub fn with_source_and_backend(
         hostname: String,
         worker_count: u32,
@@ -906,19 +825,16 @@ impl WorkerPool {
     ) -> Self {
         use crate::worker::AppSource;
 
-        // Ensure platform is initialized
         if !crate::v8::is_initialized() {
             initialize_platform().expect("Failed to initialize V8 platform");
         }
 
         assert!(worker_count > 0, "Worker count must be at least 1");
 
-        // For static sites, we don't spawn isolates - handled separately
         if source.is_static() {
             panic!("Static sources should not create WorkerPool - use StaticPool instead");
         }
 
-        // Clone values for worker threads
         let hostname_for_workers = hostname.clone();
         let vfs_backend_for_workers = vfs_backend.clone();
         let source_for_workers = source.clone();
@@ -1045,6 +961,7 @@ impl WorkerPool {
 
                             // OOM pre-check
                             if let Some(ref mon) = oom_monitor {
+                                // SAFETY: iso_ptr valid for scope block duration
                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
                                 if let Err(oom) = mon.check(iso_ref) {
                                     mon.log_oom_event(&oom, &task.request_id);
@@ -1138,8 +1055,7 @@ impl WorkerPool {
                                 WS_CLOSE_HANDLERS.with(|h| h.borrow_mut().clear());
                                 WS_ERROR_HANDLERS.with(|h| h.borrow_mut().clear());
 
-                                // Call JS handler to register addEventListener callbacks.
-                                if let Some(handler_g) = handler_cache.get(&entrypoint) {
+                                                if let Some(handler_g) = handler_cache.get(&entrypoint) {
                                     let gobj = context.global(&mut ctx_scope);
                                     let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
                                     if let Some(url_str) = v8::String::new(&mut ctx_scope, &task.request.url().href()) {
@@ -1156,59 +1072,99 @@ impl WorkerPool {
                                 info!("Worker {}: entering ws_messages loop for '{}'", id, entrypoint);
                                 let idle_dur = std::time::Duration::from_millis(30_000);
 
+                                // Expands to: OOM check → log → send Close(Error/OOM) → break $label.
+                                macro_rules! ws_oom_break {
+                                    ($label:lifetime) => {
+                                        if let Some(ref mon) = oom_monitor {
+                                            // SAFETY: iso_ptr valid for scope block duration
+                                            let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                            if let Err(oom) = mon.check(iso_ref) {
+                                                mon.log_oom_event(&oom, &task.request_id);
+                                                let _ = ws_channels.outbound_tx.send(tungstenite::Message::Close(Some(
+                                                    tungstenite::protocol::CloseFrame {
+                                                        code: tungstenite::protocol::frame::coding::CloseCode::Error,
+                                                        reason: std::borrow::Cow::Borrowed("OOM"),
+                                                    }
+                                                )));
+                                                break $label;
+                                            }
+                                        }
+                                    };
+                                }
+
+                                // Expands to: call every handler in $handlers with $event as argument.
+                                macro_rules! ws_dispatch {
+                                    ($handlers:expr, $event:expr) => {{
+                                        let gobj = context.global(&mut ctx_scope);
+                                        $handlers.with(|cell| {
+                                            for hg in cell.borrow().iter() {
+                                                let hl = v8::Local::new(&mut ctx_scope, hg);
+                                                let tc_s = v8::TryCatch::new(&mut *ctx_scope);
+                                                let tc_pin = std::pin::pin!(tc_s);
+                                                let tc = tc_pin.init();
+                                                let _ = hl.call(&tc, gobj.into(), &[$event.into()]);
+                                            }
+                                        });
+                                    }};
+                                }
+
                                 'ws_messages: loop {
                                     match ws_channels.inbound_rx.recv_timeout(idle_dur) {
                                         Ok(tungstenite::Message::Text(s)) => {
-                                            if let Some(ref mon) = oom_monitor {
-                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                                if let Err(_oom) = mon.check(iso_ref) {
-                                                    let _ = ws_channels.outbound_tx.send(tungstenite::Message::Close(Some(tungstenite::protocol::CloseFrame { code: tungstenite::protocol::frame::coding::CloseCode::Error, reason: std::borrow::Cow::Borrowed("OOM") })));
-                                                    break 'ws_messages;
-                                                }
-                                            }
+                                            ws_oom_break!('ws_messages);
+                                            // SAFETY: iso_ptr valid for isolate lifetime; V8 terminate_execution is thread-safe
                                             let _cg = if task.cpu_time_limit_ms > 0 { Some(crate::data_plane::CpuTimeoutGuard::new(unsafe { &mut *iso_ptr }, task.cpu_time_limit_ms)) } else { None };
                                             let event = v8::Object::new(&mut ctx_scope);
-                                            if let (Some(tk), Some(tv), Some(dk), Some(dv)) = (v8::String::new(&mut ctx_scope, "type"), v8::String::new(&mut ctx_scope, "message"), v8::String::new(&mut ctx_scope, "data"), v8::String::new(&mut ctx_scope, s.as_str())) {
+                                            if let (Some(tk), Some(tv), Some(dk), Some(dv)) = (
+                                                v8::String::new(&mut ctx_scope, "type"),
+                                                v8::String::new(&mut ctx_scope, "message"),
+                                                v8::String::new(&mut ctx_scope, "data"),
+                                                v8::String::new(&mut ctx_scope, s.as_str()),
+                                            ) {
                                                 event.set(&mut ctx_scope, tk.into(), tv.into());
                                                 event.set(&mut ctx_scope, dk.into(), dv.into());
-                                                let gobj = context.global(&mut ctx_scope);
-                                                WS_MESSAGE_HANDLERS.with(|cell| { for hg in cell.borrow().iter() { let hl = v8::Local::new(&mut ctx_scope, hg); let tc_s = v8::TryCatch::new(&mut *ctx_scope); let tc_pin = std::pin::pin!(tc_s); let tc = tc_pin.init(); let _ = hl.call(&tc, gobj.into(), &[event.into()]); } });
+                                                ws_dispatch!(WS_MESSAGE_HANDLERS, event);
                                             }
                                         }
                                         Ok(tungstenite::Message::Binary(b)) => {
-                                            // OOM check before allocating ArrayBuffer (D-13).
-                                            if let Some(ref mon) = oom_monitor {
-                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                                if let Err(_oom) = mon.check(iso_ref) {
-                                                    let _ = ws_channels.outbound_tx.send(tungstenite::Message::Close(Some(tungstenite::protocol::CloseFrame { code: tungstenite::protocol::frame::coding::CloseCode::Error, reason: std::borrow::Cow::Borrowed("OOM") })));
-                                                    break 'ws_messages;
-                                                }
-                                            }
+                                            ws_oom_break!('ws_messages);
+                                            // SAFETY: iso_ptr valid for isolate lifetime; V8 terminate_execution is thread-safe
                                             let _cg = if task.cpu_time_limit_ms > 0 { Some(crate::data_plane::CpuTimeoutGuard::new(unsafe { &mut *iso_ptr }, task.cpu_time_limit_ms)) } else { None };
                                             let ab_store = v8::ArrayBuffer::new_backing_store_from_vec(b);
                                             let shared = ab_store.make_shared();
                                             let ab = v8::ArrayBuffer::with_backing_store(&mut ctx_scope, &shared);
                                             let event = v8::Object::new(&mut ctx_scope);
-                                            if let (Some(tk), Some(tv), Some(dk)) = (v8::String::new(&mut ctx_scope, "type"), v8::String::new(&mut ctx_scope, "message"), v8::String::new(&mut ctx_scope, "data")) {
+                                            if let (Some(tk), Some(tv), Some(dk)) = (
+                                                v8::String::new(&mut ctx_scope, "type"),
+                                                v8::String::new(&mut ctx_scope, "message"),
+                                                v8::String::new(&mut ctx_scope, "data"),
+                                            ) {
                                                 event.set(&mut ctx_scope, tk.into(), tv.into());
                                                 event.set(&mut ctx_scope, dk.into(), ab.into());
-                                                let gobj = context.global(&mut ctx_scope);
-                                                WS_MESSAGE_HANDLERS.with(|cell| { for hg in cell.borrow().iter() { let hl = v8::Local::new(&mut ctx_scope, hg); let tc_s = v8::TryCatch::new(&mut *ctx_scope); let tc_pin = std::pin::pin!(tc_s); let tc = tc_pin.init(); let _ = hl.call(&tc, gobj.into(), &[event.into()]); } });
+                                                ws_dispatch!(WS_MESSAGE_HANDLERS, event);
                                             }
                                         }
                                         Ok(tungstenite::Message::Close(frame)) => {
                                             set_ws_readystate(&mut ctx_scope, 3);
-                                            let (code_val, reason_str) = frame.map(|f| (u16::from(f.code), f.reason.into_owned())).unwrap_or((1000, String::new()));
+                                            let (code_val, reason_str) = frame
+                                                .map(|f| (u16::from(f.code), f.reason.into_owned()))
+                                                .unwrap_or((1000, String::new()));
                                             let close_event = v8::Object::new(&mut ctx_scope);
-                                            if let (Some(tyk), Some(tyv), Some(ck), Some(rk), Some(rv), Some(wck)) = (v8::String::new(&mut ctx_scope, "type"), v8::String::new(&mut ctx_scope, "close"), v8::String::new(&mut ctx_scope, "code"), v8::String::new(&mut ctx_scope, "reason"), v8::String::new(&mut ctx_scope, &reason_str), v8::String::new(&mut ctx_scope, "wasClean")) {
+                                            if let (Some(tyk), Some(tyv), Some(ck), Some(rk), Some(rv), Some(wck)) = (
+                                                v8::String::new(&mut ctx_scope, "type"),
+                                                v8::String::new(&mut ctx_scope, "close"),
+                                                v8::String::new(&mut ctx_scope, "code"),
+                                                v8::String::new(&mut ctx_scope, "reason"),
+                                                v8::String::new(&mut ctx_scope, &reason_str),
+                                                v8::String::new(&mut ctx_scope, "wasClean"),
+                                            ) {
                                                 let code_int = v8::Integer::new(&mut ctx_scope, code_val as i32);
                                                 let was_clean = v8::Boolean::new(&mut ctx_scope, true);
                                                 close_event.set(&mut ctx_scope, tyk.into(), tyv.into());
                                                 close_event.set(&mut ctx_scope, ck.into(), code_int.into());
                                                 close_event.set(&mut ctx_scope, rk.into(), rv.into());
                                                 close_event.set(&mut ctx_scope, wck.into(), was_clean.into());
-                                                let gobj = context.global(&mut ctx_scope);
-                                                WS_CLOSE_HANDLERS.with(|cell| { for hg in cell.borrow().iter() { let hl = v8::Local::new(&mut ctx_scope, hg); let tc_s = v8::TryCatch::new(&mut *ctx_scope); let tc_pin = std::pin::pin!(tc_s); let tc = tc_pin.init(); let _ = hl.call(&tc, gobj.into(), &[close_event.into()]); } });
+                                                ws_dispatch!(WS_CLOSE_HANDLERS, close_event);
                                             }
                                             break 'ws_messages;
                                         }
@@ -1216,11 +1172,13 @@ impl WorkerPool {
                                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => { info!("Worker {}: WS idle timeout", id); break 'ws_messages; }
                                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                                             set_ws_readystate(&mut ctx_scope, 3);
-                                            let gobj = context.global(&mut ctx_scope);
                                             let error_event = v8::Object::new(&mut ctx_scope);
-                                            if let (Some(tyk), Some(tyv)) = (v8::String::new(&mut ctx_scope, "type"), v8::String::new(&mut ctx_scope, "error")) {
+                                            if let (Some(tyk), Some(tyv)) = (
+                                                v8::String::new(&mut ctx_scope, "type"),
+                                                v8::String::new(&mut ctx_scope, "error"),
+                                            ) {
                                                 error_event.set(&mut ctx_scope, tyk.into(), tyv.into());
-                                                WS_ERROR_HANDLERS.with(|cell| { for hg in cell.borrow().iter() { let hl = v8::Local::new(&mut ctx_scope, hg); let tc_s = v8::TryCatch::new(&mut *ctx_scope); let tc_pin = std::pin::pin!(tc_s); let tc = tc_pin.init(); let _ = hl.call(&tc, gobj.into(), &[error_event.into()]); } });
+                                                ws_dispatch!(WS_ERROR_HANDLERS, error_event);
                                             }
                                             break 'ws_messages;
                                         }

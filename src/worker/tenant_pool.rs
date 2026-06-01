@@ -33,7 +33,6 @@ use anyhow::{anyhow, Result};
 use tracing::{error, info};
 
 use crate::config::app::AppLimits;
-use crate::control_plane::ControlPlane;
 use crate::vfs::{IsolateVfs, VfsBackendEnum, VfsNamespace};
 use crate::worker::oom::OomMonitorBuilder;
 use crate::worker::HandlerTask;
@@ -47,9 +46,8 @@ const MAX_REQUESTS_PER_ISOLATE: u32 = 10_000;
 // Thread-local WebSocket connection state
 //
 // These thread-locals are shared between the ws_messages loop in run_worker
-// (this file) and the V8 FunctionCallback implementations in websocket.rs
-// (Plan 05). Both run on the same worker thread, so thread-local access is
-// safe and lock-free.
+// (this file) and the V8 FunctionCallback implementations in websocket.rs.
+// Both run on the same worker thread, so thread-local access is safe and lock-free.
 // ---------------------------------------------------------------------------
 
 // Outbound frame sender — cloned from WsChannels.outbound_tx on WS entry.
@@ -90,16 +88,7 @@ thread_local! {
 }
 
 /// Update the readyState property on the server WebSocket object.
-///
-/// Reads WS_SERVER_SOCKET, creates a Local from the stored Global, and sets
-/// `readyState` to the given numeric state value. No-op if WS_SERVER_SOCKET
-/// is None (safe to call even before WebSocketPair is constructed).
-///
-/// | state | meaning |
-/// |-------|---------|
-/// | 0     | CONNECTING |
-/// | 1     | OPEN       |
-/// | 3     | CLOSED     |
+/// No-op if WS_SERVER_SOCKET is None (safe before WebSocketPair is constructed).
 pub(crate) fn set_ws_readystate(scope: &mut v8::PinScope<'_, '_>, state: u32) {
     WS_SERVER_SOCKET.with(|cell| {
         let borrow = cell.borrow();
@@ -132,10 +121,7 @@ pub struct TenantPool {
     hostname: String,
     workers: Vec<TenantWorker>,
     next_worker: AtomicU64,
-    #[allow(dead_code)]
     vfs_backend: VfsBackendEnum,
-    #[allow(dead_code)]
-    control_plane: Option<ControlPlane>,
     /// Lazy WebSocket worker pool — starts empty, grows on demand, shrinks to zero after idle timeout.
     ws_workers: Mutex<Vec<WsWorkerHandle>>,
     /// Number of active WebSocket connections. Incremented by the worker thread when it accepts a
@@ -173,7 +159,6 @@ impl TenantPool {
         worker_count: u32,
         memory_limit_mb: u32,
         vfs_backend: VfsBackendEnum,
-        control_plane: Option<ControlPlane>,
         limits: &AppLimits,
     ) -> Result<Self> {
         let max_ws_connections = limits.effective_max_ws_connections();
@@ -204,7 +189,6 @@ impl TenantPool {
             workers,
             next_worker: AtomicU64::new(0),
             vfs_backend,
-            control_plane,
             ws_workers: Mutex::new(Vec::new()),
             ws_busy,
             max_ws_connections,
@@ -214,8 +198,7 @@ impl TenantPool {
 
     /// Spawn a worker thread with its own isolate.
     ///
-    /// `ws_busy` is forwarded to `run_worker` so future WS handling code (Plan 04)
-    /// can increment/decrement the counter from inside the worker thread.
+    /// `ws_busy` is forwarded to `run_worker` so the worker can increment/decrement the counter without a lock.
     fn spawn_worker(
         id: u32,
         hostname: String,
@@ -387,18 +370,12 @@ impl TenantPool {
                         WS_MESSAGE_HANDLERS.with(|h| h.borrow_mut().clear());
                         WS_CLOSE_HANDLERS.with(|h| h.borrow_mut().clear());
                         WS_ERROR_HANDLERS.with(|h| h.borrow_mut().clear());
-                        // WS_SERVER_SOCKET left as None — set by WebSocketPair ctor in Plan 05.
-
                         // Signal 101 Switching Protocols back to the HTTP layer.
-                        // The axum relay task (Plan 03) reads this to confirm the upgrade.
                         let upgrade_response = crate::http::NanoResponse::with_status(101);
                         let _ = task.response_tx.send(Ok(upgrade_response));
 
-                        // Call the JS fetch handler so the JS handler can register event listeners
-                        // via ws.addEventListener / ws.onmessage etc. (Plan 05 wires these APIs).
-                        // We reuse the entrypoint handler already cached for this isolate (or load it).
+                        // Call the JS fetch handler so it can register event listeners.
                         let entrypoint = task.entrypoint.clone();
-                        // Ensure handler is cached (same path as HTTP).
                         if !handler_cache.contains_key(&entrypoint) {
                             let code = match crate::data_plane::read_code_cached(&entrypoint) {
                                 Ok(c) => c,
@@ -470,7 +447,6 @@ impl TenantPool {
                         }
 
                         // Set readyState to OPEN (1) on the JS WebSocket object (D-16b).
-                        // If WS_SERVER_SOCKET is None (Plan 05 not yet wired), this is a no-op.
                         set_ws_readystate(&mut ctx_scope, 1);
 
                         info!(
@@ -489,9 +465,10 @@ impl TenantPool {
                                 Ok(tungstenite::Message::Text(s)) => {
                                     // OOM check before dispatching to JS (D-13).
                                     if let Some(ref mon) = oom_monitor {
+                                        // SAFETY: iso_ptr valid for scope block duration
                                         let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                        if let Err(_oom) = mon.check(iso_ref) {
-                                            // Send close 1011 (Internal Error) and recycle.
+                                        if let Err(oom) = mon.check(iso_ref) {
+                                            mon.log_oom_event(&oom, &task.request_id);
                                             let close_frame = tungstenite::Message::Close(Some(
                                                 tungstenite::protocol::CloseFrame {
                                                     code: tungstenite::protocol::frame::coding::CloseCode::Error,
@@ -534,8 +511,10 @@ impl TenantPool {
                                 Ok(tungstenite::Message::Binary(b)) => {
                                     // OOM check (D-13).
                                     if let Some(ref mon) = oom_monitor {
+                                        // SAFETY: iso_ptr valid for scope block duration
                                         let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                        if let Err(_oom) = mon.check(iso_ref) {
+                                        if let Err(oom) = mon.check(iso_ref) {
+                                            mon.log_oom_event(&oom, &task.request_id);
                                             let close_frame = tungstenite::Message::Close(Some(
                                                 tungstenite::protocol::CloseFrame {
                                                     code: tungstenite::protocol::frame::coding::CloseCode::Error,
@@ -946,8 +925,7 @@ impl TenantPool {
     ///
     /// `ws_busy` is incremented INSIDE the worker thread when it actually receives
     /// and processes the WS task — NOT here. Incrementing here would create a TOCTOU
-    /// window between the check and the send. Plan 04 adds the increment in
-    /// `run_worker` using the shared `Arc<AtomicUsize>`.
+    /// window between the check and the send.
     pub fn dispatch_ws(&self, task: HandlerTask) -> Result<()> {
         // --- Connection-limit gate (D-07) ---
         let busy = self.ws_busy.load(Ordering::SeqCst);
@@ -964,66 +942,37 @@ impl TenantPool {
             .lock()
             .map_err(|_| anyhow!("ws_workers mutex poisoned"))?;
 
-        // Dead-handle pruning: we detect a disconnected channel only when we attempt
-        // to send on it (std::sync::mpsc has no non-destructive "is alive?" query).
-        // Pruning happens inline in the send loop below — any handle that returns
-        // SendError is immediately removed and its join handle is collected.
-
-        // Search for an idle worker — one whose channel still has room.
-        // Try each worker in turn; if its channel is disconnected, remove it.
-        let mut task_opt = Some(task);
-        let mut sent = false;
-
-        let i = 0;
-        while i < ws_workers.len() {
-            let task = task_opt.take().expect("task_opt always Some at loop top");
-            match ws_workers[i].task_tx.send(task) {
-                Ok(()) => {
-                    sent = true;
-                    break;
+        // Prune handles for workers that have already exited (is_finished() is non-blocking).
+        ws_workers.retain_mut(|h| {
+            if h.join.as_ref().map_or(false, |jh| jh.is_finished()) {
+                if let Some(jh) = h.join.take() {
+                    let _ = jh.join();
                 }
-                Err(mpsc::SendError(returned_task)) => {
-                    // Channel disconnected — worker exited. Remove the dead handle.
-                    // join handle is in ws_workers[i].join; take it to avoid blocking.
-                    let dead = ws_workers.swap_remove(i);
-                    if let Some(jh) = dead.join {
-                        // Non-blocking: the thread should be done since the Receiver was dropped.
-                        let _ = jh.join();
-                    }
-                    // Don't advance i — swap_remove replaced position i with last element.
-                    task_opt = Some(returned_task);
-                }
+                false
+            } else {
+                true
             }
-        }
+        });
 
-        if !sent {
-            // No live idle worker found — spawn a fresh one.
-            let task = task_opt.take().expect("task_opt must still be Some");
-            let ws_worker_id = ws_workers.len() as u32;
-            // We need memory_limit_mb and vfs_backend from TenantPool context.
-            // Since spawn_ws_worker needs these, store them at new() time.
-            // For now: use the values from the HTTP workers (they share the same vfs_backend).
-            // Plan 04 may introduce a dedicated WS isolate; for now reuse HTTP worker config.
-            // NOTE: memory_limit_mb is not stored on TenantPool. Add a field if needed.
-            // We use 0 (no OOM monitoring) for WS workers in Plan 02 as a placeholder;
-            // Plan 04 will set appropriate limits.
-            let new_handle = Self::spawn_ws_worker(
-                ws_worker_id,
-                self.hostname.clone(),
-                0, // memory_limit_mb — WS workers share OOM monitoring via ws_busy
-                self.vfs_backend.clone(),
-                Arc::clone(&self.ws_busy),
-                self.ws_idle_timeout_ms,
-            )?;
-            new_handle.task_tx
-                .send(task)
-                .map_err(|_| anyhow!("Newly spawned WS worker channel immediately closed"))?;
-            ws_workers.push(new_handle);
-            info!(
-                "Spawned WS worker {} for '{}' (ws_busy={}, max={})",
-                ws_worker_id, self.hostname, busy, self.max_ws_connections
-            );
-        }
+        // Each WS connection gets a dedicated worker thread — workers block in ws_messages
+        // for the connection lifetime and cannot serve a second connection concurrently.
+        let ws_worker_id = ws_workers.len() as u32;
+        let new_handle = Self::spawn_ws_worker(
+            ws_worker_id,
+            self.hostname.clone(),
+            0, // memory_limit_mb — WS workers share OOM monitoring via ws_busy
+            self.vfs_backend.clone(),
+            Arc::clone(&self.ws_busy),
+            self.ws_idle_timeout_ms,
+        )?;
+        new_handle.task_tx
+            .send(task)
+            .map_err(|_| anyhow!("Newly spawned WS worker channel immediately closed"))?;
+        ws_workers.push(new_handle);
+        info!(
+            "Spawned WS worker {} for '{}' (ws_busy={}, max={})",
+            ws_worker_id, self.hostname, busy, self.max_ws_connections
+        );
 
         Ok(())
     }

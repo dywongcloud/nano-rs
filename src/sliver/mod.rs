@@ -68,12 +68,6 @@ pub use packer::{pack_sliver, SliverPacker};
 pub use unpacker::{unpack_sliver, SliverUnpacker, UnpackedSliver};
 pub use validation::{validate_sliver_integrity, find_sliver_file, check_version_compatibility, CorruptionType};
 
-// Re-export for documentation only
-#[doc(hidden)]
-pub use packer::pack_sliver as _pack_sliver_doc;
-#[doc(hidden)]
-pub use unpacker::unpack_sliver as _unpack_sliver_doc;
-
 
 /// Walk a VFS backend and collect all entries for serialization
 ///

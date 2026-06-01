@@ -140,26 +140,11 @@ pub fn bind_fetch(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::L
 /// allowing Response methods (text, json, arrayBuffer) to access it.
 pub(crate) struct ResponseBodyData {
     body: Bytes,
-    /// Reserved for future JS binding expansion.
-    /// These fields store Response metadata for when the JS bindings
-    /// expose Response.headers, Response.status, and Response.url
-    /// properties beyond the currently implemented Response.text()/json().
-    #[allow(dead_code)]
-    headers: Vec<(String, String)>,
-    #[allow(dead_code)]
-    status: u16,
-    #[allow(dead_code)]
-    url: String,
 }
 
 impl ResponseBodyData {
-    fn new(body: Bytes, headers: Vec<(String, String)>, status: u16, url: String) -> Self {
-        Self {
-            body,
-            headers,
-            status,
-            url,
-        }
+    fn new(body: Bytes) -> Self {
+        Self { body }
     }
 }
 
@@ -327,13 +312,7 @@ fn fetch_callback(
             let url_str = final_url.clone();
             let headers_for_iter = response_headers.clone();
 
-            // Create response data to store in external
-            let response_data = Box::new(ResponseBodyData::new(
-                body_bytes,
-                response_headers,
-                status,
-                final_url,
-            ));
+            let response_data = Box::new(ResponseBodyData::new(body_bytes));
 
             // Create Response object
             let obj = v8::Object::new(scope);
@@ -386,6 +365,7 @@ fn fetch_callback(
             let ab = v8::ArrayBuffer::new(scope, body_len);
             // Copy data into ArrayBuffer
             if let Some(data_ptr) = ab.data() {
+                // SAFETY: data_ptr from V8 ArrayBuffer backing store; valid, exclusively owned, and body_len bytes long
                 let data = unsafe { std::slice::from_raw_parts_mut(data_ptr.as_ptr() as *mut u8, body_len) };
                 data.copy_from_slice(&body_clone_for_ab);
             }
@@ -428,6 +408,9 @@ pub(crate) fn get_response_data(
         if external_val.is_external() {
             let external = external_val.cast::<v8::External>();
             let ptr = external.value() as *mut ResponseBodyData;
+            // SAFETY: ptr points to a Box<ResponseBodyData> stored as a V8 External on `this`.
+            // `this` is stack-rooted in the current V8 scope, keeping the External and its
+            // backing Box alive. Callers must not store the returned reference past the scope.
             return unsafe { ptr.as_ref() };
         }
     }
@@ -536,6 +519,7 @@ pub fn response_arraybuffer_callback(
     
     let ab = v8::ArrayBuffer::new(scope, body_bytes.len());
     if let Some(data_ptr) = ab.data() {
+        // SAFETY: data_ptr from V8 ArrayBuffer backing store; valid, exclusively owned, and body_bytes.len() bytes long
         let dest = unsafe { std::slice::from_raw_parts_mut(data_ptr.as_ptr() as *mut u8, body_bytes.len()) };
         dest.copy_from_slice(&body_bytes);
     }

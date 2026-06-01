@@ -82,11 +82,6 @@ pub fn resolve_promise_with_async<'a>(
         // v147 API: perform_microtask_checkpoint on ContextScope through DerefMut
         scope.perform_microtask_checkpoint();
 
-        // Silence unused warning
-        let _ = iteration_count;
-
-        // NOW check promise state after pumping
-        // v147 API: promise methods work through ContextScope deref
         match promise.state() {
             v8::PromiseState::Fulfilled => {
                 return Ok(promise.result(scope));
@@ -149,11 +144,6 @@ pub fn resolve_promise_with_timeout<'a>(
         // v147 API: perform_microtask_checkpoint on ContextScope through DerefMut
         scope.perform_microtask_checkpoint();
 
-        // Silence unused warning
-        let _ = iteration_count;
-
-        // NOW check promise state after pumping
-        // v147 API: promise methods work through ContextScope deref
         match promise.state() {
             v8::PromiseState::Fulfilled => {
                 return Ok(promise.result(scope));

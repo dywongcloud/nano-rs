@@ -144,56 +144,6 @@ impl WebAssemblyAPI {
     }
 }
 
-/// Extract WASM bytes from a JS value (ArrayBuffer, Uint8Array, or any ArrayBufferView).
-/// Returns None if the argument is not a supported BufferSource type.
-/// Available for future JS-level cache interceptors when V8 compile API is usable.
-#[allow(dead_code)]
-pub(crate) fn extract_wasm_bytes(
-    scope: &mut v8::PinnedRef<v8::HandleScope>,
-    arg: v8::Local<v8::Value>,
-) -> Option<Vec<u8>> {
-    if arg.is_array_buffer() {
-        let ab = arg.cast::<v8::ArrayBuffer>();
-        let store = ab.get_backing_store();
-        let len = ab.byte_length();
-        let mut vec = Vec::with_capacity(len);
-        for i in 0..len {
-            if let Some(cell) = store.get(i) {
-                vec.push(cell.get());
-            }
-        }
-        Some(vec)
-    } else if arg.is_uint8_array() {
-        let ta = arg.cast::<v8::Uint8Array>();
-        let len = ta.byte_length();
-        let mut vec = Vec::with_capacity(len);
-        for i in 0..len {
-            if let Some(val) = ta.get_index(scope, i as u32) {
-                if let Some(num) = val.to_integer(scope) {
-                    vec.push(num.value() as u8);
-                }
-            }
-        }
-        Some(vec)
-    } else if arg.is_array_buffer_view() {
-        // Generic ArrayBufferView (Int8Array, Uint16Array, etc.)
-        let view = arg.cast::<v8::ArrayBufferView>();
-        let len = view.byte_length();
-        let ab = view.buffer(scope)?;
-        let store = ab.get_backing_store();
-        let offset = view.byte_offset();
-        let mut vec = Vec::with_capacity(len);
-        for i in offset..(offset + len) {
-            if let Some(cell) = store.get(i) {
-                vec.push(cell.get());
-            }
-        }
-        Some(vec)
-    } else {
-        None
-    }
-}
-
 /// WebAssembly.validate() callback implementation
 fn wasm_validate_callback(
     scope: &mut v8::PinnedRef<v8::HandleScope>,

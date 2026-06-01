@@ -108,7 +108,6 @@ fn websocket_pair_constructor(
     let client_socket = v8::Object::new(scope);
     ws_attach_to_object(scope, client_socket);
 
-    // Build server socket.
     let server_socket = v8::Object::new(scope);
     ws_attach_to_object(scope, server_socket);
 
@@ -231,7 +230,10 @@ fn ws_close_callback(
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    // Extract optional code (default 1000) and reason (default "").
+    if !WS_ACCEPTED.with(|cell| cell.get()) {
+        return;
+    }
+
     let code: u16 = if args.length() > 0 {
         args.get(0)
             .to_number(scope)
@@ -250,10 +252,8 @@ fn ws_close_callback(
         String::new()
     };
 
-    // Transition to CLOSING state.
     set_ws_readystate(scope, 2);
 
-    // Build and send Close frame.
     let close_frame = tungstenite::protocol::CloseFrame {
         code: tungstenite::protocol::frame::coding::CloseCode::from(code),
         reason: std::borrow::Cow::Owned(reason),
@@ -282,7 +282,6 @@ fn ws_add_event_listener_callback(
         return;
     }
 
-    // Extract event type string.
     let event_type = match args.get(0).to_string(scope) {
         Some(s) => s.to_rust_string_lossy(scope),
         None => return,
@@ -293,12 +292,8 @@ fn ws_add_event_listener_callback(
     if !handler_arg.is_function() {
         return;
     }
-
-    let handler_fn = match handler_arg.try_cast::<v8::Function>() {
-        Ok(f) => f,
-        Err(_) => return,
-    };
-    let handler_global = v8::Global::new(scope, handler_fn);
+    // safe: is_function() verified above
+    let handler_global = v8::Global::new(scope, handler_arg.cast::<v8::Function>());
 
     match event_type.as_str() {
         "message" => {
@@ -310,9 +305,7 @@ fn ws_add_event_listener_callback(
         "error" => {
             WS_ERROR_HANDLERS.with(|cell| cell.borrow_mut().push(handler_global));
         }
-        _ => {
-            // Unknown event type — silently ignore.
-        }
+        _ => {}
     }
 }
 

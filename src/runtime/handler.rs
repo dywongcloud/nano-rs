@@ -91,6 +91,9 @@ pub fn execute_handler_with_context(
     let pinned_scope = std::pin::pin!(handle_scope);
     let mut pinned_ref = pinned_scope.init();
 
+    // Disable eval/new Function in this context (matches worker-pool hardening)
+    v8_context.set_allow_generation_from_strings(false);
+
     // Bind APIs first (before entering context scope)
     // v147: bind_all now accepts PinnedRef<HandleScope>
     RuntimeAPIs::bind_all(&mut pinned_ref, v8_context);
@@ -240,6 +243,7 @@ fn execute_in_v8(
 
         // Create context within the scope
         let v8_context = v8::Context::new(&mut pinned_ref, Default::default());
+        v8_context.set_allow_generation_from_strings(false);
 
         // Bind runtime APIs first (before entering context scope)
         RuntimeAPIs::bind_all(&mut pinned_ref, v8_context);
