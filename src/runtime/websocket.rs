@@ -23,14 +23,16 @@ use crate::worker::tenant_pool::{
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Bind the `WebSocketPair` constructor to the V8 global scope.
+/// Bind `WebSocketPair` and `WebSocket` constructors to the V8 global scope.
 ///
 /// After this call, JS code can do:
 /// ```js
 /// const pair = new WebSocketPair();
 /// const [client, server] = Object.values(pair);
+/// typeof WebSocket !== 'undefined'; // true — WinterCG compat stub
 /// ```
 ///
+/// `WebSocket` is a no-op stub (readyState=3, no outbound connection).
 /// Follows the exact same pattern as `bind_streams` in `stream.rs`.
 pub fn bind_websocket_pair(
     scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
@@ -45,7 +47,15 @@ pub fn bind_websocket_pair(
     let key = v8::String::new(&mut ctx_scope, "WebSocketPair").unwrap();
     global.set(&mut ctx_scope, key.into(), wsp_ctor.into());
 
-    tracing::debug!("Bound WebSocketPair API");
+    // WinterCG browser-compatible WebSocket client constructor.
+    // Exposes `typeof WebSocket !== 'undefined'`; actual connection is not
+    // supported in the server-side execution model — use WebSocketPair instead.
+    let ws_template = v8::FunctionTemplate::new(&mut ctx_scope, websocket_client_constructor);
+    let ws_ctor = ws_template.get_function(&mut ctx_scope).unwrap();
+    let ws_key = v8::String::new(&mut ctx_scope, "WebSocket").unwrap();
+    global.set(&mut ctx_scope, ws_key.into(), ws_ctor.into());
+
+    tracing::debug!("Bound WebSocketPair and WebSocket APIs");
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +143,52 @@ fn websocket_pair_constructor(
     pair.set(scope, key1.into(), server_local.into());
 
     retval.set(pair.into());
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket client constructor (browser-compat stub)
+// ---------------------------------------------------------------------------
+
+/// WinterCG compat stub — satisfies `typeof WebSocket !== 'undefined'`.
+/// Outbound connections not supported in server-side execution model.
+fn websocket_client_constructor(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let obj = v8::Object::new(scope);
+
+    let url_val: v8::Local<v8::Value> = if args.length() > 0 {
+        args.get(0)
+    } else {
+        v8::String::new(scope, "").unwrap().into()
+    };
+    let url_key = v8::String::new(scope, "url").unwrap();
+    obj.set(scope, url_key.into(), url_val);
+
+    let rs_key = v8::String::new(scope, "readyState").unwrap();
+    let rs_val = v8::Integer::new_from_unsigned(scope, 3);
+    obj.set(scope, rs_key.into(), rs_val.into());
+
+    let bt_key = v8::String::new(scope, "binaryType").unwrap();
+    let bt_val = v8::String::new(scope, "arraybuffer").unwrap();
+    obj.set(scope, bt_key.into(), bt_val.into());
+
+    for method in &["send", "close", "addEventListener", "removeEventListener"] {
+        if let Some(f) = v8::Function::new(scope, ws_client_noop) {
+            let key = v8::String::new(scope, method).unwrap();
+            obj.set(scope, key.into(), f.into());
+        }
+    }
+
+    retval.set(obj.into());
+}
+
+fn ws_client_noop(
+    _scope: &mut v8::PinnedRef<v8::HandleScope>,
+    _args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
 }
 
 // ---------------------------------------------------------------------------
@@ -338,5 +394,64 @@ fn ws_binary_type_setter_callback(
     if let Some(msg) = v8::String::new(scope, "binaryType is read-only: only arraybuffer supported") {
         let error = v8::Exception::type_error(scope, msg);
         scope.throw_exception(error);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::v8::{initialize_platform, NanoIsolate};
+
+    fn init_platform() {
+        initialize_platform().expect("Failed to initialize V8 platform");
+    }
+
+    #[test]
+    fn test_websocket_stub_ready_state_and_url() {
+        init_platform();
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+        bind_websocket_pair(ctx_scope, context);
+
+        let code = r#"
+            const ws = new WebSocket('ws://test.example');
+            ws.readyState === 3 && ws.url === 'ws://test.example' && typeof ws.send === 'function'
+        "#;
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
+        let script = v8::Script::compile(ctx_scope, code_string, None).expect("compile");
+        let result = script.run(ctx_scope).expect("run");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        assert_eq!(result_str, "true", "WebSocket stub: readyState=3, url set from arg, send callable");
+    }
+
+    #[test]
+    fn test_websocket_stub_noop_methods_do_not_throw() {
+        init_platform();
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+        bind_websocket_pair(ctx_scope, context);
+
+        let code = r#"
+            let threw = false;
+            try {
+                const ws = new WebSocket('ws://x');
+                ws.send('hello');
+                ws.close();
+                ws.addEventListener('message', () => {});
+                ws.removeEventListener('message', () => {});
+            } catch (e) {
+                threw = true;
+            }
+            !threw
+        "#;
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
+        let script = v8::Script::compile(ctx_scope, code_string, None).expect("compile");
+        let result = script.run(ctx_scope).expect("run");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        assert_eq!(result_str, "true", "WebSocket stub no-op methods must not throw");
     }
 }

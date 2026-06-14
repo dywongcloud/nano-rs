@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Remediation 🚧
 status: completed
-last_updated: "2026-05-20T00:37:22.220Z"
+last_updated: "2026-06-02T02:30:25.870Z"
 progress:
   total_phases: 8
   completed_phases: 6

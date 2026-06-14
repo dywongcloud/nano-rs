@@ -29,7 +29,7 @@ use std::sync::Arc;
 use axum::{
     body::Body,
     extract::State,
-    extract::ws::{WebSocketUpgrade, WebSocket, Message as AxumWsMessage},
+    extract::ws::{WebSocket, WebSocketUpgrade, Message as AxumWsMessage},
     http::{header, Request, Response, StatusCode},
     response::IntoResponse,
 };
@@ -813,10 +813,6 @@ pub async fn dispatch_to_worker_pool(
 
     tracing::debug!("Dispatching request to worker pool for host: {}", host);
 
-    // D-WS-01: WebSocket Upgrade detection MUST happen before request body is consumed.
-    // Checking only the Upgrade header is sufficient to route WS requests; full
-    // validation of the handshake (Connection, Sec-WebSocket-Key, etc.) is delegated
-    // to the WebSocketUpgrade extractor inside handle_ws_upgrade.
     if request
         .headers()
         .get("upgrade")
@@ -1057,33 +1053,13 @@ pub async fn dispatch_to_worker_pool(
     response
 }
 
-/// Perform the WebSocket upgrade handshake, build WsChannels, and dispatch a
-/// HandlerTask to the work queue.
-///
-/// Returns a 101 Switching Protocols response (or an error response).
+/// Perform the WebSocket upgrade handshake per RFC 6455 §4.2.2.
 async fn handle_ws_upgrade(
     state: Arc<AppState>,
     request: Request<Body>,
     host: String,
 ) -> Response<Body> {
     use axum::extract::FromRequestParts;
-
-    let (mut parts, _body) = request.into_parts();
-    let method = parts.method.clone();
-    let uri = parts.uri.clone();
-    let headers_clone = parts.headers.clone();
-
-    let ws_upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
-        Ok(ws) => ws,
-        Err(rejection) => {
-            tracing::warn!("WebSocket upgrade rejected: {:?}", rejection);
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "text/plain")
-                .body(Body::from(format!("WebSocket upgrade failed: {rejection}")))
-                .unwrap();
-        }
-    };
 
     let target = state.router.resolve(&host);
     let entrypoint = match &target.handler_type {
@@ -1098,7 +1074,22 @@ async fn handle_ws_upgrade(
         }
     };
 
-    let request_id = format!("req_{}", Uuid::new_v4().to_string()[..8].to_string());
+    let (mut parts, _body) = request.into_parts();
+    let method = parts.method.clone();
+    let uri = parts.uri.clone();
+    let headers_clone = parts.headers.clone();
+
+    let ws_upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
+        Ok(ws) => ws,
+        Err(rejection) => {
+            tracing::warn!("WS upgrade extraction failed for host {:?}: {:?}", host, rejection);
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("content-type", "text/plain")
+                .body(Body::from("WebSocket upgrade failed"))
+                .unwrap();
+        }
+    };
 
     let full_url = {
         let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
@@ -1110,21 +1101,19 @@ async fn handle_ws_upgrade(
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("content-type", "text/plain")
-                .body(Body::from(format!("Invalid URL: {e}")))
+                .body(Body::from("Bad Request"))
                 .unwrap();
         }
     };
     let nano_headers = NanoHeaders::from_axum_headers(&headers_clone);
     let nano_request = NanoRequest::new(method.to_string(), nano_url, nano_headers, None);
 
-    // capacity 128 per D-08
-    let (inbound_tx, inbound_rx) =
-        std::sync::mpsc::sync_channel::<tungstenite::Message>(128);
-    let (outbound_tx, outbound_rx) =
-        std::sync::mpsc::sync_channel::<tungstenite::Message>(128);
+    let (inbound_tx, inbound_rx) = std::sync::mpsc::sync_channel::<tungstenite::Message>(128);
+    let (outbound_tx, outbound_rx) = std::sync::mpsc::sync_channel::<tungstenite::Message>(128);
 
     let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
     let cpu_time_limit_ms = state.get_cpu_time_limit_ms(&host);
+    let request_id = format!("ws_{}", &Uuid::new_v4().to_string()[..8]);
     let ws_channels = WsChannels { inbound_rx, outbound_tx };
     let task = HandlerTask {
         entrypoint,
@@ -1143,7 +1132,7 @@ async fn handle_ws_upgrade(
         match queue.dispatch(&host, task).await {
             Ok(()) => {}
             Err(QueueError::ChannelFull) => {
-                tracing::warn!("WS connection limit reached for hostname: {}", host);
+                tracing::warn!("WS connection limit reached for hostname: {:?}", host);
                 return Response::builder()
                     .status(StatusCode::SERVICE_UNAVAILABLE)
                     .header("Retry-After", "1")
@@ -1152,7 +1141,7 @@ async fn handle_ws_upgrade(
                     .unwrap();
             }
             Err(e) => {
-                tracing::error!("WS dispatch error: {}", e);
+                tracing::error!("WS dispatch error for host {:?}: {}", host, e);
                 return Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
                     .header("content-type", "text/plain")
@@ -1162,22 +1151,14 @@ async fn handle_ws_upgrade(
         }
     }
 
+    tracing::debug!("WebSocket upgrade accepted for host: {}", host);
     ws_upgrade
         .on_upgrade(move |socket| ws_relay_task(socket, inbound_tx, outbound_rx))
         .into_response()
 }
 
-/// Constant for the 32 MiB WebSocket message size limit (D-09 / D-12b).
 const MAX_WS_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
 
-/// Relay task: bridges the async axum WebSocket stream to/from std::sync::mpsc channels.
-///
-/// - Inbound (client → worker): receives axum WS messages, converts to tungstenite::Message,
-///   enforces 32 MiB limit (close 1009 on excess), forwards to `inbound_tx`.
-/// - Outbound (worker → client): a spawn_blocking thread drains `outbound_rx` and feeds a
-///   tokio channel; the select! loop forwards those frames to the socket.
-///
-/// On exit, dropping `inbound_tx` signals the worker that the connection is closed (D-17b).
 async fn ws_relay_task(
     mut socket: WebSocket,
     inbound_tx: std::sync::mpsc::SyncSender<tungstenite::Message>,
@@ -1205,9 +1186,8 @@ async fn ws_relay_task(
                         };
                         if payload_len > MAX_WS_MESSAGE_BYTES {
                             tracing::warn!(
-                                "WS message too large ({} bytes > {} MiB limit), closing 1009",
-                                payload_len,
-                                MAX_WS_MESSAGE_BYTES / (1024 * 1024)
+                                "WS message too large ({} bytes), closing 1009",
+                                payload_len
                             );
                             let _ = socket
                                 .send(AxumWsMessage::Close(Some(
@@ -1219,42 +1199,48 @@ async fn ws_relay_task(
                                 .await;
                             break;
                         }
-
-                        let tung_msg = match axum_to_tungstenite(axum_msg) {
-                            Some(m) => m,
-                            None => continue, // Ping/Pong — axum handles replies automatically
-                        };
-                        if inbound_tx.send(tung_msg).is_err() {
-                            // Worker dropped the receiver — connection is done.
-                            break;
+                        match axum_to_tungstenite(axum_msg) {
+                            Some(m) => {
+                                match inbound_tx.try_send(m) {
+                                    Ok(()) => {}
+                                    Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                                        let _ = socket
+                                            .send(AxumWsMessage::Close(Some(
+                                                axum::extract::ws::CloseFrame {
+                                                    code: 1008,
+                                                    reason: "Backpressure limit".into(),
+                                                },
+                                            )))
+                                            .await;
+                                        break;
+                                    }
+                                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+                                }
+                            }
+                            None => continue,
                         }
                     }
                     Some(Err(e)) => {
                         tracing::debug!("WS recv error: {}", e);
                         break;
                     }
-                    None => break, // Client closed the connection.
+                    None => break,
                 }
             }
-
             maybe_out = outbound_notify_rx.recv() => {
                 match maybe_out {
                     Some(tung_msg) => {
-                        let axum_msg = tungstenite_to_axum(tung_msg);
-                        if socket.send(axum_msg).await.is_err() {
+                        if socket.send(tungstenite_to_axum(tung_msg)).await.is_err() {
                             break;
                         }
                     }
-                    None => break, // Outbound channel closed — relay done.
+                    None => break,
                 }
             }
         }
     }
-    // Dropping inbound_tx here signals the worker that the relay is gone (D-17b).
 }
 
-/// Convert an axum WS message to a tungstenite 0.24 message.
-/// Returns `None` for Ping/Pong (axum handles pong replies automatically — D-15b).
 fn axum_to_tungstenite(msg: AxumWsMessage) -> Option<tungstenite::Message> {
     match msg {
         AxumWsMessage::Text(utf8) => Some(tungstenite::Message::Text(utf8.as_str().to_string())),
@@ -1270,7 +1256,6 @@ fn axum_to_tungstenite(msg: AxumWsMessage) -> Option<tungstenite::Message> {
     }
 }
 
-/// Convert a tungstenite 0.24 message to an axum WS message.
 fn tungstenite_to_axum(msg: tungstenite::Message) -> AxumWsMessage {
     match msg {
         tungstenite::Message::Text(s) => AxumWsMessage::Text(s.into()),
@@ -1535,7 +1520,49 @@ export default {{
         assert_eq!(response.status(), 200);
         assert!(response.body().is_some());
         let body = String::from_utf8_lossy(response.body().as_ref().unwrap());
-        assert!(body.contains(&format!("SLIVER:{}", dynamic_token)), 
+        assert!(body.contains(&format!("SLIVER:{}", dynamic_token)),
             "Response must contain dynamic sliver token from JS execution, got: {}", body);
+    }
+
+    #[tokio::test]
+    async fn test_handle_ws_upgrade_forbidden_for_static_handler() {
+        let router = VirtualHostRouter::new(RouteTarget {
+            hostname: "static.host".to_string(),
+            handler_type: HandlerType::StaticResponse("hello".to_string()),
+        });
+        let state = Arc::new(AppState::new(router, 0));
+
+        let request = Request::builder()
+            .method("GET")
+            .uri("http://static.host/ws")
+            .header("upgrade", "websocket")
+            .header("connection", "upgrade")
+            .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+            .header("sec-websocket-version", "13")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = handle_ws_upgrade(state, request, "static.host".to_string()).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_handle_ws_upgrade_rejects_malformed_request() {
+        let router = VirtualHostRouter::new(RouteTarget {
+            hostname: "ws.host".to_string(),
+            handler_type: HandlerType::WinterTCHandler("/app/index.js".to_string()),
+        });
+        let state = Arc::new(AppState::new(router, 0));
+
+        // Missing Sec-WebSocket-Key and Sec-WebSocket-Version → extractor rejects → 400
+        let request = Request::builder()
+            .method("GET")
+            .uri("http://ws.host/ws")
+            .header("upgrade", "websocket")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = handle_ws_upgrade(state, request, "ws.host".to_string()).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }
