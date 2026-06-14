@@ -1097,7 +1097,7 @@ async fn handle_ws_upgrade(
     };
     let nano_url = match NanoUrl::parse(&full_url) {
         Ok(u) => u,
-        Err(e) => {
+        Err(_e) => {
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("content-type", "text/plain")
