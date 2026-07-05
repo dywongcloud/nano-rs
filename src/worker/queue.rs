@@ -172,6 +172,21 @@ impl EntrypointWorkerPool {
         Self::with_backend(hostname, worker_count, crate::vfs::VfsBackendEnum::memory(MemoryBackend::new()))
     }
 
+    /// Create a new worker pool with a per-app memory limit (MB)
+    ///
+    /// Like [`Self::new`], but enforces the app's configured `limits.memory_mb`
+    /// on every worker isolate (heap limits + OOM monitor). Use this whenever
+    /// an `AppConfig` is available — the limit-less constructors exist only
+    /// for callers with no configuration in reach.
+    pub fn new_with_limit(hostname: &str, worker_count: u32, memory_limit_mb: u32) -> Self {
+        Self::with_backend_and_limit(
+            hostname,
+            worker_count,
+            memory_limit_mb,
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::new()),
+        )
+    }
+
     /// Create a new worker pool with a custom VFS backend
     ///
     /// # Arguments
@@ -189,8 +204,24 @@ impl EntrypointWorkerPool {
     /// This method delegates to `WorkerPool::with_source_and_backend()`. For new code,
     /// use the unified constructor directly.
     pub fn with_backend(hostname: &str, worker_count: u32, vfs_backend: crate::vfs::VfsBackendEnum) -> Self {
+        // No memory limit: only for callers with no AppConfig in reach.
+        Self::with_backend_and_limit(hostname, worker_count, 0, vfs_backend)
+    }
+
+    /// Create a new worker pool with a custom VFS backend and a per-app
+    /// memory limit (MB, 0 = unlimited)
+    ///
+    /// The limit is enforced per worker isolate: V8 heap limits (plus the
+    /// runtime-JS baseline headroom) and an OOM monitor that converts
+    /// over-limit executions into 503 responses.
+    pub fn with_backend_and_limit(
+        hostname: &str,
+        worker_count: u32,
+        memory_limit_mb: u32,
+        vfs_backend: crate::vfs::VfsBackendEnum,
+    ) -> Self {
         use crate::worker::AppSource;
-        
+
         // Default entrypoint for backward-compatible WorkerPool creation.
         // The actual entrypoint is resolved per-request via the app registry
         // or overridden when using WorkerPool::with_source_and_backend().
@@ -198,17 +229,18 @@ impl EntrypointWorkerPool {
         let inner = crate::worker::pool::WorkerPool::with_source_and_backend(
             hostname.to_string(),
             worker_count,
-            0, // No memory limit by default for backward compatibility
+            memory_limit_mb,
             vfs_backend,
             source,
         );
-        
+
         tracing::info!(
-            "EntrypointWorkerPool for {} delegates to unified WorkerPool ({} workers)",
+            "EntrypointWorkerPool for {} delegates to unified WorkerPool ({} workers, {}MB memory limit)",
             hostname,
-            worker_count
+            worker_count,
+            memory_limit_mb
         );
-        
+
         Self {
             inner,
             hostname: hostname.to_string(),
@@ -412,6 +444,10 @@ impl WorkQueue {
                         app_config.env_vars.clone(),
                     );
 
+                    // Enforce the app's configured memory limit on every worker
+                    // isolate (heap limits + OOM monitor → 503 on exhaustion).
+                    let app_memory_limit_mb = app_config.limits.memory_mb;
+
                     match app_config.vfs_backend {
                         VfsBackendType::Disk => {
                             if let Some(ref disk_config) = app_config.vfs_disk {
@@ -430,9 +466,10 @@ impl WorkQueue {
                                             hostname,
                                             disk_config.base_path
                                         );
-                                        EntrypointWorkerPool::with_backend(
+                                        EntrypointWorkerPool::with_backend_and_limit(
                                             hostname,
                                             self.workers_per_pool,
+                                            app_memory_limit_mb,
                                             backend,
                                         )
                                     }
@@ -442,7 +479,7 @@ impl WorkQueue {
                                             hostname,
                                             e
                                         );
-                                        EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                                        EntrypointWorkerPool::new_with_limit(hostname, self.workers_per_pool, app_memory_limit_mb)
                                     }
                                 }
                             } else {
@@ -450,7 +487,7 @@ impl WorkQueue {
                                     "App {} has vfs_backend=disk but no vfs_disk config, using memory",
                                     hostname
                                 );
-                                EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                                EntrypointWorkerPool::new_with_limit(hostname, self.workers_per_pool, app_memory_limit_mb)
                             }
                         }
                         VfsBackendType::Memory => {
@@ -491,9 +528,10 @@ impl WorkQueue {
                                                 "Auto-created disk backend for entrypoint app at hostname: {} with base_path: {:?}",
                                                 hostname, base_path
                                             );
-                                            EntrypointWorkerPool::with_backend(
+                                            EntrypointWorkerPool::with_backend_and_limit(
                                                 hostname,
                                                 self.workers_per_pool,
+                                                app_memory_limit_mb,
                                                 backend,
                                             )
                                         }
@@ -502,21 +540,21 @@ impl WorkQueue {
                                                 "Failed to auto-create disk backend for entrypoint app at {:?}, falling back to memory: {}",
                                                 base_path, e
                                             );
-                                            EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                                            EntrypointWorkerPool::new_with_limit(hostname, self.workers_per_pool, app_memory_limit_mb)
                                         }
                                     }
                                 } else {
                                     tracing::debug!("No parent directory for entrypoint, using memory backend for hostname: {}", hostname);
-                                    EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                                    EntrypointWorkerPool::new_with_limit(hostname, self.workers_per_pool, app_memory_limit_mb)
                                 }
                             } else {
                                 tracing::debug!("Using memory backend for hostname: {} (no entrypoint)", hostname);
-                                EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                                EntrypointWorkerPool::new_with_limit(hostname, self.workers_per_pool, app_memory_limit_mb)
                             }
                         }
                         VfsBackendType::S3 => {
                             tracing::debug!("Using default memory backend for hostname: {}", hostname);
-                            EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                            EntrypointWorkerPool::new_with_limit(hostname, self.workers_per_pool, app_memory_limit_mb)
                         }
                     }
                 } else {
