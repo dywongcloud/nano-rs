@@ -304,8 +304,22 @@ fn execute_in_v8(
         let script = v8::Script::compile(&ctx_scope, code_string, None)
             .ok_or_else(|| anyhow!("Script compilation failed"))?;
 
-        // Execute script to define the fetch function
-        script.run(&ctx_scope);
+        // Execute script to define the fetch function. A top-level throw
+        // (e.g. require() of an unresolvable module) must surface as an
+        // error rather than falling through to the outbound `fetch` global.
+        {
+            let tc_storage = v8::TryCatch::new(&mut *ctx_scope);
+            let tc_pin = std::pin::pin!(tc_storage);
+            let mut tc = tc_pin.init();
+            if script.run(&mut tc).is_none() {
+                let detail = tc
+                    .exception()
+                    .and_then(|e| e.to_string(&mut tc))
+                    .map(|s| s.to_rust_string_lossy(&mut tc))
+                    .unwrap_or_else(|| "unknown error".to_string());
+                break 'v8_block Err(anyhow!("Script execution failed: {}", detail));
+            }
+        }
 
         // Look for the fetch function on global scope
         // For ESM modules, check __nano_user_fetch first (set by transform_module_code)
