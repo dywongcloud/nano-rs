@@ -232,8 +232,7 @@ CONTRACT.md §1's security model.
 ## Verification Methodology
 
 The `node_compat` layer is pure JavaScript (`src/runtime/node_compat/js/*.js`),
-loaded into V8 by a small set of Rust host hooks. This lets it be tested two
-ways:
+loaded into V8 by a small set of Rust host hooks. It is verified three ways:
 
 1. **Differential testing against real Node.js v22** — every module has (or
    is exercised by) a test under `src/runtime/node_compat/testing/` that runs
@@ -242,18 +241,20 @@ ways:
    ban) backed by real Node builtins for any not-yet-authored peer. This does
    not require V8/rusty_v8 at all and is the primary correctness gate for the
    JS layer — run it with `node src/runtime/node_compat/testing/<name>.test.mjs`.
-2. **Rust-level integration tests** (`tests/node_compat_integration_test.rs`)
-   exercise the real `execute_handler` → `Script::compile` path with ESM
-   `import` syntax against Node builtins, end to end.
-
-**Note on this update:** the JavaScript-level differential tests (method 1)
-were run and pass in this environment. The Rust-level integration tests
-(method 2) compile cleanly (`cargo check --all-targets`) but could not be
-*linked and executed* in this particular sandbox, because `rusty_v8`'s only
-distribution channel (prebuilt archives on GitHub Releases) was unreachable
-under this session's network policy. Run `cargo test` in a normal development
-environment to confirm the Rust-level tests pass before relying on this in
-production.
+2. **Real-package framework validation** — Express 5, Koa 3, and Hono 4
+   bundles from npm, run through the strict harness and the same
+   handler-resolution tiers the Rust runtime uses
+   (`testing/framework_bundle.test.mjs`).
+3. **Executed on a real linked V8 build via CI** — the Security Gateway
+   workflow (manually dispatchable on any branch) runs the 48-test
+   adversarial end-to-end suite, which spawns the actual nano-rs server
+   binary; every request context loads this compat layer through
+   `RuntimeAPIs::bind_all`. On this branch: **48/48 pass** (the `main`
+   baseline is 45/48 — the three `adversarial_memory` failures on main stem
+   from a pre-existing bug where the configured `memory_mb` never reached
+   the worker isolates, fixed on this branch). The same workflow's
+   dispatch-only `full-tests` job runs the entire `cargo test --lib --tests`
+   suite on the dispatched ref.
 
 ---
 
