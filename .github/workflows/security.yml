@@ -94,10 +94,9 @@ jobs:
       
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
-      
-      - name: Update advisory database
-        run: cargo audit --update
-      
+
+      # (cargo-audit fetches/updates the advisory database automatically on
+      # each run; the old `cargo audit --update` flag was removed upstream.)
       - name: Run CVE scan
         run: |
           echo "Running CVE scan on dependencies..."
@@ -136,13 +135,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       
       - name: Run cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@v1
+        uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories licenses
           arguments: --all-features
       
       - name: Check bans
-        uses: EmbarkStudios/cargo-deny-action@v1
+        uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check bans
           arguments: --all-features
