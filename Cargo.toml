@@ -42,7 +42,8 @@ tower-http = { version = "0.6", features = ["trace", "timeout", "compression-gzi
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# URL parsing and encoding
+# ESM import-statement transformation (ADR-007) and URL parsing/encoding
+regex = "1.12"
 url = "2.5"
 percent-encoding = "2.3"
 bytes = "1.6"
@@ -55,8 +56,8 @@ getrandom = "0.2"
 ring = "0.17"
 zeroize = { version = "1.8", features = ["derive"] }
 
-# Checksum for file watching
-sha2 = "0.10"
+# Checksum for file watching (oid feature: RSA signature scheme dispatch)
+sha2 = { version = "0.10", features = ["oid"] }
 
 # Concurrent hash map for VFS backend
 dashmap = "6.1"
@@ -84,8 +85,22 @@ tokio-tungstenite = "0.24"
 tungstenite = "0.24"
 futures-util = "0.3"
 
-# Compression streams (CompressionStream/DecompressionStream)
+# Compression streams (CompressionStream/DecompressionStream) and node:zlib
 flate2 = "1.0"
+brotli = "7"
+
+# node:crypto host hooks (sync digests, KDFs, ciphers)
+md-5 = "0.10"
+sha1 = { version = "0.10", features = ["oid"] }
+hmac = "0.12"
+pbkdf2 = { version = "0.12", default-features = false }
+scrypt = { version = "0.11", default-features = false }
+hkdf = "0.12"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+ctr = "0.9"
+aes-gcm = "0.10"
+digest = "0.10"
 
 # RSA and ECDSA cryptography (WebCrypto RSA-OAEP, RSASSA-PKCS1-v1_5, ECDSA)
 rsa = { version = "0.9", features = ["pem", "sha2"] }
@@ -150,6 +165,7 @@ p256 = "0.13.2"
 p384 = "0.13.1"
 elliptic-curve = "0.13.8"
 futures = "0.3"
+hex = "0.4"
 
 [[bench]]
 name = "sliver_cold_start"

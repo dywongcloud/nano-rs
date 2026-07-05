@@ -405,6 +405,13 @@ impl WorkQueue {
             // Check for per-app VFS configuration from AppRegistry first
             let pool = if let Some(ref registry) = self.app_registry {
                 if let Some(app_config) = registry.get(hostname) {
+                    // Make this app's env vars visible to node_compat's `process.env`
+                    // for whichever worker thread(s) end up serving this hostname.
+                    crate::runtime::node_compat::register_hostname_env(
+                        hostname.to_string(),
+                        app_config.env_vars.clone(),
+                    );
+
                     match app_config.vfs_backend {
                         VfsBackendType::Disk => {
                             if let Some(ref disk_config) = app_config.vfs_disk {

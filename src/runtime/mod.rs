@@ -25,6 +25,7 @@ pub mod fs_polyfill;
 pub mod request;
 pub mod async_support;
 pub mod websocket;
+pub mod node_compat;
 
 // Re-export handler types for convenience
 pub use handler::{HandlerContext, execute_handler, execute_handler_with_context};

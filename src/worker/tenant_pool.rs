@@ -270,6 +270,13 @@ impl TenantPool {
         let rt_handle = rt.handle().clone();
         set_worker_runtime(rt_handle);
 
+        // Node compat: os.hostname()/process.env for this worker's tenant.
+        // Set once per worker thread — this thread serves only `hostname`.
+        crate::runtime::node_compat::set_current_hostname(Some(hostname.clone()));
+        crate::runtime::node_compat::set_current_env(
+            crate::runtime::node_compat::env_for_hostname(&hostname),
+        );
+
         // Run the worker event loop
         Self::run_worker(id, hostname, memory_limit_mb, vfs_backend, task_rx, ws_busy, ws_idle_timeout_ms);
     }
@@ -416,7 +423,16 @@ impl TenantPool {
                             if let (Some(nk), Some(fk)) = (nano_k, fetch_k) {
                                 let handler_val = global_obj.get(&mut ctx_scope, nk.into())
                                     .filter(|v| v.is_function())
-                                    .or_else(|| global_obj.get(&mut ctx_scope, fk.into()).filter(|v| v.is_function()));
+                                    .or_else(|| global_obj.get(&mut ctx_scope, fk.into()).filter(|v| v.is_function()))
+                                    .or_else(|| {
+                                        // Last resort: node_compat handler bridge (CONTRACT.md §7)
+                                        // for CommonJS `module.exports = { fetch }` / `.default.fetch` shapes.
+                                        let resolver_k = v8::String::new(&mut ctx_scope, "__nano_resolve_handler")?;
+                                        let resolver = global_obj.get(&mut ctx_scope, resolver_k.into()).filter(|v| v.is_function())?;
+                                        resolver.cast::<v8::Function>()
+                                            .call(&mut ctx_scope, global_obj.into(), &[])
+                                            .filter(|v| v.is_function())
+                                    });
                                 match handler_val {
                                     Some(f) => {
                                         let g = v8::Global::new(&**ctx_scope, f.cast::<v8::Function>());
@@ -709,7 +725,16 @@ impl TenantPool {
                         };
                         let handler_val = global_obj.get(&mut ctx_scope, nano_k.into())
                             .filter(|v| v.is_function())
-                            .or_else(|| global_obj.get(&mut ctx_scope, fetch_k.into()).filter(|v| v.is_function()));
+                            .or_else(|| global_obj.get(&mut ctx_scope, fetch_k.into()).filter(|v| v.is_function()))
+                            .or_else(|| {
+                                // Last resort: node_compat handler bridge (CONTRACT.md §7)
+                                // for CommonJS `module.exports = { fetch }` / `.default.fetch` shapes.
+                                let resolver_k = v8::String::new(&mut ctx_scope, "__nano_resolve_handler")?;
+                                let resolver = global_obj.get(&mut ctx_scope, resolver_k.into()).filter(|v| v.is_function())?;
+                                resolver.cast::<v8::Function>()
+                                    .call(&mut ctx_scope, global_obj.into(), &[])
+                                    .filter(|v| v.is_function())
+                            });
 
                         match handler_val {
                             Some(f) => {
@@ -737,6 +762,9 @@ impl TenantPool {
                         .expect("handler must be cached: just inserted in block above");
                     let global_obj = context.global(&mut ctx_scope);
                     let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
+
+                    // Clear any stale zlib-stream state from a previous request.
+                    crate::runtime::node_compat::clear_zlib_streams();
 
                     let result: anyhow::Result<crate::http::NanoResponse> = (|| {
                         let url_str = v8::String::new(&mut ctx_scope, &task.request.url().href())

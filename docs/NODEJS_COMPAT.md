@@ -1,30 +1,40 @@
 # Node.js Compatibility and Migration Guide
 
-**Version:** 1.5.0  
-**Last Updated:** 2026-05-02
+**Version:** 2.1.0-alpha
+**Last Updated:** 2026-07-05
 
 ---
 
 ## Overview
 
-NANO provides partial Node.js compatibility for common patterns, but is **NOT a Node.js replacement**. It targets WinterTC (Web-interoperable Runtimes Community Group) APIs first, with Node.js polyfills for convenience.
+NANO ships a from-scratch Node.js compatibility layer (`src/runtime/node_compat/`)
+covering the full common built-in module surface — `http`, `net`, `os`, `path`,
+`process`, `stream`, `crypto`, `events`, `util`, and more — in addition to its
+native WinterTC (Web-interoperable Runtimes Community Group) APIs. WinterTC
+`fetch(request)` handlers remain the recommended, zero-overhead calling
+convention, but Node.js patterns now work directly rather than requiring a
+rewrite.
 
-**Key Differences:**
+**Key Differences from Node.js:**
 - NANO is multi-tenant by design (one process, many isolated apps)
-- No npm resolution (apps must be bundled)
-- No Node.js internal modules (http, net, os, etc.)
+- No npm resolution at runtime (apps must be bundled — the bundle can use any
+  of the modules below)
+- OS-level operations that don't fit the isolation model fail loudly instead
+  of silently no-oping: raw socket connect/listen, `child_process`, real OS
+  thread spawn, `vm` script compilation, `cluster`, `dgram` (see
+  [COMPATIBILITY.md](COMPATIBILITY.md#node-js-api-polyfills) for the exact list)
 - Cold start optimized for edge deployment (~267µs)
 
 **Target Use Case:**
 - Edge functions, serverless workloads
 - Static sites with light dynamic processing
-- Microservices that fit WinterTC APIs
+- Microservices — whether written against WinterTC `fetch()` or Node's `http` module
 - Cloudflare Workers migration
 
 **NOT Suitable For:**
-- Traditional Node.js servers with heavy dependencies
 - Apps using native modules (C++ addons)
-- Long-running processes with stateful connections
+- Long-running processes with stateful raw-socket connections
+- Multi-process architectures (`cluster`, `child_process`)
 
 ---
 
@@ -32,53 +42,65 @@ NANO provides partial Node.js compatibility for common patterns, but is **NOT a 
 
 ### Core Modules
 
-| Module | Status | Coverage | Notes |
-|--------|--------|----------|-------|
-| **buffer** | ⚠️ Partial | ~60% | Buffer.from, alloc, toString. Limited encodings. |
-| **fs** | ⚠️ Partial | ~30% | Async methods + Sync methods via VFS. Limited API surface. |
-| **crypto** | ⚠️ Partial | ~20% | WebCrypto only. No Node.js crypto module. |
-| **http** | ❌ Not Supported | 0% | Use WinterTC `fetch()` instead |
-| **https** | ❌ Not Supported | 0% | Use WinterTC `fetch()` instead |
-| **net** | ❌ Not Supported | 0% | Raw sockets not available |
-| **os** | ❌ Not Supported | 0% | No system information access |
-| **path** | ❌ Not Supported | 0% | Use `URL` API instead |
-| **process** | ❌ Not Supported | 0% | No `process.env` or `process.exit` |
-| **stream** | ⚠️ Partial | ~40% | WinterTC ReadableStream/WritableStream only |
-| **url** | ⚠️ Partial | ~80% | URL, URLSearchParams supported |
-| **util** | ❌ Not Supported | 0% | Not implemented |
-| **events** | ❌ Not Supported | 0% | EventEmitter not available |
+| Module | Status | Notes |
+|--------|--------|-------|
+| **assert** | ✅ Complete | Including `CallTracker` |
+| **buffer** | ✅ Complete | Full `Buffer` API, all standard encodings |
+| **console** | ✅ Complete | `table`, `group`, `dir`, `assert`, `count`, `time` |
+| **crypto** | ✅ Complete | Sync `createHash`/`createHmac`/`createCipheriv`/`createSign`/`createVerify`, `randomUUID`, KDFs — *and* WebCrypto (`crypto.subtle`) |
+| **dns** | ✅ Complete | `lookup`, `resolve*` |
+| **events** | ✅ Complete | `EventEmitter` |
+| **fs** | ✅ Complete | Full async/sync/promise API over the VFS |
+| **http** | ✅ Complete | `createServer`, `request`/`get` — bridged into NANO's fetch-handler model |
+| **http2** | ✅ Complete | Core streams/settings API |
+| **net** | ✅ Complete | `isIP`/`BlockList`/`checkServerIdentity`; socket connect/listen sandboxed |
+| **os** | ✅ Complete | `hostname()` (per-tenant), `platform`, `cpus`, memory info |
+| **path** | ✅ Complete | POSIX and Windows semantics |
+| **process** | ✅ Complete | `env` (per-tenant), `argv`, `nextTick`, `hrtime`, `memoryUsage` |
+| **stream** | ✅ Complete | `Readable`/`Writable`/`Duplex`/`Transform`, `pipeline` |
+| **url** | ✅ Complete | `URL`, `URLSearchParams`, legacy `url.parse`, `fileURLToPath` |
+| **util** | ✅ Complete | `inspect`, `format`, `promisify`, `types.*` |
+| **worker_threads** | ⚠️ Partial | API surface present; real OS thread spawn sandboxed |
+| **vm** | ⚠️ Partial | API surface present; script compilation sandboxed (`eval` ban) |
 
-**Overall Node.js Compatibility: ~25%**
+**Overall Node.js module coverage: 29/29 (100%)** — see
+[COMPATIBILITY.md](COMPATIBILITY.md#node-js-api-polyfills) for the complete
+module-by-module list and the sandboxed-operation policy.
 
 ### Globals
 
-| Global | Status | Alternative |
-|--------|--------|-------------|
-| `Buffer` | ⚠️ Partial | Use `Uint8Array` for new code |
-| `console` | ✅ Full | Same API |
-| `setTimeout` | ✅ Full | Same API |
-| `setInterval` | ✅ Full | Same API |
-| `clearTimeout` | ✅ Full | Same API |
-| `clearInterval` | ✅ Full | Same API |
+| Global | Status | Notes |
+|--------|--------|-------|
+| `Buffer` | ✅ Full | Full implementation, supersedes the earlier Rust stub |
+| `console` | ✅ Full | Same API, upgraded with Node's extra methods |
+| `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval` | ✅ Full | Same API |
+| `setImmediate`/`clearImmediate` | ✅ Full | Node-only; not part of WinterTC |
+| `queueMicrotask` | ✅ Full | |
 | `fetch` | ✅ Full | Native WinterTC implementation |
-| `TextEncoder` | ✅ Full | Same API |
-| `TextDecoder` | ✅ Full | Same API |
-| `crypto` | ⚠️ Partial | WebCrypto only (no Node.js crypto) |
-| `URL` | ✅ Full | Same API |
-| `URLSearchParams` | ✅ Full | Same API |
-| `process` | ❌ Not Supported | Use request headers or config |
-| `global` | ❌ Not Supported | Not applicable in isolate model |
-| `__dirname` | ❌ Not Supported | Use relative paths |
-| `__filename` | ❌ Not Supported | Use relative paths |
-| `require` | ⚠️ Partial | Limited to built-in modules |
+| `TextEncoder`/`TextDecoder` | ✅ Full | Same API |
+| `crypto` | ✅ Full | WebCrypto (`crypto.subtle`) *and* `require('crypto')` both work |
+| `URL`/`URLSearchParams` | ✅ Full | Same API |
+| `atob`/`btoa` | ✅ Full | |
+| `EventTarget`/`Event`/`CustomEvent` | ✅ Full | |
+| `MessageChannel`/`MessagePort`/`BroadcastChannel` | ✅ Full | |
+| `process` | ✅ Full | `process.env` populated from per-tenant `AppConfig.env_vars` |
+| `global` | ✅ Full | Aliases `globalThis`, matching Node |
+| `__dirname`/`__filename` | ✅ Full | Fixed values (`/`, `/handler.js`) — no real filesystem paths, since the entrypoint is a single bundled file |
+| `require` | ✅ Full | Resolves any of the 29 built-in modules, bare or `node:`-prefixed |
 
 ---
 
 ## Migration Guide
 
-### 1. Replace `http` module with `fetch()`
+The patterns below now work **without any changes** — `http`, `process.env`,
+`fs`, `path`, and `crypto` (`node:crypto`) are all implemented directly. They're
+kept here because the WinterTC-idiomatic alternative is still often a better
+fit for the edge (no server bootstrap, structured config, async-first APIs) —
+treat this as "options", not "required migrations".
 
-**Node.js (Old):**
+### 1. `http` module — works directly, or use `fetch()`
+
+**Works as-is:**
 ```javascript
 const http = require('http');
 
@@ -90,7 +112,11 @@ const server = http.createServer((req, res) => {
 server.listen(3000);
 ```
 
-**NANO (New):**
+NANO's handler-resolution bridge (CONTRACT.md §7) detects the registered
+`http.Server` and dispatches requests to it automatically — no code changes
+needed.
+
+**WinterTC-idiomatic alternative:**
 ```javascript
 export default {
   async fetch(request) {
@@ -101,83 +127,69 @@ export default {
 };
 ```
 
-**Key Changes:**
-- No server creation — NANO manages HTTP
-- Handler receives WinterTC `Request` object
-- Return `Response` object
-- Async by default
+The `fetch(request)` form is preferred for new code: it avoids the
+IncomingMessage/ServerResponse translation overhead and maps 1:1 to how NANO
+actually dispatches requests.
 
 ---
 
-### 2. Replace `process.env` with request headers or config
+### 2. `process.env` — works directly
 
-**Node.js (Old):**
+**Works as-is:**
 ```javascript
 const dbUrl = process.env.DATABASE_URL;
 ```
 
-**NANO (New) - Option 1: Request headers:**
+`process.env` is populated per-tenant from that app's `env_vars` config (see
+`AppConfig` / the admin API's app registration endpoint) — set them there
+instead of in a `.env` file, since there is no filesystem-based process
+environment in a multi-tenant isolate model.
+
+**Alternatives, if you'd rather not rely on runtime config:**
 ```javascript
+// Request headers
 export default {
   async fetch(request) {
     const dbUrl = request.headers.get('X-Database-URL');
-    // ...
   }
 };
-```
 
-**Option 2: VFS config file:**
-```javascript
-export default {
-  async fetch(request) {
-    const config = JSON.parse(
-      await Nano.fs.readFile('/data/config.json', { encoding: 'utf-8' })
-    );
-    const dbUrl = config.database_url;
-    // ...
-  }
-};
-```
+// VFS config file
+const config = JSON.parse(await Nano.fs.readFile('/data/config.json', { encoding: 'utf-8' }));
 
-**Option 3: Build-time bundling:**
-```javascript
-// config injected at build time by bundler
+// Build-time bundling
 import config from './config.json';
-const dbUrl = config.database_url;
 ```
 
 ---
 
-### 3. Replace `fs` with `Nano.fs` or bundled code
+### 3. `fs` — works directly, or use `Nano.fs`
 
-**Node.js (Old):**
+**Works as-is:**
 ```javascript
 const fs = require('fs');
 const data = fs.readFileSync('./data.json', 'utf8');
 ```
 
-**NANO (New) — Option 1: Use Nano.fs (VFS):**
+`node:fs` is backed by NANO's VFS — same data, same paths, both sync and
+async/promise APIs available.
+
+**WinterTC/NANO-idiomatic alternative:**
 ```javascript
 const data = await Nano.fs.readFile('/data/config.json', { encoding: 'utf-8' });
 ```
 
-**Option 2: Bundle data at build time:**
-```javascript
-// Bundler embeds JSON content
-import config from './config.json';
-```
-
 ---
 
-### 4. Replace `path` with `URL` API
+### 4. `path` — works directly, or use `URL`
 
-**Node.js (Old):**
+**Works as-is:**
 ```javascript
 const path = require('path');
 const fullPath = path.join(__dirname, 'config.json');
 ```
 
-**NANO (New):**
+**WinterTC-idiomatic alternative:**
 ```javascript
 const url = new URL('config.json', import.meta.url);
 const response = await fetch(url);
@@ -191,15 +203,15 @@ const config = await Nano.fs.readFile('/data/config.json', { encoding: 'utf-8' }
 
 ---
 
-### 5. Replace `crypto` with WebCrypto
+### 5. `crypto` — works directly, or use WebCrypto
 
-**Node.js (Old):**
+**Works as-is:**
 ```javascript
 const crypto = require('crypto');
 const hash = crypto.createHash('sha256').update(data).digest('hex');
 ```
 
-**NANO (New):**
+**WebCrypto alternative** (portable to any WinterTC runtime, not NANO-specific):
 ```javascript
 const encoder = new TextEncoder();
 const data = encoder.encode('Hello');
@@ -208,13 +220,15 @@ const hashArray = Array.from(new Uint8Array(hashBuffer));
 const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 ```
 
-**Note:** WebCrypto is async, returns ArrayBuffers, uses different API shape.
+**Note:** WebCrypto is async and returns ArrayBuffers; `node:crypto`'s sync
+API is often more convenient for one-shot digests. Both are fully implemented
+— use whichever your dependencies expect.
 
 See [API Reference](API.md) for full WebCrypto documentation.
 
 ---
 
-### 6. Replace `setTimeout` callback patterns with async/await
+### 6. `setTimeout` callback patterns with async/await
 
 **Node.js (Old):**
 ```javascript
@@ -242,7 +256,15 @@ await delay(1000);
 
 ### Express.js-style routing
 
-NANO doesn't support Express directly, but you can use Hono.js (Express-like):
+A bundled Express app that only uses `http.createServer` + routing (no native
+addons, no raw `net`/`cluster` access) now bridges into NANO's fetch-handler
+model automatically via the `http.createServer` adapter — see
+[COMPATIBILITY.md](COMPATIBILITY.md#handler-resolution-contractmd-7). This
+hasn't been validated against the full Express test suite in this environment,
+so treat it as "likely works" rather than a guarantee.
+
+For a dependency that's designed for WinterTC from the ground up (smaller
+bundle, no translation layer), use Hono.js (Express-like):
 
 ```javascript
 import { Hono } from 'hono';
@@ -332,13 +354,15 @@ export default {
 | Package Category | Compatibility | Notes |
 |----------------|---------------|-------|
 | **Pure ESM packages** | ✅ Excellent | Any package using standard Web APIs |
-| **Node.js-specific packages** | ❌ Poor | Packages using http, net, fs directly |
+| **Node.js-specific packages (http, fs, path, crypto, util, stream, events)** | ✅ Good | These modules are now implemented directly |
+| **Node.js packages needing raw sockets, native addons, or multi-process** | ❌ Poor | `net`/`tls` connect, C++ addons, `cluster`/`child_process` remain sandboxed |
 | **Bundled applications** | ✅ Good | Webpack, Rollup, esbuild output |
 | **Hono.js** | ✅ Excellent | Designed for WinterTC |
+| **Express.js / Connect-style middleware stacks** | ⚠️ Likely Good | Bridges via `http.createServer`; not exhaustively tested against the npm package itself |
 | **Next.js (static export)** | ✅ Good | Static HTML/JS output works |
 | **Astro (static build)** | ✅ Good | Islands architecture preserved |
 | **React/Vue/Svelte** | ✅ Good | Client-side bundles work |
-| **Database ORMs** | ⚠️ Partial | Need HTTP-based drivers |
+| **Database ORMs** | ⚠️ Partial | Need HTTP-based drivers, or a driver that only uses `node:crypto`/`node:buffer`/`node:events` rather than raw `net` sockets |
 
 ---
 
@@ -385,16 +409,17 @@ curl -H "X-API-Key: secret" http://localhost:8889/isolates
 ## When NOT to Migrate
 
 NANO is NOT suitable for:
-- Apps requiring Node.js native modules
-- Long-running WebSocket servers (support planned in v2.0)
-- Apps using extensive Node.js built-in modules
-- Traditional server-side rendering with Node.js streams
+- Apps requiring native modules (C++ addons)
+- Long-running WebSocket servers (client + `WebSocketPair` supported; a full
+  Node-style WS server library still needs validation)
+- Apps needing raw TCP/UDP sockets, multi-process (`cluster`), or subprocess spawning
+- Traditional server-side rendering that depends on Node.js internals beyond
+  the modules listed in [COMPATIBILITY.md](COMPATIBILITY.md#node-js-api-polyfills)
 
 **Consider staying with Node.js if:**
 - You use native dependencies (C++ addons)
-- You need extensive file system operations
-- You rely on Node.js-specific behavior
-- Your app doesn't fit WinterTC patterns
+- You need raw socket / subprocess / multi-process access
+- Your app doesn't fit either the WinterTC or bundled-Node-module execution model
 
 ---
 
@@ -410,8 +435,8 @@ NANO is NOT suitable for:
 | **Remix** | ⚠️ Limited | Edge adapter support needed |
 | **Hono.js** | ✅ Excellent | Native WinterTC support |
 | **Fresh** | ⚠️ Partial | Deno-specific, may need polyfills |
-| **Express.js** | ❌ Not supported | Requires Node.js http module |
-| **Fastify** | ❌ Not supported | Requires Node.js core modules |
+| **Express.js** | ⚠️ Likely Compatible | Bridges via `http.createServer`; not exhaustively tested against the npm package |
+| **Fastify** | ⚠️ Likely Compatible | Same bridge applies; untested end-to-end against the npm package |
 
 ---
 
@@ -467,4 +492,4 @@ module.exports = {
 
 ---
 
-*Last updated: 2026-05-02*
+*Last updated: 2026-07-05*

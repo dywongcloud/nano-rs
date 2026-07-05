@@ -32,7 +32,7 @@ pub fn set_current_vfs(vfs: Option<Arc<IsolateVfs>>) {
 }
 
 /// Get the current VFS context if available
-fn with_current_vfs<F, R>(f: F) -> R
+pub(crate) fn with_current_vfs<F, R>(f: F) -> R
 where
     F: FnOnce(Option<&IsolateVfs>) -> R,
 {
