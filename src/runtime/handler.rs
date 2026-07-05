@@ -42,6 +42,13 @@ pub fn execute_handler(
     // Serialize the request to JSON
     let request_json = serialize_request_to_json(&context.request);
 
+    // Node compat: os.hostname() for this request (env vars aren't available
+    // at this layer — HandlerContext carries no AppConfig; see WorkQueue for
+    // the full per-app env_vars wiring).
+    if !context.hostname.is_empty() {
+        crate::runtime::node_compat::set_current_hostname(Some(context.hostname.clone()));
+    }
+
     // Execute in V8 context - synchronous, no async/await
     execute_in_v8(isolate, &code, &request_json)
 }
@@ -86,6 +93,11 @@ pub fn execute_handler_with_context(
     let vfs_ref = std::sync::Arc::new(isolate.vfs().clone());
     vfs_bindings::set_current_vfs(Some(vfs_ref));
 
+    // Node compat: os.hostname() for this request.
+    if !context.hostname.is_empty() {
+        crate::runtime::node_compat::set_current_hostname(Some(context.hostname.clone()));
+    }
+
     // v147 API: HandleScope::new() returns ScopeStorage, need pin! + init
     let handle_scope = v8::HandleScope::new(isolate.isolate());
     let pinned_scope = std::pin::pin!(handle_scope);
@@ -128,13 +140,29 @@ pub fn execute_handler_with_context(
         None => {
             // Fall back to checking for global fetch function
             let fetch_key = v8::String::new(&ctx_scope, "fetch").unwrap();
-            match global.get(&ctx_scope, fetch_key.into()) {
-                Some(val) if !val.is_undefined() && !val.is_null() => val,
-                _ => {
-                    // Return a default response for now - handler doesn't define fetch
-                    return Ok(NanoResponse::ok()
-                        .with_header("Content-Type", "text/plain")
-                        .with_body("Handler executed (no fetch function defined)"));
+            let bare_fetch = match global.get(&ctx_scope, fetch_key.into()) {
+                Some(val) if !val.is_undefined() && !val.is_null() => Some(val),
+                _ => None,
+            };
+            match bare_fetch {
+                Some(val) => val,
+                None => {
+                    // Last resort: node_compat handler bridge (CONTRACT.md §7) for
+                    // CommonJS `module.exports = { fetch }` / `.default.fetch` shapes.
+                    let resolver_key = v8::String::new(&ctx_scope, "__nano_resolve_handler").unwrap();
+                    let resolved = global.get(&ctx_scope, resolver_key.into())
+                        .filter(|v| v.is_function())
+                        .and_then(|resolver| resolver.cast::<v8::Function>().call(&ctx_scope, global.into(), &[]))
+                        .filter(|v| v.is_function());
+                    match resolved {
+                        Some(val) => val,
+                        None => {
+                            // Return a default response for now - handler doesn't define fetch
+                            return Ok(NanoResponse::ok()
+                                .with_header("Content-Type", "text/plain")
+                                .with_body("Handler executed (no fetch function defined)"));
+                        }
+                    }
                 }
             }
         }
@@ -278,13 +306,29 @@ fn execute_in_v8(
             None => {
                 // Fall back to checking for global fetch function
                 let fetch_key = v8::String::new(&ctx_scope, "fetch").unwrap();
-                match global.get(&ctx_scope, fetch_key.into()) {
-                    Some(val) if !val.is_undefined() && !val.is_null() => val,
-                    _ => {
-                        // Return a default response for now - handler doesn't define fetch
-                        break 'v8_block Ok(NanoResponse::ok()
-                            .with_header("Content-Type", "text/plain")
-                            .with_body("Handler executed (no fetch function defined)"));
+                let bare_fetch = match global.get(&ctx_scope, fetch_key.into()) {
+                    Some(val) if !val.is_undefined() && !val.is_null() => Some(val),
+                    _ => None,
+                };
+                match bare_fetch {
+                    Some(val) => val,
+                    None => {
+                        // Last resort: node_compat handler bridge (CONTRACT.md §7) for
+                        // CommonJS `module.exports = { fetch }` / `.default.fetch` shapes.
+                        let resolver_key = v8::String::new(&ctx_scope, "__nano_resolve_handler").unwrap();
+                        let resolved = global.get(&ctx_scope, resolver_key.into())
+                            .filter(|v| v.is_function())
+                            .and_then(|resolver| resolver.cast::<v8::Function>().call(&ctx_scope, global.into(), &[]))
+                            .filter(|v| v.is_function());
+                        match resolved {
+                            Some(val) => val,
+                            None => {
+                                // Return a default response for now - handler doesn't define fetch
+                                break 'v8_block Ok(NanoResponse::ok()
+                                    .with_header("Content-Type", "text/plain")
+                                    .with_body("Handler executed (no fetch function defined)"));
+                            }
+                        }
                     }
                 }
             }

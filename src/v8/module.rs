@@ -355,12 +355,108 @@ pub fn execute_classic_script<'a>(
     }
 }
 
+lazy_static::lazy_static! {
+    /// Matches a single ESM `import` statement in one of its six syntactic
+    /// forms (ADR-007's "Transformation" strategy). Named-group prefixes
+    /// (`a_`..`f_`) disambiguate which alternative matched. Character
+    /// classes (`[^}]`, `[^"']`) span newlines without a DOTALL flag, so
+    /// multi-line named-import lists from bundler output are matched as-is.
+    static ref IMPORT_STMT_RE: regex::Regex = regex::Regex::new(concat!(
+        r#"import\s+type\s+.*?from\s*["'][^"']+["']\s*;?"#, // (0) type-only: dropped entirely
+        r#"|import\s+(?P<a_def>[A-Za-z_$][\w$]*)\s*,\s*\*\s+as\s+(?P<a_ns>[A-Za-z_$][\w$]*)\s+from\s*["'](?P<a_spec>[^"']+)["']\s*;?"#,
+        r#"|import\s+(?P<b_def>[A-Za-z_$][\w$]*)\s*,\s*\{(?P<b_named>[^}]*)\}\s+from\s*["'](?P<b_spec>[^"']+)["']\s*;?"#,
+        r#"|import\s*\*\s+as\s+(?P<c_ns>[A-Za-z_$][\w$]*)\s+from\s*["'](?P<c_spec>[^"']+)["']\s*;?"#,
+        r#"|import\s*\{(?P<d_named>[^}]*)\}\s+from\s*["'](?P<d_spec>[^"']+)["']\s*;?"#,
+        r#"|import\s+(?P<e_def>[A-Za-z_$][\w$]*)\s+from\s*["'](?P<e_spec>[^"']+)["']\s*;?"#,
+        r#"|import\s*["'](?P<f_spec>[^"']+)["']\s*;?"#,
+    )).expect("IMPORT_STMT_RE is a fixed, tested pattern");
+}
+
+/// Rewrite a `{ a, b as c, type d }` named-import list into a destructuring
+/// pattern: `{ a, b: c }` (type-only bindings dropped, `as` becomes `:`).
+fn named_import_list_to_destructure(named: &str) -> String {
+    let parts: Vec<String> = named
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .filter_map(|item| {
+            let item = item.strip_prefix("type ").map(str::trim).unwrap_or(item);
+            if item.is_empty() {
+                return None;
+            }
+            Some(match item.split_once(" as ") {
+                Some((imported, local)) => {
+                    let (imported, local) = (imported.trim(), local.trim());
+                    if imported == local {
+                        imported.to_string()
+                    } else {
+                        format!("{}: {}", imported, local)
+                    }
+                }
+                None => item.to_string(),
+            })
+        })
+        .collect();
+    parts.join(", ")
+}
+
+/// Transform `import` statements referencing Node.js builtins (or, per
+/// NANO's require() contract, any specifier at all) into `require()` calls
+/// (ADR-007's documented v1.x strategy — Script::compile cannot parse raw
+/// `import` syntax outside a true ES module). Relative/unbundled specifiers
+/// that `require()` cannot resolve now fail with a clear `MODULE_NOT_FOUND`
+/// at runtime instead of an opaque `SyntaxError` at compile time.
+///
+/// Dynamic `import()` and `export * from` / `export { x } from` re-export
+/// forms are intentionally left untouched (documented v2.0 gap, ADR-007).
+pub fn transform_imports(code: &str) -> String {
+    IMPORT_STMT_RE
+        .replace_all(code, |caps: &regex::Captures| {
+            if let Some(spec) = caps.name("a_spec") {
+                let def = &caps["a_def"];
+                let ns = &caps["a_ns"];
+                format!("const {} = require(\"{}\"); const {} = {}.default;", ns, spec.as_str(), def, ns)
+            } else if let Some(spec) = caps.name("b_spec") {
+                let def = &caps["b_def"];
+                let named = named_import_list_to_destructure(&caps["b_named"]);
+                let req = format!("require(\"{}\")", spec.as_str());
+                if named.is_empty() {
+                    format!("const {} = {}.default;", def, req)
+                } else {
+                    format!("const {{ {} }} = {}; const {} = {}.default;", named, req, def, req)
+                }
+            } else if let Some(spec) = caps.name("c_spec") {
+                let ns = &caps["c_ns"];
+                format!("const {} = require(\"{}\");", ns, spec.as_str())
+            } else if let Some(spec) = caps.name("d_spec") {
+                let named = named_import_list_to_destructure(&caps["d_named"]);
+                if named.is_empty() {
+                    format!("require(\"{}\");", spec.as_str())
+                } else {
+                    format!("const {{ {} }} = require(\"{}\");", named, spec.as_str())
+                }
+            } else if let Some(spec) = caps.name("e_spec") {
+                let def = &caps["e_def"];
+                format!("const {} = require(\"{}\").default;", def, spec.as_str())
+            } else if let Some(spec) = caps.name("f_spec") {
+                format!("require(\"{}\");", spec.as_str())
+            } else {
+                // Type-only import (branch 0): no runtime binding needed.
+                String::new()
+            }
+        })
+        .into_owned()
+}
+
 /// Transform ES6 module syntax to be compatible with V8 Script execution
 ///
-/// Converts `export default { fetch: ... }` to `var __nano_handler = { ... };`
-/// and extracts the fetch function to a separate global variable without
-/// overwriting the native fetch() API.
+/// Converts `export default { fetch: ... }` to `var __nano_handler = { ... };`,
+/// extracts the fetch function to a separate global variable without
+/// overwriting the native fetch() API, and rewrites `import` statements to
+/// `require()` calls per ADR-007.
 pub fn transform_module_code(code: &str) -> String {
+    let code = transform_imports(code);
+
     // Check if this looks like ES6 module syntax with export default
     if code.contains("export default") {
         // Replace export default with var declaration
@@ -371,7 +467,7 @@ pub fn transform_module_code(code: &str) -> String {
         format!("{}\n\n// Extract handler function from export\nvar __nano_user_fetch = undefined;\nif (typeof __nano_handler === 'object' && __nano_handler.fetch) {{\n    __nano_user_fetch = __nano_handler.fetch;\n}}", transformed)
     } else {
         // No transformation needed
-        code.to_string()
+        code
     }
 }
 
@@ -675,6 +771,23 @@ fn module_resolve_callback<'a>(
     _import_attributes: v8::Local<'a, v8::FixedArray>,
     _referrer: v8::Local<'a, v8::Module>,
 ) -> Option<v8::Local<'a, v8::Module>> {
+    // Convert specifier to Rust string
+    // v147 API: CallbackScope uses pin! + init() pattern
+    let callback_scope = unsafe { v8::CallbackScope::new(context) };
+    let callback_scope = std::pin::pin!(callback_scope);
+    let mut callback_scope = callback_scope.init();
+    // v147 API: to_rust_string_lossy expects &Isolate, get via Deref from PinnedRef
+    // Note: CallbackScope derefs to PinnedRef<HandleScope>, which derefs to Isolate
+    let specifier_str = specifier.to_rust_string_lossy(&*callback_scope);
+
+    // Node.js builtin import (`import fs from "node:fs"` or bare `"fs"` —
+    // NANO has no npm resolution, so any bare specifier matching a
+    // registered builtin id is unambiguous). Resolved as a synthetic
+    // module bridging the CommonJS builtin's exports to ESM bindings.
+    if let Some(builtin_id) = builtin_module_id(&mut callback_scope, context, &specifier_str) {
+        return build_synthetic_builtin_module(&mut callback_scope, context, &builtin_id);
+    }
+
     // Get the module loader from thread-local storage
     let loader_option = with_current_loader(|loader| {
         loader.map(|l| l as *mut ModuleLoader)
@@ -682,15 +795,6 @@ fn module_resolve_callback<'a>(
 
     let loader_ptr = loader_option?;
     let loader = unsafe { &mut *loader_ptr };
-
-    // Convert specifier to Rust string
-    // v147 API: CallbackScope uses pin! + init() pattern
-    let callback_scope = unsafe { v8::CallbackScope::new(context) };
-    let callback_scope = std::pin::pin!(callback_scope);
-    let callback_scope = callback_scope.init();
-    // v147 API: to_rust_string_lossy expects &Isolate, get via Deref from PinnedRef
-    // Note: CallbackScope derefs to PinnedRef<HandleScope>, which derefs to Isolate
-    let specifier_str = specifier.to_rust_string_lossy(&**callback_scope);
 
     // Resolve the import path
     // The base path defaults to the typical entrypoint location.
@@ -775,6 +879,161 @@ fn module_resolve_callback<'a>(
     // Return the module
     // v147 API: v8::Local::new expects &PinnedRef<HandleScope>
     Some(v8::Local::new(&*callback_scope, &global_module))
+}
+
+// ---------------------------------------------------------------------
+// node: / bare-builtin ESM bridge
+//
+// NANO's Node.js compatibility builtins are CommonJS factories registered
+// with the JS-side loader (see src/runtime/node_compat). `import` statements
+// against a builtin id are bridged to a V8 SyntheticModule: created with a
+// pre-declared export name list (computed by calling __nanoNodeRequire once
+// up front), populated lazily during module evaluation. There is no npm
+// resolution in this runtime, so a bare specifier that matches a registered
+// builtin id is unambiguous and does not need a `node:` prefix.
+// ---------------------------------------------------------------------
+
+// Maps a synthetic module's stable V8 identity hash to the builtin id it
+// bridges, so the (stateless, capture-free) evaluation_steps callback can
+// recover which builtin to require() — V8's SyntheticModuleEvaluationSteps
+// is a plain extern "C" fn pointer with no closure environment.
+thread_local! {
+    static SYNTHETIC_BUILTIN_IDS: RefCell<HashMap<i32, String>> = RefCell::new(HashMap::new());
+}
+
+/// Returns the bare builtin id if `specifier` names a registered Node.js
+/// compatibility builtin (`node:fs` or bare `fs`), else `None`.
+fn builtin_module_id(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    context: v8::Local<v8::Context>,
+    specifier: &str,
+) -> Option<String> {
+    let bare = specifier.strip_prefix("node:").unwrap_or(specifier);
+    if specifier.starts_with('.') || specifier.starts_with('/') {
+        return None;
+    }
+    let global = context.global(scope);
+    let check_key = v8::String::new(scope, "__nanoNodeIsRegistered")?;
+    let check_fn = global.get(scope, check_key.into())?.try_cast::<v8::Function>().ok()?;
+    let bare_v8 = v8::String::new(scope, bare)?;
+    let result = check_fn.call(scope, global.into(), &[bare_v8.into()])?;
+    if result.boolean_value(scope) {
+        Some(bare.to_string())
+    } else {
+        None
+    }
+}
+
+/// True for names that are valid ES module export bindings (a subset of
+/// JS IdentifierName: ASCII alnum/underscore/dollar, not leading with a digit).
+fn is_valid_export_binding(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' || c == '$' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
+/// Build (or reuse) a SyntheticModule bridging a CommonJS builtin's
+/// `module.exports` to ESM `import`/`export` bindings: `export default`
+/// carries the whole exports object; every own enumerable identifier-safe
+/// key is additionally bridged as a named export.
+fn build_synthetic_builtin_module<'a>(
+    scope: &v8::PinScope<'a, '_>,
+    context: v8::Local<'a, v8::Context>,
+    builtin_id: &str,
+) -> Option<v8::Local<'a, v8::Module>> {
+    let global = context.global(scope);
+    let require_key = v8::String::new(scope, "__nanoNodeRequire")?;
+    let require_fn = global.get(scope, require_key.into())?.try_cast::<v8::Function>().ok()?;
+    let id_v8 = v8::String::new(scope, builtin_id)?;
+    let exports = require_fn.call(scope, global.into(), &[id_v8.into()])?;
+
+    let mut export_names: Vec<String> = vec!["default".to_string()];
+    if let Some(exports_obj) = exports.to_object(scope) {
+        if let Some(names) = exports_obj.get_own_property_names(scope, Default::default()) {
+            for i in 0..names.length() {
+                if let Some(key) = names.get_index(scope, i) {
+                    if let Some(key_str) = key.to_string(scope) {
+                        let key_name = key_str.to_rust_string_lossy(scope);
+                        if is_valid_export_binding(&key_name) && !export_names.contains(&key_name) {
+                            export_names.push(key_name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let export_name_locals: Vec<v8::Local<v8::String>> = export_names
+        .iter()
+        .filter_map(|n| v8::String::new(scope, n))
+        .collect();
+    let module_name = v8::String::new(scope, &format!("node:{}", builtin_id))?;
+
+    let module = v8::Module::create_synthetic_module(
+        scope,
+        module_name,
+        &export_name_locals,
+        synthetic_builtin_evaluation_steps,
+    );
+
+    SYNTHETIC_BUILTIN_IDS.with(|m| {
+        m.borrow_mut().insert(module.get_identity_hash().get(), builtin_id.to_string());
+    });
+
+    Some(module)
+}
+
+/// Evaluation-steps callback for builtin-bridging synthetic modules.
+///
+/// Per V8's SyntheticModuleEvaluationSteps contract this must be a stateless
+/// function (no closure captures) — the builtin id is recovered via the
+/// module's own identity hash, recorded at creation time.
+fn synthetic_builtin_evaluation_steps<'s>(
+    context: v8::Local<'s, v8::Context>,
+    module: v8::Local<'s, v8::Module>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let callback_scope = unsafe { v8::CallbackScope::new(context) };
+    let callback_scope = std::pin::pin!(callback_scope);
+    let mut scope = callback_scope.init();
+
+    let builtin_id = SYNTHETIC_BUILTIN_IDS
+        .with(|m| m.borrow().get(&module.get_identity_hash().get()).cloned())?;
+
+    let global = context.global(&scope);
+    let require_key = v8::String::new(&scope, "__nanoNodeRequire")?;
+    let require_fn = global.get(&scope, require_key.into())?.try_cast::<v8::Function>().ok()?;
+    let id_v8 = v8::String::new(&scope, &builtin_id)?;
+    let exports = require_fn.call(&mut scope, global.into(), &[id_v8.into()])?;
+
+    let default_key = v8::String::new(&scope, "default")?;
+    module.set_synthetic_module_export(&mut scope, default_key, exports)?;
+
+    if let Some(exports_obj) = exports.to_object(&scope) {
+        if let Some(names) = exports_obj.get_own_property_names(&scope, Default::default()) {
+            for i in 0..names.length() {
+                let Some(key) = names.get_index(&scope, i) else { continue };
+                let Some(key_str) = key.to_string(&scope) else { continue };
+                let key_name = key_str.to_rust_string_lossy(&scope);
+                if !is_valid_export_binding(&key_name) {
+                    continue;
+                }
+                if let Some(val) = exports_obj.get(&mut scope, key.into()) {
+                    if let Some(name_v8) = v8::String::new(&mut scope, &key_name) {
+                        // Ignore failures: a key not in the pre-declared
+                        // export list (filtered differently the second
+                        // time around) simply isn't bridged as a named
+                        // export — `default` still carries it.
+                        let _ = module.set_synthetic_module_export(&mut scope, name_v8, val);
+                    }
+                }
+            }
+        }
+    }
+
+    Some(v8::undefined(&scope).into())
 }
 
 #[cfg(test)]

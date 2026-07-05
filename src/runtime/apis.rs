@@ -173,6 +173,10 @@ impl RuntimeAPIs {
         Self::bind_streams(scope, context);
         Self::bind_wasm(scope, context);
         Self::bind_websocket_pair(scope, context);
+        // Node.js compatibility layer: host hooks + embedded builtin modules.
+        // Must run after all WinterTC binds (it layers on top of them) and
+        // before hardening (its JS evaluates while codegen flags still apply).
+        crate::runtime::node_compat::bind_node_compat(scope, context);
         // Security hardening must run last: removes eval and blocks dynamic code generation
         Self::bind_security_hardening(scope, context);
     }
@@ -384,7 +388,19 @@ impl RuntimeAPIs {
             let key = v8::String::new(&mut ctx_scope, "digest").unwrap();
             subtle.set(&mut ctx_scope, key.into(), fn_digest.into());
         }
-        
+
+        // deriveBits method (ECDH)
+        if let Some(fn_derive_bits) = v8::Function::new(&mut ctx_scope, subtle_derive_bits) {
+            let key = v8::String::new(&mut ctx_scope, "deriveBits").unwrap();
+            subtle.set(&mut ctx_scope, key.into(), fn_derive_bits.into());
+        }
+
+        // deriveKey method (ECDH -> AES-GCM)
+        if let Some(fn_derive_key) = v8::Function::new(&mut ctx_scope, subtle_derive_key) {
+            let key = v8::String::new(&mut ctx_scope, "deriveKey").unwrap();
+            subtle.set(&mut ctx_scope, key.into(), fn_derive_key.into());
+        }
+
         // Attach subtle to crypto
         let subtle_key = v8::String::new(&mut ctx_scope, "subtle").unwrap();
         crypto.set(&mut ctx_scope, subtle_key.into(), subtle.into());
@@ -2803,6 +2819,280 @@ fn subtle_digest(
             
             // Fallback: return ArrayBuffer directly
             retval.set(ab.into());
+        }
+        Err(e) => {
+            let msg = v8::String::new(scope, &e.to_string()).unwrap();
+            let error = v8::Exception::error(scope, msg);
+            scope.throw_exception(error);
+        }
+    }
+}
+
+/// crypto.subtle.deriveBits(algorithm, baseKey, length)
+///
+/// Currently supports ECDH key agreement (algorithm.name === "ECDH",
+/// algorithm.public holds the peer's public CryptoKey).
+fn subtle_derive_bits(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    if args.length() < 3 {
+        let msg = v8::String::new(scope, "deriveBits requires 3 arguments: algorithm, baseKey, length").unwrap();
+        let error = v8::Exception::type_error(scope, msg);
+        retval.set(error);
+        return;
+    }
+
+    let algorithm_obj = match args.get(0).to_object(scope) {
+        Some(o) => o,
+        None => {
+            let msg = v8::String::new(scope, "First argument must be an algorithm object").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    let name_key = v8::String::new(scope, "name").unwrap();
+    let algorithm_name = algorithm_obj
+        .get(scope, name_key.into())
+        .and_then(|v| v.to_string(scope))
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+
+    if algorithm_name != "ECDH" {
+        let msg = v8::String::new(scope, &format!("deriveBits: unsupported algorithm '{}'", algorithm_name)).unwrap();
+        let error = v8::Exception::error(scope, msg);
+        scope.throw_exception(error);
+        return;
+    }
+
+    let public_key_key = v8::String::new(scope, "public").unwrap();
+    let public_key_obj = match algorithm_obj.get(scope, public_key_key.into()).and_then(|v| v.to_object(scope)) {
+        Some(o) => o,
+        None => {
+            let msg = v8::String::new(scope, "algorithm.public must be a CryptoKey").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    let public_key = match extract_crypto_key(scope, public_key_obj) {
+        Some(k) => k,
+        None => {
+            let msg = v8::String::new(scope, "algorithm.public is not a valid CryptoKey").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+
+    let base_key_obj = match args.get(1).to_object(scope) {
+        Some(o) => o,
+        None => {
+            let msg = v8::String::new(scope, "Second argument must be a CryptoKey").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    let base_key = match extract_crypto_key(scope, base_key_obj) {
+        Some(k) => k,
+        None => {
+            let msg = v8::String::new(scope, "Invalid CryptoKey").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+
+    let length_val = args.get(2);
+    let length: Option<u32> = if length_val.is_null() || length_val.is_undefined() {
+        None
+    } else {
+        length_val.to_integer(scope).map(|n| n.value() as u32)
+    };
+
+    match crate::runtime::crypto::SubtleCrypto::derive_bits(&base_key, &public_key, length) {
+        Ok(bits) => {
+            let ab = v8::ArrayBuffer::new(scope, bits.len());
+            let store = ab.get_backing_store();
+            for (i, byte) in bits.iter().enumerate() {
+                if let Some(cell) = store.get(i) {
+                    cell.set(*byte);
+                }
+            }
+            retval.set(ab.into());
+        }
+        Err(e) => {
+            let msg = v8::String::new(scope, &e.to_string()).unwrap();
+            let error = v8::Exception::error(scope, msg);
+            scope.throw_exception(error);
+        }
+    }
+}
+
+/// crypto.subtle.deriveKey(algorithm, baseKey, derivedKeyAlgorithm, extractable, keyUsages)
+///
+/// Currently supports ECDH key agreement deriving an AES-GCM key
+/// (derivedKeyAlgorithm = { name: "AES-GCM", length }).
+fn subtle_derive_key(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    if args.length() < 5 {
+        let msg = v8::String::new(
+            scope,
+            "deriveKey requires 5 arguments: algorithm, baseKey, derivedKeyAlgorithm, extractable, keyUsages",
+        ).unwrap();
+        let error = v8::Exception::type_error(scope, msg);
+        retval.set(error);
+        return;
+    }
+
+    let algorithm_obj = match args.get(0).to_object(scope) {
+        Some(o) => o,
+        None => {
+            let msg = v8::String::new(scope, "First argument must be an algorithm object").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    let name_key = v8::String::new(scope, "name").unwrap();
+    let algorithm_name = algorithm_obj
+        .get(scope, name_key.into())
+        .and_then(|v| v.to_string(scope))
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+
+    if algorithm_name != "ECDH" {
+        let msg = v8::String::new(scope, &format!("deriveKey: unsupported algorithm '{}'", algorithm_name)).unwrap();
+        let error = v8::Exception::error(scope, msg);
+        scope.throw_exception(error);
+        return;
+    }
+
+    let public_key_key = v8::String::new(scope, "public").unwrap();
+    let public_key_obj = match algorithm_obj.get(scope, public_key_key.into()).and_then(|v| v.to_object(scope)) {
+        Some(o) => o,
+        None => {
+            let msg = v8::String::new(scope, "algorithm.public must be a CryptoKey").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    let public_key = match extract_crypto_key(scope, public_key_obj) {
+        Some(k) => k,
+        None => {
+            let msg = v8::String::new(scope, "algorithm.public is not a valid CryptoKey").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+
+    let base_key_obj = match args.get(1).to_object(scope) {
+        Some(o) => o,
+        None => {
+            let msg = v8::String::new(scope, "Second argument must be a CryptoKey").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    let base_key = match extract_crypto_key(scope, base_key_obj) {
+        Some(k) => k,
+        None => {
+            let msg = v8::String::new(scope, "Invalid CryptoKey").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+
+    let derived_alg_obj = match args.get(2).to_object(scope) {
+        Some(o) => o,
+        None => {
+            let msg = v8::String::new(scope, "Third argument must be a derivedKeyAlgorithm object").unwrap();
+            let error = v8::Exception::type_error(scope, msg);
+            retval.set(error);
+            return;
+        }
+    };
+    let derived_length = {
+        let length_key = v8::String::new(scope, "length").unwrap();
+        derived_alg_obj
+            .get(scope, length_key.into())
+            .and_then(|v| v.to_number(scope))
+            .map(|n| n.value() as u16)
+            .unwrap_or(256)
+    };
+
+    let extractable = args.get(3).is_true();
+
+    let usages_val = args.get(4);
+    let mut usages = Vec::new();
+    if let Some(usages_arr) = usages_val.to_object(scope) {
+        if let Some(length_key) = v8::String::new(scope, "length") {
+            if let Some(length_val) = usages_arr.get(scope, length_key.into()) {
+                if let Some(length_num) = length_val.to_number(scope) {
+                    let length = length_num.value() as usize;
+                    for i in 0..length {
+                        let idx = v8::Number::new(scope, i as f64);
+                        if let Some(usage_val) = usages_arr.get(scope, idx.into()) {
+                            if let Some(usage_str) = usage_val.to_string(scope) {
+                                let usage = usage_str.to_rust_string_lossy(scope);
+                                if let Some(key_usage) = crate::runtime::crypto::KeyUsage::from_str(&usage) {
+                                    usages.push(key_usage);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    match crate::runtime::crypto::SubtleCrypto::derive_key(&base_key, &public_key, derived_length, extractable, usages) {
+        Ok(key) => {
+            let obj = v8::Object::new(scope);
+            let extractable = key.extractable;
+            let algorithm = key.algorithm.clone();
+            let usages: Vec<_> = key.usages.clone();
+            let type_str = key.key_type();
+            let key_ptr = Box::into_raw(Box::new(key));
+            let external = v8::External::new(scope, key_ptr as *mut std::ffi::c_void);
+            let external_key = v8::String::new(scope, "__crypto_key_ptr__").unwrap();
+            obj.set(scope, external_key.into(), external.into());
+            let type_key = v8::String::new(scope, "type").unwrap();
+            let type_val = v8::String::new(scope, type_str).unwrap();
+            obj.set(scope, type_key.into(), type_val.into());
+            let extractable_key = v8::String::new(scope, "extractable").unwrap();
+            let extractable_val = v8::Boolean::new(scope, extractable);
+            obj.set(scope, extractable_key.into(), extractable_val.into());
+            let algorithm_key = v8::String::new(scope, "algorithm").unwrap();
+            let algorithm_obj = v8::Object::new(scope);
+            let alg_name_key = v8::String::new(scope, "name").unwrap();
+            let alg_name_val = v8::String::new(scope, algorithm.name()).unwrap();
+            algorithm_obj.set(scope, alg_name_key.into(), alg_name_val.into());
+            if let crate::runtime::crypto::AlgorithmIdentifier::AesGcm { length } = &algorithm {
+                let length_key = v8::String::new(scope, "length").unwrap();
+                let length_val = v8::Number::new(scope, *length as f64);
+                algorithm_obj.set(scope, length_key.into(), length_val.into());
+            }
+            obj.set(scope, algorithm_key.into(), algorithm_obj.into());
+            let usages_key = v8::String::new(scope, "usages").unwrap();
+            let usages_arr = v8::Array::new(scope, usages.len() as i32);
+            for (i, usage) in usages.iter().enumerate() {
+                let usage_str = v8::String::new(scope, usage.as_str()).unwrap();
+                let idx = v8::Number::new(scope, i as f64);
+                usages_arr.set(scope, idx.into(), usage_str.into());
+            }
+            obj.set(scope, usages_key.into(), usages_arr.into());
+            retval.set(obj.into());
         }
         Err(e) => {
             let msg = v8::String::new(scope, &e.to_string()).unwrap();

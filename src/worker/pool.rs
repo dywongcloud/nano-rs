@@ -129,6 +129,13 @@ impl WorkerPool {
                 };
                 WORKER_RUNTIME.with(|r| *r.borrow_mut() = Some(rt.handle().clone()));
 
+                // Node compat: os.hostname()/process.env for this worker's tenant.
+                // Set once per worker thread — this thread serves only `worker_hostname`.
+                crate::runtime::node_compat::set_current_hostname(Some(worker_hostname.clone()));
+                crate::runtime::node_compat::set_current_env(
+                    crate::runtime::node_compat::env_for_hostname(&worker_hostname),
+                );
+
                 let oom_monitor = if memory_limit_mb > 0 {
                     Some(
                         OomMonitorBuilder::new(format!("worker_{}_{}", worker_hostname, id))
@@ -257,7 +264,16 @@ impl WorkerPool {
                                 let fetch_k = v8::String::new(&mut ctx_scope, "fetch").unwrap();
                                 let handler_val = global_obj.get(&mut ctx_scope, nano_k.into())
                                     .filter(|v| v.is_function())
-                                    .or_else(|| global_obj.get(&mut ctx_scope, fetch_k.into()).filter(|v| v.is_function()));
+                                    .or_else(|| global_obj.get(&mut ctx_scope, fetch_k.into()).filter(|v| v.is_function()))
+                                    .or_else(|| {
+                                        // Last resort: node_compat handler bridge (CONTRACT.md §7)
+                                        // for CommonJS `module.exports = { fetch }` / `.default.fetch` shapes.
+                                        let resolver_k = v8::String::new(&mut ctx_scope, "__nano_resolve_handler")?;
+                                        let resolver = global_obj.get(&mut ctx_scope, resolver_k.into()).filter(|v| v.is_function())?;
+                                        resolver.cast::<v8::Function>()
+                                            .call(&mut ctx_scope, global_obj.into(), &[])
+                                            .filter(|v| v.is_function())
+                                    });
 
                                 match handler_val {
                                     Some(f) => {
@@ -523,9 +539,10 @@ impl WorkerPool {
                                 let tc_pin = std::pin::pin!(tc_storage);
                                 let mut tc = tc_pin.init();
 
-                                // Clear any stale interval state from a previous request.
+                                // Clear any stale interval/timer/zlib-stream state from a previous request.
                                 crate::runtime::apis::clear_pending_intervals();
                                 crate::runtime::apis::clear_pending_timeouts();
+                                crate::runtime::node_compat::clear_zlib_streams();
 
                                 let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
 
@@ -857,6 +874,13 @@ impl WorkerPool {
                 };
                 WORKER_RUNTIME.with(|r| *r.borrow_mut() = Some(rt.handle().clone()));
 
+                // Node compat: os.hostname()/process.env for this worker's tenant.
+                // Set once per worker thread — this thread serves only `worker_hostname`.
+                crate::runtime::node_compat::set_current_hostname(Some(worker_hostname.clone()));
+                crate::runtime::node_compat::set_current_env(
+                    crate::runtime::node_compat::env_for_hostname(&worker_hostname),
+                );
+
                 let oom_monitor = if memory_limit_mb > 0 {
                     Some(
                         OomMonitorBuilder::new(format!("worker_{}_{}", worker_hostname, id))
@@ -1024,7 +1048,16 @@ impl WorkerPool {
                                 };
                                 let handler_val = global_obj.get(&mut ctx_scope, nano_k.into())
                                     .filter(|v| v.is_function())
-                                    .or_else(|| global_obj.get(&mut ctx_scope, fetch_k.into()).filter(|v| v.is_function()));
+                                    .or_else(|| global_obj.get(&mut ctx_scope, fetch_k.into()).filter(|v| v.is_function()))
+                                    .or_else(|| {
+                                        // Last resort: node_compat handler bridge (CONTRACT.md §7)
+                                        // for CommonJS `module.exports = { fetch }` / `.default.fetch` shapes.
+                                        let resolver_k = v8::String::new(&mut ctx_scope, "__nano_resolve_handler")?;
+                                        let resolver = global_obj.get(&mut ctx_scope, resolver_k.into()).filter(|v| v.is_function())?;
+                                        resolver.cast::<v8::Function>()
+                                            .call(&mut ctx_scope, global_obj.into(), &[])
+                                            .filter(|v| v.is_function())
+                                    });
 
                                 match handler_val {
                                     Some(f) => {
@@ -1258,9 +1291,10 @@ impl WorkerPool {
                                 let tc_pin = std::pin::pin!(tc_storage);
                                 let mut tc = tc_pin.init();
 
-                                // Clear any stale interval state from a previous request.
+                                // Clear any stale interval/timer/zlib-stream state from a previous request.
                                 crate::runtime::apis::clear_pending_intervals();
                                 crate::runtime::apis::clear_pending_timeouts();
+                                crate::runtime::node_compat::clear_zlib_streams();
 
                                 let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
 
