@@ -128,6 +128,11 @@ import 'node:buffer';                       // side-effect only
 import type { Foo } from 'some-types';      // type-only — dropped entirely
 ```
 
+Both syntactic forms of a default export are handled: the literal
+`export default app;` and the export-list form esbuild emits when bundling to
+ESM (`export { app_default as default };`) — validated against a real esbuild
+bundle of a Hono app.
+
 Relative imports (`import { helper } from './utils.js'`) are not resolvable —
 NANO's philosophy is that applications are bundled before deployment (ADR-007)
 — but now fail with a clear `MODULE_NOT_FOUND` at runtime instead of an opaque
@@ -169,17 +174,26 @@ addition to the native `fetch(request)` handler style NANO has always supported.
 
 | Framework | Status | Notes |
 |-----------|--------|-------|
-| Hono.js | ✅ Supported | Full WinterTC compatibility |
+| Hono.js | ✅ Validated | Real `hono@4` bundle (esbuild) tested through the ESM transform path: routing, params, JSON round-trip |
 | Next.js (static export) | ✅ Supported | Static assets + JS execution |
 | Astro (static build) | ✅ Supported | Islands architecture |
 | Cloudflare Workers | ⚠️ Mostly Compatible | Standard patterns work; KV, Durable Objects not available |
-| Express.js | ⚠️ Likely Compatible | `http.createServer` + routing now bridges into NANO's fetch model (see Handler Resolution); not validated against the full Express test suite in this environment |
-| Fastify | ⚠️ Likely Compatible | Same `http.createServer` bridge applies; untested end-to-end against the real package |
+| Express.js | ✅ Validated | Real `express@5.2.1` bundle tested through the `http.createServer` bridge: routing, route params, query parsing, `express.json()` body parsing, 404 chain, custom headers (`framework_bundle.test.mjs`) |
+| Fastify | ❌ Not Compatible | Fastify's router (find-my-way) compiles route handlers with `new Function` at startup; NANO bans dynamic code generation as a security invariant (same restriction as Cloudflare Workers) — fails at `fastify.get(...)`, even for parameterless routes |
 | Nuxt (static) | ⚠️ Static only | Static generation works |
 | Gatsby | ✅ Good | Static sites work perfectly |
 | SvelteKit | ⚠️ Adapter needed | Use adapter-static or custom adapter |
 | Remix | ⚠️ Limited | Edge adapter support needed |
 | Fresh | ⚠️ Partial | Deno-specific, may need polyfills |
+
+Express and Hono statuses are backed by executable evidence:
+`src/runtime/node_compat/testing/framework_bundle.test.mjs` runs the real npm
+package, bundled with esbuild exactly as a NANO user would deploy it, inside
+the strict harness (eval banned, any module the compat layer doesn't provide
+throws `MODULE_NOT_FOUND`), resolved through the same handler-resolution
+tiers as the Rust runtime. Fastify's incompatibility is a deliberate policy
+outcome, not a gap: weakening the eval ban to accommodate it would break
+CONTRACT.md §1's security model.
 
 ---
 

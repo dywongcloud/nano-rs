@@ -856,6 +856,21 @@ __nanoNodeRegister("buffer", function (module, exports, require) {
 
   Buffer.poolSize = 8192;
 
+  // Real Node's Buffer statics are assigned properties, hence ENUMERABLE —
+  // and packages depend on that: safer-buffer (used by iconv-lite →
+  // body-parser → express) clones Buffer via `for (key in Buffer)`, which
+  // skips ES-class statics (non-enumerable by spec). Re-flag them to match
+  // real Node exactly (verified against Node v22: poolSize, from,
+  // copyBytesFrom, of, alloc, allocUnsafe, allocUnsafeSlow, isBuffer,
+  // compare, isEncoding, concat, byteLength are all for..in-visible).
+  for (const key of Object.getOwnPropertyNames(Buffer)) {
+    if (key === "length" || key === "name" || key === "prototype") continue;
+    const desc = Object.getOwnPropertyDescriptor(Buffer, key);
+    if (desc && !desc.enumerable && desc.configurable) {
+      Object.defineProperty(Buffer, key, { ...desc, enumerable: true });
+    }
+  }
+
   // ---------------------------------------------------------------------
   // Module exports
   // ---------------------------------------------------------------------

@@ -157,6 +157,38 @@ fn test_transform_imports_drops_type_only() {
     assert_eq!(transformed.trim(), "");
 }
 
+/// esbuild's ESM output emits `export { X as default };` instead of a literal
+/// `export default` statement — the transform must handle both forms, or a
+/// standard esbuild-bundled app (e.g. Hono) fails classic-script compilation.
+#[test]
+fn test_transform_export_list_as_default() {
+    use nano::v8::transform_module_code;
+
+    // Shape taken verbatim from an esbuild v0.25 bundle of a Hono app.
+    let code = "var app = { fetch: function () {} };\nvar app_hono_default = app;\nexport {\n  app_hono_default as default\n};\n";
+    let transformed = transform_module_code(code);
+    assert!(
+        !transformed.contains("export"),
+        "export statement must be fully removed: {}",
+        transformed
+    );
+    assert!(
+        transformed.contains("var __nano_handler = app_hono_default;"),
+        "local binding must be assigned to __nano_handler: {}",
+        transformed
+    );
+    assert!(
+        transformed.contains("__nano_user_fetch"),
+        "fetch extraction epilogue must be present: {}",
+        transformed
+    );
+
+    // The literal form still works unchanged.
+    let literal = transform_module_code("export default { fetch: function () {} };");
+    assert!(literal.contains("var __nano_handler ="));
+    assert!(!literal.contains("export default"));
+}
+
 /// A relative (unbundled) import now fails with a clear MODULE_NOT_FOUND at
 /// runtime instead of an opaque SyntaxError at compile time — a strict
 /// improvement given relative ESM imports were never resolvable without
