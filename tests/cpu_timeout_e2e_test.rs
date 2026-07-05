@@ -157,12 +157,16 @@ impl NanoProcess {
         eprintln!("Config: {}", config);
 
         let nano_path = nano_binary_path();
+        // stdout inherited: the server's tracing output (including per-request
+        // "Handler error: ..." details) must be visible in test/CI logs —
+        // Stdio::null() here previously reduced every worker-side failure to
+        // an opaque "got 500 Internal Server Error" assertion message.
         let child = Command::new(&nano_path)
             .arg("run")
             .arg("--config")
             .arg(temp_dir.join("config.json"))
             .current_dir(&temp_dir)
-            .stdout(Stdio::null())
+            .stdout(Stdio::inherit())
             .stderr(Stdio::piped())
             .spawn()
             .expect("Failed to spawn NANO");

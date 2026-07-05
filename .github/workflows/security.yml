@@ -181,7 +181,9 @@ jobs:
 
       - name: Run full test suite
         # --lib --tests: all unit + integration tests; benches excluded.
-        run: cargo test --lib --tests
+        # --no-fail-fast: report every failing binary in one run instead of
+        # stopping at the first, so a single dispatch gives the full picture.
+        run: cargo test --lib --tests --no-fail-fast
         timeout-minutes: 40
 
   # Security linting
