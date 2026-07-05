@@ -146,6 +146,36 @@ jobs:
           command: check bans
           arguments: --all-features
 
+  # Full in-repo test suite — manual dispatches only.
+  #
+  # Push/PR/schedule runs are unaffected (this job is skipped). On a manual
+  # dispatch, the entire cargo test suite (lib + every tests/*.rs) runs on
+  # the dispatched ref, so feature branches can get full-suite verification
+  # on a real linked V8 build before merging. Not part of the security gate.
+  full-tests:
+    name: Full Test Suite (dispatch only)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "security-${{ runner.os }}"
+          cache-on-failure: false
+
+      - name: Run full test suite
+        # --lib --tests: all unit + integration tests; benches excluded.
+        run: cargo test --lib --tests
+        timeout-minutes: 40
+
   # Security linting
   security-lint:
     name: Security Linting
