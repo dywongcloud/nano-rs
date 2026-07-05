@@ -53,9 +53,11 @@ jobs:
       - name: Run security tests
         run: |
           echo "Running adversarial security test suite..."
+          # pipefail: tee must not mask cargo test's exit status
+          set -o pipefail
           cargo test --test security_adversarial -- --test-threads=1 --nocapture 2>&1 | tee security-test-results.txt
         timeout-minutes: 25
-      
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -63,14 +65,20 @@ jobs:
           name: security-test-results
           path: security-test-results.txt
           retention-days: 30
-      
+
       - name: Check test results
+        # Gate on the harness's actual verdict line, not on incidental words:
+        # the old `grep "FAILED\|error\|panic"` false-positived on fully
+        # passing runs (any test or compiler output containing "error").
         run: |
-          if grep -q "FAILED\|error\|panic" security-test-results.txt; then
+          if grep -qE "^test result: FAILED" security-test-results.txt; then
             echo "❌ Security tests failed"
             exit 1
-          else
+          elif grep -qE "^test result: ok" security-test-results.txt; then
             echo "✅ All security tests passed"
+          else
+            echo "❌ No test verdict found in output — treating as failure"
+            exit 1
           fi
 
   # CVE scanning for dependencies
