@@ -159,7 +159,10 @@ impl WorkerPool {
                         Err(e) => { error!("Worker {}: isolate create failed: {}", id, e); return; }
                     };
                     if memory_limit_mb > 0 {
-                        let bytes = memory_limit_mb as usize * 1024 * 1024;
+                        // Tenant limit + headroom for the always-loaded runtime JS
+                        // layer; the OOM monitor still enforces the tenant limit.
+                        let bytes = memory_limit_mb as usize * 1024 * 1024
+                            + crate::limits::isolate::RUNTIME_JS_BASELINE_BYTES;
                         nano.set_heap_limits(bytes / 2, bytes);
                     }
 
@@ -663,6 +666,23 @@ impl WorkerPool {
                                 id, request_id, status_code, duration_ms
                             );
 
+                            // A failed execution on an over-limit heap is an OOM, not a
+                            // generic script error: the near-heap-limit callback terminates
+                            // execution mid-request, which surfaces here as a plain Err.
+                            // Report it as the 503 memory response and recycle the isolate,
+                            // exactly like the pre-dispatch OOM check.
+                            if result.is_err() {
+                                if let Some(ref mon) = oom_monitor {
+                                    // SAFETY: iso_ptr valid for scope block duration
+                                    let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                    if let Err(oom) = mon.check(iso_ref) {
+                                        mon.log_oom_event(&oom, &request_id);
+                                        let _ = task.response_tx.send(Ok(mon.create_oom_response(&oom)));
+                                        break 'requests;
+                                    }
+                                }
+                            }
+
                             let result = result.map(|mut r| {
                                 r.set_worker_id(id);
                                 r.set_isolate_id(isolate_id.clone());
@@ -947,7 +967,10 @@ impl WorkerPool {
                     };
 
                     if memory_limit_mb > 0 {
-                        let bytes = memory_limit_mb as usize * 1024 * 1024;
+                        // Tenant limit + headroom for the always-loaded runtime JS
+                        // layer; the OOM monitor still enforces the tenant limit.
+                        let bytes = memory_limit_mb as usize * 1024 * 1024
+                            + crate::limits::isolate::RUNTIME_JS_BASELINE_BYTES;
                         nano.set_heap_limits(bytes / 2, bytes);
                     }
 
@@ -1409,6 +1432,23 @@ impl WorkerPool {
                                 "Worker {} request {} → {} in {}ms",
                                 id, request_id, status_code, duration_ms
                             );
+
+                            // A failed execution on an over-limit heap is an OOM, not a
+                            // generic script error: the near-heap-limit callback terminates
+                            // execution mid-request, which surfaces here as a plain Err.
+                            // Report it as the 503 memory response and recycle the isolate,
+                            // exactly like the pre-dispatch OOM check.
+                            if result.is_err() {
+                                if let Some(ref mon) = oom_monitor {
+                                    // SAFETY: iso_ptr valid for scope block duration
+                                    let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
+                                    if let Err(oom) = mon.check(iso_ref) {
+                                        mon.log_oom_event(&oom, &request_id);
+                                        let _ = task.response_tx.send(Ok(mon.create_oom_response(&oom)));
+                                        break 'requests;
+                                    }
+                                }
+                            }
 
                             let result = result.map(|mut r| {
                                 r.set_worker_id(id);

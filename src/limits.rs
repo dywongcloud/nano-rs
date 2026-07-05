@@ -41,6 +41,17 @@ pub mod isolate {
     ///
     /// Rationale: Hard limit prevents memory exhaustion attacks.
     pub const HEAP_SIZE_BYTES_MAX: u32 = 256 * 1024 * 1024; // 256 MB
+
+    /// Heap headroom reserved for the runtime's own JavaScript layer
+    ///
+    /// Rationale: Every context eagerly loads the WinterTC bindings and the
+    /// Node.js compatibility layer (~16k lines of JS: compiled code, module
+    /// factories, and the process/Buffer/console globals). That baseline is
+    /// runtime overhead, not tenant allocation, so it must not be billed
+    /// against the tenant's configured memory limit: V8's hard heap wall is
+    /// set to (configured limit + this headroom), while the OOM monitor
+    /// keeps enforcing the configured limit against observed usage.
+    pub const RUNTIME_JS_BASELINE_BYTES: usize = 8 * 1024 * 1024; // 8 MB
 }
 
 /// Work queue limits

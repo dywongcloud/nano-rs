@@ -18,176 +18,186 @@ __nanoNodeRegister("string_decoder", function (module, exports, require) {
     }
   }
 
-  class StringDecoder {
-    constructor(encoding) {
-      this.encoding = normalizeEncoding(encoding);
-      const BufferMod = require("buffer");
-      this._Buffer = BufferMod.Buffer;
-      switch (this.encoding) {
-        case "utf8":
-          this._decoder = new TextDecoder("utf-8");
-          this._mode = "utf8";
-          break;
-        case "utf16le":
-          this._decoder = new TextDecoder("utf-16le");
-          this._mode = "pair";
-          this._unit = 2;
-          break;
-        case "base64":
-        case "base64url":
-          this._mode = "group";
-          this._unit = 3;
-          break;
-        case "hex":
-          this._mode = "pair";
-          this._unit = 1; // hex has no partial bytes (byte -> 2 chars)
-          break;
-        default:
-          this._mode = "single";
-          break;
-      }
-      this._pending = new Uint8Array(0);
+  // ES5-style constructor, NOT a class: real Node's StringDecoder is a plain
+  // function, and ecosystem code inherits from it ES5-style —
+  // `StringDecoder.call(this, enc)` with a shared prototype (iconv-lite ≤0.4,
+  // reached via co-body → raw-body in Koa's body-parser stack). A class
+  // constructor throws when [[Call]]ed, breaking that entire pattern.
+  function StringDecoder(encoding) {
+    this.encoding = normalizeEncoding(encoding);
+    const BufferMod = require("buffer");
+    this._Buffer = BufferMod.Buffer;
+    switch (this.encoding) {
+      case "utf8":
+        this._decoder = new TextDecoder("utf-8");
+        this._mode = "utf8";
+        break;
+      case "utf16le":
+        this._decoder = new TextDecoder("utf-16le");
+        this._mode = "pair";
+        this._unit = 2;
+        break;
+      case "base64":
+      case "base64url":
+        this._mode = "group";
+        this._unit = 3;
+        break;
+      case "hex":
+        this._mode = "pair";
+        this._unit = 1; // hex has no partial bytes (byte -> 2 chars)
+        break;
+      default:
+        this._mode = "single";
+        break;
     }
-
-    get lastNeed() {
-      if (this._mode === "utf8") {
-        return this._pending.length === 0 ? 0 : utf8SeqLength(this._pending[0]) - this._pending.length;
-      }
-      return 0;
-    }
-
-    get lastTotal() {
-      if (this._mode === "utf8" && this._pending.length > 0) {
-        return utf8SeqLength(this._pending[0]);
-      }
-      return 0;
-    }
-
-    write(buf) {
-      if (typeof buf === "string") {
-        return buf;
-      }
-      // Realm-robust view check (instanceof fails across vm/host realms).
-      if (!ArrayBuffer.isView(buf)) {
-        throw makeError(
-          TypeError,
-          "ERR_INVALID_ARG_TYPE",
-          'The "buf" argument must be an instance of Buffer, TypedArray, or DataView. Received ' + typeof buf
-        );
-      }
-      const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-
-      switch (this._mode) {
-        case "single":
-          return this._Buffer.from(bytes).toString(this.encoding);
-        case "utf8":
-          return this._writeUtf8(bytes);
-        case "pair":
-          if (this.encoding === "hex") {
-            return this._Buffer.from(bytes).toString("hex");
-          }
-          return this._writeUtf16(bytes);
-        case "group":
-          return this._writeGrouped(bytes, 3, (b) => this._Buffer.from(b).toString(this.encoding));
-        default:
-          return "";
-      }
-    }
-
-    _writeUtf8(bytes) {
-      let data = bytes;
-      if (this._pending.length > 0) {
-        data = new Uint8Array(this._pending.length + bytes.length);
-        data.set(this._pending, 0);
-        data.set(bytes, this._pending.length);
-        this._pending = new Uint8Array(0);
-      }
-      // Find a trailing incomplete UTF-8 sequence (up to 3 bytes back).
-      let end = data.length;
-      let cut = end;
-      for (let back = 1; back <= 3 && back <= data.length; back += 1) {
-        const b = data[end - back];
-        if ((b & 0xc0) === 0xc0) {
-          // Lead byte found at distance `back`
-          const need = utf8SeqLength(b);
-          if (need > back) {
-            cut = end - back;
-          }
-          break;
-        }
-        if ((b & 0x80) === 0) {
-          break; // ASCII: sequence complete
-        }
-        // continuation byte: keep scanning back
-      }
-      const complete = data.subarray(0, cut);
-      this._pending = data.subarray(cut).slice();
-      return this._decoder.decode(complete);
-    }
-
-    _writeUtf16(bytes) {
-      let data = bytes;
-      if (this._pending.length > 0) {
-        data = new Uint8Array(this._pending.length + bytes.length);
-        data.set(this._pending, 0);
-        data.set(bytes, this._pending.length);
-        this._pending = new Uint8Array(0);
-      }
-      // Hold back an odd trailing byte, plus a trailing lone high surrogate
-      // (Node buffers the lead surrogate until its pair arrives).
-      let cut = data.length - (data.length % 2);
-      if (cut >= 2) {
-        const lastUnit = data[cut - 2] | (data[cut - 1] << 8);
-        if (lastUnit >= 0xd800 && lastUnit <= 0xdbff) {
-          cut -= 2;
-        }
-      }
-      const complete = data.subarray(0, cut);
-      this._pending = data.subarray(cut).slice();
-      return this._decoder.decode(complete);
-    }
-
-    _writeGrouped(bytes, unit, decode) {
-      let data = bytes;
-      if (this._pending.length > 0) {
-        data = new Uint8Array(this._pending.length + bytes.length);
-        data.set(this._pending, 0);
-        data.set(bytes, this._pending.length);
-        this._pending = new Uint8Array(0);
-      }
-      const rem = data.length % unit;
-      const cut = data.length - rem;
-      this._pending = data.subarray(cut).slice();
-      return decode(data.subarray(0, cut));
-    }
-
-    end(buf) {
-      let out = "";
-      if (buf !== undefined) {
-        out = this.write(buf);
-      }
-      if (this._pending.length > 0) {
-        if (this._mode === "utf8") {
-          // Incomplete sequence at end: replacement character (Node behavior).
-          out += "�";
-        } else if (this.encoding === "hex") {
-          out += this._Buffer.from(this._pending).toString("hex");
-        } else if (this._mode === "group") {
-          out += this._Buffer.from(this._pending).toString(this.encoding);
-        } else if (this._mode === "pair") {
-          // utf16le lone byte: Node emits the replacement via ucs2 decode of the buffered byte padded
-          out += this._Buffer.from(this._pending).toString(this.encoding);
-        }
-        this._pending = new Uint8Array(0);
-      }
-      return out;
-    }
-
-    text(buf, offset) {
-      this._pending = new Uint8Array(0);
-      return this.write(buf.subarray(offset));
-    }
+    this._pending = new Uint8Array(0);
   }
+
+  Object.defineProperties(StringDecoder.prototype, {
+    lastNeed: {
+      get() {
+        if (this._mode === "utf8") {
+          return this._pending.length === 0 ? 0 : utf8SeqLength(this._pending[0]) - this._pending.length;
+        }
+        return 0;
+      },
+      configurable: true,
+    },
+    lastTotal: {
+      get() {
+        if (this._mode === "utf8" && this._pending.length > 0) {
+          return utf8SeqLength(this._pending[0]);
+        }
+        return 0;
+      },
+      configurable: true,
+    },
+  });
+
+  StringDecoder.prototype.write = function write(buf) {
+    if (typeof buf === "string") {
+      return buf;
+    }
+    // Realm-robust view check (instanceof fails across vm/host realms).
+    if (!ArrayBuffer.isView(buf)) {
+      throw makeError(
+        TypeError,
+        "ERR_INVALID_ARG_TYPE",
+        'The "buf" argument must be an instance of Buffer, TypedArray, or DataView. Received ' + typeof buf
+      );
+    }
+    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+
+    switch (this._mode) {
+      case "single":
+        return this._Buffer.from(bytes).toString(this.encoding);
+      case "utf8":
+        return this._writeUtf8(bytes);
+      case "pair":
+        if (this.encoding === "hex") {
+          return this._Buffer.from(bytes).toString("hex");
+        }
+        return this._writeUtf16(bytes);
+      case "group":
+        return this._writeGrouped(bytes, 3, (b) => this._Buffer.from(b).toString(this.encoding));
+      default:
+        return "";
+    }
+  };
+
+  StringDecoder.prototype._writeUtf8 = function _writeUtf8(bytes) {
+    let data = bytes;
+    if (this._pending.length > 0) {
+      data = new Uint8Array(this._pending.length + bytes.length);
+      data.set(this._pending, 0);
+      data.set(bytes, this._pending.length);
+      this._pending = new Uint8Array(0);
+    }
+    // Find a trailing incomplete UTF-8 sequence (up to 3 bytes back).
+    let end = data.length;
+    let cut = end;
+    for (let back = 1; back <= 3 && back <= data.length; back += 1) {
+      const b = data[end - back];
+      if ((b & 0xc0) === 0xc0) {
+        // Lead byte found at distance `back`
+        const need = utf8SeqLength(b);
+        if (need > back) {
+          cut = end - back;
+        }
+        break;
+      }
+      if ((b & 0x80) === 0) {
+        break; // ASCII: sequence complete
+      }
+      // continuation byte: keep scanning back
+    }
+    const complete = data.subarray(0, cut);
+    this._pending = data.subarray(cut).slice();
+    return this._decoder.decode(complete);
+  };
+
+  StringDecoder.prototype._writeUtf16 = function _writeUtf16(bytes) {
+    let data = bytes;
+    if (this._pending.length > 0) {
+      data = new Uint8Array(this._pending.length + bytes.length);
+      data.set(this._pending, 0);
+      data.set(bytes, this._pending.length);
+      this._pending = new Uint8Array(0);
+    }
+    // Hold back an odd trailing byte, plus a trailing lone high surrogate
+    // (Node buffers the lead surrogate until its pair arrives).
+    let cut = data.length - (data.length % 2);
+    if (cut >= 2) {
+      const lastUnit = data[cut - 2] | (data[cut - 1] << 8);
+      if (lastUnit >= 0xd800 && lastUnit <= 0xdbff) {
+        cut -= 2;
+      }
+    }
+    const complete = data.subarray(0, cut);
+    this._pending = data.subarray(cut).slice();
+    return this._decoder.decode(complete);
+  };
+
+  StringDecoder.prototype._writeGrouped = function _writeGrouped(bytes, unit, decode) {
+    let data = bytes;
+    if (this._pending.length > 0) {
+      data = new Uint8Array(this._pending.length + bytes.length);
+      data.set(this._pending, 0);
+      data.set(bytes, this._pending.length);
+      this._pending = new Uint8Array(0);
+    }
+    const rem = data.length % unit;
+    const cut = data.length - rem;
+    this._pending = data.subarray(cut).slice();
+    return decode(data.subarray(0, cut));
+  };
+
+  StringDecoder.prototype.end = function end(buf) {
+    let out = "";
+    if (buf !== undefined) {
+      out = this.write(buf);
+    }
+    if (this._pending.length > 0) {
+      if (this._mode === "utf8") {
+        // Incomplete sequence at end: replacement character (Node behavior).
+        out += "�";
+      } else if (this.encoding === "hex") {
+        out += this._Buffer.from(this._pending).toString("hex");
+      } else if (this._mode === "group") {
+        out += this._Buffer.from(this._pending).toString(this.encoding);
+      } else if (this._mode === "pair") {
+        // utf16le lone byte: Node emits the replacement via ucs2 decode of the buffered byte padded
+        out += this._Buffer.from(this._pending).toString(this.encoding);
+      }
+      this._pending = new Uint8Array(0);
+    }
+    return out;
+  };
+
+  StringDecoder.prototype.text = function text(buf, offset) {
+    this._pending = new Uint8Array(0);
+    return this.write(buf.subarray(offset));
+  };
 
   function utf8SeqLength(lead) {
     if ((lead & 0x80) === 0) return 1;

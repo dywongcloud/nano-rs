@@ -179,6 +179,7 @@ addition to the native `fetch(request)` handler style NANO has always supported.
 | Astro (static build) | ✅ Supported | Islands architecture |
 | Cloudflare Workers | ⚠️ Mostly Compatible | Standard patterns work; KV, Durable Objects not available |
 | Express.js | ✅ Validated | Real `express@5.2.1` bundle tested through the `http.createServer` bridge: routing, route params, query parsing, `express.json()` body parsing, 404 chain, custom headers (`framework_bundle.test.mjs`) |
+| Koa | ✅ Validated* | Real `koa@3` + `@koa/router` + `@koa/bodyparser` bundle passes the same battery — *requires bundling with the standard `depd` no-op alias (the same stub Cloudflare/Nitro's unenv applies), because an old `http-errors` in Koa's dependency tree calls depd's `eval`-based wrapper at load time |
 | Fastify | ❌ Not Compatible | Fastify's router (find-my-way) compiles route handlers with `new Function` at startup; NANO bans dynamic code generation as a security invariant (same restriction as Cloudflare Workers) — fails at `fastify.get(...)`, even for parameterless routes |
 | Nuxt (static) | ⚠️ Static only | Static generation works |
 | Gatsby | ✅ Good | Static sites work perfectly |

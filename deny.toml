@@ -78,12 +78,12 @@ skip-tree = [
 
 [sources]
 # Allowed crate registries
-allowed-registry = [
+allow-registry = [
     "https://github.com/rust-lang/crates.io-index",
 ]
 
 # Allow crates from specific git repositories
-# allowed-git = [
+# allow-git = [
 #     "https://github.com/owner/repo",
 # ]
 
