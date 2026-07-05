@@ -418,20 +418,38 @@ fn named_import_list_to_destructure(named: &str) -> String {
 /// Dynamic `import()` and `export * from` / `export { x } from` re-export
 /// forms are intentionally left untouched (documented v2.0 gap, ADR-007).
 pub fn transform_imports(code: &str) -> String {
+    // Default-import interop, matching Babel/esbuild/Node semantics: a
+    // default import of a CommonJS module (every NANO builtin) binds the
+    // module itself; only transpiled ES modules (flagged __esModule) carry a
+    // real `.default`. A bare `.default` access here left `import crypto
+    // from 'node:crypto'` bound to undefined.
+    let interop = |target: &str, req: &str| {
+        format!(
+            "const {t} = (function (m) {{ return m && m.__esModule ? m.default : m; }})({r});",
+            t = target,
+            r = req
+        )
+    };
+
     IMPORT_STMT_RE
         .replace_all(code, |caps: &regex::Captures| {
             if let Some(spec) = caps.name("a_spec") {
                 let def = &caps["a_def"];
                 let ns = &caps["a_ns"];
-                format!("const {} = require(\"{}\"); const {} = {}.default;", ns, spec.as_str(), def, ns)
+                format!(
+                    "const {} = require(\"{}\"); {}",
+                    ns,
+                    spec.as_str(),
+                    interop(def, ns)
+                )
             } else if let Some(spec) = caps.name("b_spec") {
                 let def = &caps["b_def"];
                 let named = named_import_list_to_destructure(&caps["b_named"]);
                 let req = format!("require(\"{}\")", spec.as_str());
                 if named.is_empty() {
-                    format!("const {} = {}.default;", def, req)
+                    interop(def, &req)
                 } else {
-                    format!("const {{ {} }} = {}; const {} = {}.default;", named, req, def, req)
+                    format!("const {{ {} }} = {}; {}", named, req, interop(def, &req))
                 }
             } else if let Some(spec) = caps.name("c_spec") {
                 let ns = &caps["c_ns"];
@@ -445,7 +463,8 @@ pub fn transform_imports(code: &str) -> String {
                 }
             } else if let Some(spec) = caps.name("e_spec") {
                 let def = &caps["e_def"];
-                format!("const {} = require(\"{}\").default;", def, spec.as_str())
+                let req = format!("require(\"{}\")", spec.as_str());
+                interop(def, &req)
             } else if let Some(spec) = caps.name("f_spec") {
                 format!("require(\"{}\");", spec.as_str())
             } else {

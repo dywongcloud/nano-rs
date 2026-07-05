@@ -251,20 +251,22 @@ fn buffer_from_hex_odd_length_truncates() {
     );
 }
 
-/// Invalid hex chars produce zero bytes for invalid pairs (best-effort).
+/// Invalid hex input truncates at the first invalid pair (Node semantics).
 #[test]
 fn buffer_from_hex_invalid_chars_skipped() {
-    // "zz" is not valid hex — from_str_radix fails, pair is skipped.
+    // Real Node v22: Buffer.from('41zz42', 'hex') stops decoding at the
+    // first invalid pair — length 1, only 0x41. (The earlier expectation of
+    // skip-and-continue was an artifact of the pre-node_compat Rust stub's
+    // from_str_radix loop, not Node behavior.)
     let result = run_js(
         r#"
         const b = Buffer.from('41zz42', 'hex');
-        // Only '41' ('A') decodes; 'zz' fails; '42' ('B') decodes.
-        b.length === 2 && b[0] === 0x41 && b[1] === 0x42
+        b.length === 1 && b[0] === 0x41
         "#,
     );
     assert_eq!(
         result, "true",
-        "[REGR-BUF-01] Invalid hex pairs must be skipped silently"
+        "[REGR-BUF-01] Hex decoding must truncate at the first invalid pair, matching Node"
     );
 }
 

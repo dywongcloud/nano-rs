@@ -167,8 +167,10 @@ fn test_transform_export_list_as_default() {
     // Shape taken verbatim from an esbuild v0.25 bundle of a Hono app.
     let code = "var app = { fetch: function () {} };\nvar app_hono_default = app;\nexport {\n  app_hono_default as default\n};\n";
     let transformed = transform_module_code(code);
+    // Match the statement forms, not the bare word — the transform's own
+    // epilogue comment mentions "export".
     assert!(
-        !transformed.contains("export"),
+        !transformed.contains("export {") && !transformed.contains("export default"),
         "export statement must be fully removed: {}",
         transformed
     );

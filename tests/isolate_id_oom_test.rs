@@ -254,9 +254,15 @@ async fn test_request_tracing_combo() {
         assert!(response.worker_id().is_some(), "worker_id should be set");
         assert!(response.isolate_id().is_some(), "isolate_id should be set");
 
-        // Verify format
+        // Verify format: the worker loops stamp responses with the tracing id
+        // "<hostname>:<worker>" (see pool.rs `isolate_id`); the "iso_"-prefixed
+        // hash id belongs to eviction metadata (eviction.rs), which never
+        // reaches the response headers.
         let isolate_id = response.isolate_id().unwrap();
-        assert!(isolate_id.starts_with("iso_"),
-            "isolate_id should start with 'iso_'");
+        assert!(
+            isolate_id.contains(':') && isolate_id.starts_with(hostname),
+            "isolate_id should be '<hostname>:<worker>', got '{}'",
+            isolate_id
+        );
     }
 }
