@@ -370,6 +370,14 @@ lazy_static::lazy_static! {
         r#"|import\s+(?P<e_def>[A-Za-z_$][\w$]*)\s+from\s*["'](?P<e_spec>[^"']+)["']\s*;?"#,
         r#"|import\s*["'](?P<f_spec>[^"']+)["']\s*;?"#,
     )).expect("IMPORT_STMT_RE is a fixed, tested pattern");
+
+    /// Matches the export-list form of a default export, which esbuild emits
+    /// instead of a literal `export default` statement when bundling to ESM:
+    /// `export { app_default as default };`. Validated against esbuild v0.25
+    /// output for a real Hono app bundle.
+    static ref EXPORT_AS_DEFAULT_RE: regex::Regex = regex::Regex::new(
+        r#"export\s*\{\s*(?P<local>[A-Za-z_$][\w$]*)\s+as\s+default\s*,?\s*\}\s*;?"#
+    ).expect("EXPORT_AS_DEFAULT_RE is a fixed, tested pattern");
 }
 
 /// Rewrite a `{ a, b as c, type d }` named-import list into a destructuring
@@ -457,10 +465,22 @@ pub fn transform_imports(code: &str) -> String {
 pub fn transform_module_code(code: &str) -> String {
     let code = transform_imports(code);
 
-    // Check if this looks like ES6 module syntax with export default
-    if code.contains("export default") {
+    // Default export, in either syntactic form:
+    //   export default { fetch };                    (hand-written)
+    //   export { app_default as default };           (esbuild ESM bundles)
+    let has_literal_default = code.contains("export default");
+    let export_as_default = EXPORT_AS_DEFAULT_RE.is_match(&code);
+
+    if has_literal_default || export_as_default {
+        let transformed = if export_as_default {
+            EXPORT_AS_DEFAULT_RE
+                .replace_all(&code, "var __nano_handler = $local;")
+                .into_owned()
+        } else {
+            code.clone()
+        };
         // Replace export default with var declaration
-        let transformed = code.replace("export default", "var __nano_handler =");
+        let transformed = transformed.replace("export default", "var __nano_handler =");
 
         // Add code to extract handler function to a SEPARATE global variable
         // This preserves the native fetch() for external HTTP requests

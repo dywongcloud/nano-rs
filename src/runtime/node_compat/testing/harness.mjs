@@ -334,16 +334,31 @@ export function createEnv(layerFiles = [], options = {}) {
 
   // Back any unregistered builtin with the REAL Node implementation so
   // modules are testable in isolation against authentic peers.
+  //
+  // strictBuiltins mode inverts this: an unregistered id gets a factory that
+  // throws MODULE_NOT_FOUND, exactly as the NANO runtime would. Use it for
+  // whole-application tests (framework bundles), where silently serving a
+  // real Node module the layer doesn't provide would fake a pass.
   const isRegistered = context.__nanoNodeIsRegistered;
   const register = context.__nanoNodeRegister;
+  const unprovided = [];
   for (const id of FALLBACK_IDS) {
     if (!isRegistered(id)) {
-      const real = realRequire("node:" + (id === "sys" ? "util" : id));
-      register(id, (module) => { module.exports = real; });
+      unprovided.push(id);
+      if (options.strictBuiltins) {
+        register(id, () => {
+          const e = new Error(`Cannot find module '${id}' (strict harness: not provided by the node_compat layer)`);
+          e.code = "MODULE_NOT_FOUND";
+          throw e;
+        });
+      } else {
+        const real = realRequire("node:" + (id === "sys" ? "util" : id));
+        register(id, (module) => { module.exports = real; });
+      }
     }
   }
 
-  return { require: context.__nanoNodeRequire, context, vfs, host };
+  return { require: context.__nanoNodeRequire, context, vfs, host, unprovided };
 }
 
 export function allLayerFiles() {

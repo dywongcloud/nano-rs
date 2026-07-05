@@ -256,12 +256,13 @@ await delay(1000);
 
 ### Express.js-style routing
 
-A bundled Express app that only uses `http.createServer` + routing (no native
-addons, no raw `net`/`cluster` access) now bridges into NANO's fetch-handler
-model automatically via the `http.createServer` adapter — see
-[COMPATIBILITY.md](COMPATIBILITY.md#handler-resolution-contractmd-7). This
-hasn't been validated against the full Express test suite in this environment,
-so treat it as "likely works" rather than a guarantee.
+A bundled Express app bridges into NANO's fetch-handler model automatically
+via the `http.createServer` adapter — see
+[COMPATIBILITY.md](COMPATIBILITY.md#handler-resolution-contractmd-7).
+Validated against the real `express@5.2.1` package (bundled with esbuild):
+routing, route params, query parsing, `express.json()` body parsing, the 404
+fallthrough chain, and custom response headers all work
+(`src/runtime/node_compat/testing/framework_bundle.test.mjs`).
 
 For a dependency that's designed for WinterTC from the ground up (smaller
 bundle, no translation layer), use Hono.js (Express-like):
@@ -358,7 +359,7 @@ export default {
 | **Node.js packages needing raw sockets, native addons, or multi-process** | ❌ Poor | `net`/`tls` connect, C++ addons, `cluster`/`child_process` remain sandboxed |
 | **Bundled applications** | ✅ Good | Webpack, Rollup, esbuild output |
 | **Hono.js** | ✅ Excellent | Designed for WinterTC |
-| **Express.js / Connect-style middleware stacks** | ⚠️ Likely Good | Bridges via `http.createServer`; not exhaustively tested against the npm package itself |
+| **Express.js / Connect-style middleware stacks** | ✅ Validated | Real `express@5.2.1` bundle tested end-to-end: routing, params, query, `express.json()`, 404 chain |
 | **Next.js (static export)** | ✅ Good | Static HTML/JS output works |
 | **Astro (static build)** | ✅ Good | Islands architecture preserved |
 | **React/Vue/Svelte** | ✅ Good | Client-side bundles work |
@@ -435,8 +436,8 @@ NANO is NOT suitable for:
 | **Remix** | ⚠️ Limited | Edge adapter support needed |
 | **Hono.js** | ✅ Excellent | Native WinterTC support |
 | **Fresh** | ⚠️ Partial | Deno-specific, may need polyfills |
-| **Express.js** | ⚠️ Likely Compatible | Bridges via `http.createServer`; not exhaustively tested against the npm package |
-| **Fastify** | ⚠️ Likely Compatible | Same bridge applies; untested end-to-end against the npm package |
+| **Express.js** | ✅ Validated | Real `express@5.2.1` bundle tested through the `http.createServer` bridge (`framework_bundle.test.mjs`) |
+| **Fastify** | ❌ Not compatible | find-my-way router uses `new Function` at startup; blocked by NANO's eval ban (same as Cloudflare Workers) |
 
 ---
 

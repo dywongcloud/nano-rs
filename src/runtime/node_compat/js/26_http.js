@@ -70,7 +70,25 @@ __nanoNodeRegister("http", function (module, exports, require) {
       this.rawHeaders = [];
       this.trailers = {};
       this.rawTrailers = [];
-      this.socket = { remoteAddress: "127.0.0.1", remotePort: 0, encrypted: !!(options && options.encrypted) };
+      // Real-world packages sniff socket liveness fields — on-finished (used
+      // by body-parser/express) treats `!socket.writable` as "connection
+      // already closed" and skips body parsing entirely.
+      this.socket = {
+        remoteAddress: "127.0.0.1",
+        remotePort: 0,
+        localAddress: "127.0.0.1",
+        localPort: 0,
+        encrypted: !!(options && options.encrypted),
+        writable: true,
+        readable: true,
+        destroyed: false,
+        setTimeout() { return this; },
+        setNoDelay() { return this; },
+        setKeepAlive() { return this; },
+        unref() { return this; },
+        ref() { return this; },
+        address() { return { address: "127.0.0.1", family: "IPv4", port: 0 }; },
+      };
       this.connection = this.socket;
       this.aborted = false;
       this.statusCode = undefined;
